@@ -12,7 +12,7 @@ docker info
 
 # 2. Go to the project and activate the Python environment
 cd ~/AI-Operated-Model-Deployment-Platform
-source venv/bin/activate
+source .venv/bin/activate
 
 # 3. Confirm the cluster is reachable
 kubectl get nodes
