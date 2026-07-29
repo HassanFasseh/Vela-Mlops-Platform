@@ -39,4 +39,8 @@ resource "oci_containerengine_node_pool" "nodepool" {
     source_type = "IMAGE"
     image_id = [for s in data.oci_containerengine_node_pool_option.node_options.sources : s.image_id if length(regexall("Oracle-Linux", s.source_name)) > 0 && length(regexall(replace(var.kubernetes_version, "v", ""), s.source_name)) > 0][0]
   }
+
+  lifecycle {
+    ignore_changes = [node_source_details]
+  }
 }

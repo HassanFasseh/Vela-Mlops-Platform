@@ -50,6 +50,10 @@ resource "oci_core_security_list" "sl" {
       max = 6443
     }
   }
+  
+  lifecycle {
+    ignore_changes = [ingress_security_rules, egress_security_rules]
+  }
 }
 
 resource "oci_core_subnet" "subnet" {
