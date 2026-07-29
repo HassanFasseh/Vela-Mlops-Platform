@@ -16,9 +16,10 @@ spec:
         - name: ocir-secret
       containers:
         - name: model-service
-          image: lej.ocir.io/axi6dz7sdr1m/model-service:v1
+          image: lej.ocir.io/axi6dz7sdr1m/model-service:f78ec937703f79447d627b9a2c630fb8f448b411
           ports:
-            - containerPort: 8000
+            - name: http
+              containerPort: 8000
           resources:
             requests:
               memory: "512Mi"
@@ -26,17 +27,3 @@ spec:
             limits:
               memory: "1Gi"
               cpu: "500m"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: model-service
-  annotations:
-    service.beta.kubernetes.io/oci-load-balancer-subnet1: "ocid1.subnet.oc1.af-casablanca-1.aaaaaaaa65dwcrjjkmomz5g5vxones4k3bdskwdfpe2jf7mnvgabxedk6bfq"
-spec:
-  type: LoadBalancer
-  selector:
-    app: model-service
-  ports:
-    - port: 80
-      targetPort: 8000
