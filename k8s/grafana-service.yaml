@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-external
+  namespace: monitoring
+  annotations:
+    service.beta.kubernetes.io/oci-load-balancer-subnet1: "ocid1.subnet.oc1.af-casablanca-1.aaaaaaaa65dwcrjjkmomz5g5vxones4k3bdskwdfpe2jf7mnvgabxedk6bfq"
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/instance: monitoring
+  ports:
+    - port: 80
+      targetPort: 3000
