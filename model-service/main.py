@@ -60,14 +60,21 @@ def predict(input: TextIn):
 def compute_drift():
     global current_window
     print(f"[drift] computing on {len(reference_data)} reference rows vs {len(current_window)} current rows", flush=True)
-    ref_df = pd.DataFrame(reference_data)
-    cur_df = pd.DataFrame(current_window)
-    report = Report(metrics=[DataDriftPreset()])
-    result = report.run(reference_data=ref_df, current_data=cur_df)
-    result_dict = result.dict()
-    print(f"[drift] result_dict keys: {result_dict.keys()}", flush=True)
-    print(f"[drift] full result: {result_dict}", flush=True)
-    drift_share = result_dict["metrics"][0]["result"]["drift_share"]
-    print(f"[drift] computed drift_share = {drift_share}", flush=True)
-    DRIFT_SCORE.set(drift_share)
-    current_window = []
+    try:
+        ref_df = pd.DataFrame(reference_data)
+        cur_df = pd.DataFrame(current_window)
+        report = Report(metrics=[DataDriftPreset()])
+        result = report.run(reference_data=ref_df, current_data=cur_df)
+        result_dict = result.dict()
+        print(f"[drift] result_dict keys: {result_dict.keys()}", flush=True)
+        drift_share = result_dict["metrics"][0]["result"]["drift_share"]
+        print(f"[drift] computed drift_share = {drift_share}", flush=True)
+        DRIFT_SCORE.set(drift_share)
+    except Exception as e:
+        import traceback
+        print(f"[drift] COMPUTATION FAILED: {e}", flush=True)
+        traceback.print_exc()
+    finally:
+        current_window = []
+
+print(f"[drift] service starting fresh - reference and current windows reset to empty", flush=True)
