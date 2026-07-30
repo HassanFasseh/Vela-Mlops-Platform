@@ -54,16 +54,20 @@ def predict(input: TextIn):
         current_window.append(row)
         if len(current_window) >= WINDOW_SIZE:
             compute_drift()
-
+    print(f"[drift] reference={len(reference_data)} current={len(current_window)}", flush=True)
     return {"label": result["label"], "score": round(result["score"], 4)}
 
 def compute_drift():
     global current_window
+    print(f"[drift] computing on {len(reference_data)} reference rows vs {len(current_window)} current rows", flush=True)
     ref_df = pd.DataFrame(reference_data)
     cur_df = pd.DataFrame(current_window)
     report = Report(metrics=[DataDriftPreset()])
     result = report.run(reference_data=ref_df, current_data=cur_df)
     result_dict = result.dict()
+    print(f"[drift] result_dict keys: {result_dict.keys()}", flush=True)
+    print(f"[drift] full result: {result_dict}", flush=True)
     drift_share = result_dict["metrics"][0]["result"]["drift_share"]
+    print(f"[drift] computed drift_share = {drift_share}", flush=True)
     DRIFT_SCORE.set(drift_share)
     current_window = []
