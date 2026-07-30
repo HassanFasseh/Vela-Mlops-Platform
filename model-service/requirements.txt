@@ -2,3 +2,5 @@ fastapi
 uvicorn
 transformers
 prometheus-client
+evidently
+pandas
