@@ -74,6 +74,7 @@ def compute_drift():
         import traceback
         print(f"[drift] COMPUTATION FAILED: {e}", flush=True)
         traceback.print_exc()
+        print(f"[drift] full result_dict for debugging: {result_dict}", flush=True)
     finally:
         current_window = []
 
