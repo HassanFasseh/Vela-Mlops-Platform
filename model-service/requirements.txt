@@ -2,5 +2,5 @@ fastapi
 uvicorn
 transformers
 prometheus-client
-evidently
+evidently==0.7.21
 pandas

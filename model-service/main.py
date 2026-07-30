@@ -67,7 +67,7 @@ def compute_drift():
         result = report.run(reference_data=ref_df, current_data=cur_df)
         result_dict = result.dict()
         print(f"[drift] result_dict keys: {result_dict.keys()}", flush=True)
-        drift_share = result_dict["metrics"][0]["result"]["drift_share"]
+        drift_share = result_dict["metrics"][0]["value"]["share"]
         print(f"[drift] computed drift_share = {drift_share}", flush=True)
         DRIFT_SCORE.set(drift_share)
     except Exception as e:
