@@ -43,6 +43,8 @@ def build_timeline(window_minutes: int = 360):
                 continue
             if latency != latency:  # NaN check — NaN is the only float that doesn't equal itself
                 continue
+            if latency != latency:  # NaN check
+                continue
             events.append({"timestamp": float(ts), "type": "latency_p95", "detail": f"{latency*1000:.1f}ms"})
 
     events.sort(key=lambda e: e["timestamp"])
