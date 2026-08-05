@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend-app
+  template:
+    metadata:
+      labels:
+        app: backend-app
+    spec:
+      imagePullSecrets:
+        - name: ocir-secret
+      containers:
+        - name: backend-app
+          image: lej.ocir.io/axi6dz7sdr1m/backend-app:v1
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "150m"
+            limits:
+              memory: "512Mi"
+              cpu: "300m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-app
+  labels:
+    app: backend-app
+spec:
+  type: ClusterIP
+  selector:
+    app: backend-app
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-external
+  namespace: default
+  annotations:
+    service.beta.kubernetes.io/oci-load-balancer-subnet1: "ocid1.subnet.oc1.af-casablanca-1.aaaaaaaa65dwcrjjkmomz5g5vxones4k3bdskwdfpe2jf7mnvgabxedk6bfq"
+spec:
+  type: LoadBalancer
+  selector:
+    app: backend-app
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
