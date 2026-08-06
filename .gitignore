@@ -13,3 +13,6 @@ __pycache__/
 
 # Env/secrets
 .env
+app.db
+null
+ocid1.*

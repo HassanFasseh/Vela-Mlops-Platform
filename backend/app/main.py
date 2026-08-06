@@ -64,3 +64,10 @@ def dashboard():
   </script>
 </body>
 </html>"""
+
+from backend.app.services.summary import generate_summary
+
+@app.get("/summary")
+def summary(window_minutes: int = 360):
+    events = build_timeline(window_minutes)
+    return {"summary": generate_summary(events)}
