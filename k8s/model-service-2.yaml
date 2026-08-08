@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-service-2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: model-service-2
+  template:
+    metadata:
+      labels:
+        app: model-service-2
+    spec:
+      imagePullSecrets:
+        - name: ocir-secret
+      containers:
+        - name: model-service-2
+          image: lej.ocir.io/axi6dz7sdr1m/model-service-2:v2
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests:
+              memory: "800Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-service-2
+  labels:
+    app: model-service-2
+  annotations:
+    service.beta.kubernetes.io/oci-load-balancer-subnet1: "ocid1.subnet.oc1.af-casablanca-1.aaaaaaaa65dwcrjjkmomz5g5vxones4k3bdskwdfpe2jf7mnvgabxedk6bfq"
+spec:
+  type: LoadBalancer
+  selector:
+    app: model-service-2
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
