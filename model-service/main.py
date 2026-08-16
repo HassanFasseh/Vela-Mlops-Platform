@@ -28,7 +28,7 @@ class TextIn(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "model": "distilbert-base-uncased-finetuned-sst-2-english"}
 
 @app.get("/metrics")
 def metrics():
