@@ -4,3 +4,4 @@ sqlalchemy
 requests
 groq
 # trigger rebuild
+kubernetes
