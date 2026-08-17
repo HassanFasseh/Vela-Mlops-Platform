@@ -26,6 +26,16 @@ spec:
                 secretKeyRef:
                   name: groq-secret
                   key: GROQ_API_KEY
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-secret
+                  key: GITHUB_TOKEN
+            - name: GITHUB_REPO
+              valueFrom:
+                secretKeyRef:
+                  name: github-secret
+                  key: GITHUB_REPO
           resources:
             requests:
               memory: "256Mi"
