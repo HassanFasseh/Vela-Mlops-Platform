@@ -16,7 +16,7 @@ spec:
         - name: ocir-secret
       containers:
         - name: backend-app
-          image: lej.ocir.io/axi6dz7sdr1m/backend-app:v1
+          image: lej.ocir.io/axi6dz7sdr1m/backend-app:1729d3d94468031d999246d8302a880116671995
           ports:
             - name: http
               containerPort: 8000
@@ -39,7 +39,7 @@ spec:
           resources:
             requests:
               memory: "256Mi"
-              cpu: "150m"
+              cpu: "80m"
             limits:
               memory: "512Mi"
               cpu: "300m"
