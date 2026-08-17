@@ -278,8 +278,7 @@ def dashboard():
         const r=await fetch('/predict-proxy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,model_id:mid})});
         const d=await r.json();
         if(mid===1)res.textContent='Label: '+d.label+'  |  Score: '+(d.score*100).toFixed(1)+'%';
-        else res.textContent='Top: '+d.label+'
-'+Object.entries(d.all_labels||{}).sort((a,b)=>b[1]-a[1]).map(([k,v])=>k+': '+(v*100).toFixed(1)+'%').join('  |  ');
+        else res.textContent='Top: '+d.label+' | '+Object.entries(d.all_labels||{}).sort((a,b)=>b[1]-a[1]).map(([k,v])=>k+': '+(v*100).toFixed(1)+'%').join('  |  ');
       }catch(e){res.textContent='Error: '+e;}
       finally{btn.disabled=false;}
     }
