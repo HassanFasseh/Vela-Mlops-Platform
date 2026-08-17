@@ -4,11 +4,27 @@ from transformers import pipeline
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 from fastapi.responses import Response
 import time
+import json
 import pandas as pd
+import redis
 from evidently import Report
 from evidently.presets import DataDriftPreset
 
 app = FastAPI()
+
+# Redis connection
+try:
+    r = redis.Redis(host='redis.default.svc.cluster.local', port=6379, decode_responses=True)
+    r.ping()
+    REDIS_AVAILABLE = True
+    print("[redis] connected successfully", flush=True)
+except Exception as e:
+    REDIS_AVAILABLE = False
+    print(f"[redis] not available, falling back to in-memory: {e}", flush=True)
+
+REDIS_REF_KEY = "model_service:reference_data"
+REDIS_WIN_KEY = "model_service:current_window"
+
 classifier = pipeline(
     "sentiment-analysis",
     model="distilbert-base-uncased-finetuned-sst-2-english"
@@ -16,19 +32,53 @@ classifier = pipeline(
 
 PREDICTION_COUNT = Counter("predictions_total", "Total predictions made", ["label"])
 PREDICTION_LATENCY = Histogram("prediction_latency_seconds", "Time spent on prediction")
-DRIFT_SCORE = Gauge("drift_score", "Latest computed data drift score (share of drifted columns)")
+DRIFT_SCORE = Gauge("drift_score", "Latest computed data drift score")
 
 REFERENCE_SIZE = 30
 WINDOW_SIZE = 30
-reference_data = []
-current_window = []
+_reference_data = []
+_current_window = []
+
+def load_from_redis():
+    global _reference_data, _current_window
+    if not REDIS_AVAILABLE:
+        return
+    try:
+        ref = r.get(REDIS_REF_KEY)
+        win = r.get(REDIS_WIN_KEY)
+        if ref:
+            _reference_data = json.loads(ref)
+            print(f"[redis] loaded {len(_reference_data)} reference rows", flush=True)
+        if win:
+            _current_window = json.loads(win)
+            print(f"[redis] loaded {len(_current_window)} current window rows", flush=True)
+    except Exception as e:
+        print(f"[redis] load failed: {e}", flush=True)
+
+def save_to_redis():
+    if not REDIS_AVAILABLE:
+        return
+    try:
+        r.set(REDIS_REF_KEY, json.dumps(_reference_data))
+        r.set(REDIS_WIN_KEY, json.dumps(_current_window))
+    except Exception as e:
+        print(f"[redis] save failed: {e}", flush=True)
+
+load_from_redis()
+print(f"[drift] service started — reference={len(_reference_data)} current={len(_current_window)}", flush=True)
 
 class TextIn(BaseModel):
     text: str
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "model": "distilbert-base-uncased-finetuned-sst-2-english"}
+    return {
+        "status": "ok",
+        "model": "distilbert-base-uncased-finetuned-sst-2-english",
+        "redis": "connected" if REDIS_AVAILABLE else "unavailable",
+        "reference_rows": len(_reference_data),
+        "current_window_rows": len(_current_window)
+    }
 
 @app.get("/metrics")
 def metrics():
@@ -48,25 +98,27 @@ def predict(input: TextIn):
         "text_length": len(input.text),
     }
 
-    if len(reference_data) < REFERENCE_SIZE:
-        reference_data.append(row)
+    if len(_reference_data) < REFERENCE_SIZE:
+        _reference_data.append(row)
+        save_to_redis()
     else:
-        current_window.append(row)
-        if len(current_window) >= WINDOW_SIZE:
+        _current_window.append(row)
+        save_to_redis()
+        if len(_current_window) >= WINDOW_SIZE:
             compute_drift()
-    print(f"[drift] reference={len(reference_data)} current={len(current_window)}", flush=True)
+
+    print(f"[drift] reference={len(_reference_data)} current={len(_current_window)}", flush=True)
     return {"label": result["label"], "score": round(result["score"], 4)}
 
 def compute_drift():
-    global current_window
-    print(f"[drift] computing on {len(reference_data)} reference rows vs {len(current_window)} current rows", flush=True)
+    global _current_window
+    print(f"[drift] computing on {len(_reference_data)} reference rows vs {len(_current_window)} current rows", flush=True)
     try:
-        ref_df = pd.DataFrame(reference_data)
-        cur_df = pd.DataFrame(current_window)
+        ref_df = pd.DataFrame(_reference_data)
+        cur_df = pd.DataFrame(_current_window)
         report = Report(metrics=[DataDriftPreset()])
         result = report.run(reference_data=ref_df, current_data=cur_df)
         result_dict = result.dict()
-        print(f"[drift] result_dict keys: {result_dict.keys()}", flush=True)
         drift_share = result_dict["metrics"][0]["value"]["share"]
         print(f"[drift] computed drift_share = {drift_share}", flush=True)
         DRIFT_SCORE.set(drift_share)
@@ -74,8 +126,6 @@ def compute_drift():
         import traceback
         print(f"[drift] COMPUTATION FAILED: {e}", flush=True)
         traceback.print_exc()
-        print(f"[drift] full result_dict for debugging: {result_dict}", flush=True)
     finally:
-        current_window = []
-
-print(f"[drift] service starting fresh - reference and current windows reset to empty", flush=True)
+        _current_window = []
+        save_to_redis()
