@@ -43,10 +43,7 @@ jobs:
         uses: azure/setup-kubectl@v4
 
       - name: Install OCI CLI
-        run: |
-          curl -L -O https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh
-          bash install.sh --accept-all-defaults
-          echo "$HOME/bin" >> "$GITHUB_PATH"
+        run: pip install oci-cli
 
       - name: Configure OCI CLI
         run: |
