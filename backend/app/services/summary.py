@@ -47,7 +47,8 @@ Event summary:
 Write a plain-language explanation of what this data suggests, without claiming proven causation."""
 
     client = Groq(api_key=GROQ_API_KEY)
-    response = client.chat.completions.create(
+    try:
+      response = client.chat.completions.create(
         messages=[
             {"role": "system", "content": "You are a concise, honest MLOps observability assistant."},
             {"role": "user", "content": prompt}
@@ -56,4 +57,8 @@ Write a plain-language explanation of what this data suggests, without claiming 
         max_tokens=200,
         temperature=0.3,
     )
-    return response.choices[0].message.content.strip()
+      return response.choices[0].message.content.strip()
+    except Exception as e:
+      if "429" in str(e) or "rate_limit" in str(e).lower():
+        return "LLM summary temporarily unavailable — Groq daily token limit reached. Resets in a few minutes."
+      return f"LLM summary unavailable: {str(e)[:100]}"
