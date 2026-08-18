@@ -24,7 +24,8 @@ GITHUB_REPO  = os.environ.get("GITHUB_REPO", "")
 
 class PredictRequest(BaseModel):
     text: str
-    model_id: int = 1
+    model_id: int = 0
+    service_name: str = ""
     labels: list[str] = ["technology", "sports", "politics", "entertainment", "business"]
 
 class DeployModelRequest(BaseModel):
@@ -73,7 +74,14 @@ def models_status():
 
 @app.post("/predict-proxy")
 def predict_proxy(req: PredictRequest):
-    url = MODEL_SERVICE_URL if req.model_id == 1 else MODEL_SERVICE_2_URL
+    if req.model_id == 1:
+        url = MODEL_SERVICE_URL
+    elif req.model_id == 2:
+        url = MODEL_SERVICE_2_URL
+    elif req.service_name:
+        url = f"http://{req.service_name}.default.svc.cluster.local"
+    else:
+        raise HTTPException(status_code=400, detail="No model specified")
     try:
         payload = {"text": req.text}
         if req.model_id == 2:
@@ -251,8 +259,8 @@ def dashboard():
   <div class="card">
     <div class="row">
       <select id="model-select" style="flex:0 0 auto;min-width:220px">
-        <option value="1">Model 1 — Sentiment</option>
-        <option value="2">Model 2 — Zero-Shot</option>
+        <option value="1">Model 1 — DistilBERT Sentiment</option>
+        <option value="2">Model 2 — distilbart Zero-Shot</option>
       </select>
       <input type="text" id="pred-input" value="The new product launch exceeded all expectations">
       <button id="pred-btn" onclick="predict()">Predict</button>
@@ -321,6 +329,14 @@ def dashboard():
         });
         const pm=document.getElementById('platform-models');
         pm.innerHTML=platform.map(d=>'<div class="card '+d.status+'"><div class="card-name">'+d.name+'</div><div class="card-sub">'+d.task_type+' &middot; '+d.model_name+'</div><span class="badge '+d.status+'">'+d.status.toUpperCase()+' ('+d.ready+'/'+d.desired+')</span></div>').join('');
+        const sel=document.getElementById('model-select');
+        const existing=Array.from(sel.options).map(o=>o.value);
+        platform.filter(d=>d.status==='running'&&!existing.includes('svc:'+d.name)).forEach(d=>{
+          const opt=document.createElement('option');
+          opt.value='svc:'+d.name;
+          opt.textContent=d.name+' — '+d.task_type;
+          sel.appendChild(opt);
+        });
       }catch(e){console.error('models',e);}
     }
 
@@ -348,7 +364,9 @@ def dashboard():
       if(!text){res.textContent='Enter some text first.';return;}
       btn.disabled=true;res.textContent='Running...';
       try{
-        const r=await fetch('/predict-proxy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,model_id:mid})});
+        const isSvc=String(mid).startsWith('svc:');
+        const body=isSvc?{text,service_name:String(mid).replace('svc:','')}:{text,model_id:parseInt(mid)};
+        const r=await fetch('/predict-proxy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
         const d=await r.json();
         if(mid===1)res.textContent='Label: '+d.label+' | Score: '+(d.score*100).toFixed(1)+'%';
         else res.textContent='Top: '+d.label+' | '+Object.entries(d.all_labels||{}).sort((a,b)=>b[1]-a[1]).map(([k,v])=>k+': '+(v*100).toFixed(1)+'%').join(' | ');
