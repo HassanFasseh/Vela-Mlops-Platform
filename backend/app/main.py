@@ -360,12 +360,13 @@ def dashboard():
       const btn=document.getElementById('pred-btn');
       const res=document.getElementById('tester-result');
       const text=document.getElementById('pred-input').value.trim();
-      const mid=parseInt(document.getElementById('model-select').value);
+      const midRaw=document.getElementById('model-select').value;
+      const isSvc=midRaw.startsWith('svc:');
+      const mid=isSvc?midRaw:parseInt(midRaw);
       if(!text){res.textContent='Enter some text first.';return;}
       btn.disabled=true;res.textContent='Running...';
       try{
-        const isSvc=String(mid).startsWith('svc:');
-        const body=isSvc?{text,service_name:String(mid).replace('svc:','')}:{text,model_id:parseInt(mid)};
+        const body=isSvc?{text,service_name:midRaw.replace('svc:','')}:{text,model_id:mid};
         const r=await fetch('/predict-proxy',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
         const d=await r.json();
         if(d.all_labels&&Object.keys(d.all_labels).length>0){
