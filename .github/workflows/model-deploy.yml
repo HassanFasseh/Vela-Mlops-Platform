@@ -121,7 +121,7 @@ jobs:
                     resources:
                       requests:
                         memory: "512Mi"
-                        cpu: "250m"
+                        cpu: "80m"
                       limits:
                         memory: "2Gi"
                         cpu: "500m"
