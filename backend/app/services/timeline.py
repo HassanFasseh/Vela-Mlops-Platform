@@ -78,14 +78,20 @@ def query_range_values(promql: str, window_minutes: int = 60) -> list:
     except Exception:
         return []
 
+def _safe(v):
+    import math
+    if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+        return 0.0
+    return v
+
 def build_metrics_summary() -> dict:
     return {
-        "predictions_total": query_instant('predictions_total{job="model-service"}'),
-        "prediction_rate_5m": query_instant('rate(predictions_total{job="model-service"}[5m]) * 60'),
-        "latency_p95": query_instant('histogram_quantile(0.95, rate(prediction_latency_seconds_bucket{job="model-service"}[5m]))'),
-        "drift_score": query_instant("drift_score"),
-        "drift_history": query_range_values("drift_score", window_minutes=120),
-        "node_cpu_percent": query_instant('100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)'),
-        "node_memory_used_gb": query_instant('(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / 1024^3'),
-        "node_memory_total_gb": query_instant('node_memory_MemTotal_bytes / 1024^3'),
+        "predictions_total": _safe(query_instant('predictions_total{job="model-service"}')),
+        "prediction_rate_5m": _safe(query_instant('rate(predictions_total{job="model-service"}[5m]) * 60')),
+        "latency_p95": _safe(query_instant('histogram_quantile(0.95, rate(prediction_latency_seconds_bucket{job="model-service"}[5m]))')),
+        "drift_score": _safe(query_instant("drift_score")),
+        "drift_history": [[p[0], _safe(p[1])] for p in query_range_values("drift_score", window_minutes=120)],
+        "node_cpu_percent": _safe(query_instant('100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)')),
+        "node_memory_used_gb": _safe(query_instant('(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / 1024^3')),
+        "node_memory_total_gb": _safe(query_instant('node_memory_MemTotal_bytes / 1024^3')),
     }
