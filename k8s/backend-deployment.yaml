@@ -16,7 +16,7 @@ spec:
         - name: ocir-secret
       containers:
         - name: backend-app
-          image: lej.ocir.io/axi6dz7sdr1m/backend-app:1729d3d94468031d999246d8302a880116671995
+          image: lej.ocir.io/axi6dz7sdr1m/backend-app:9a6a6db0e6487b7823cdc3c17a741a61465f6929
           ports:
             - name: http
               containerPort: 8000
