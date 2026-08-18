@@ -5,10 +5,6 @@ from backend.app.db.models import Base
 from backend.app.database import engine
 from backend.app.services.deployment import deploy_model
 from backend.app.services.timeline import build_timeline, build_metrics_summary
-
-@app.get("/metrics-summary")
-def metrics_summary():
-    return build_metrics_summary()
 from backend.app.services.summary import generate_summary
 from pydantic import BaseModel
 import requests as http_requests
@@ -16,6 +12,10 @@ import os
 
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
+
+@app.get("/metrics-summary")
+def metrics_summary():
+    return build_metrics_summary()
 
 MODEL_SERVICE_URL   = "http://model-service.default.svc.cluster.local"
 MODEL_SERVICE_2_URL = "http://model-service-2.default.svc.cluster.local"
