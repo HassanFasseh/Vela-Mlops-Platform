@@ -101,6 +101,30 @@ def predict_proxy(req: PredictRequest):
 def deploy_model_endpoint(req: DeployModelRequest):
     if not GITHUB_TOKEN or not GITHUB_REPO:
         raise HTTPException(status_code=500, detail="GitHub credentials not configured")
+
+    # Save deployment record to DB before triggering
+    from backend.app.database import SessionLocal
+    from backend.app.db.models import Deployment as DeploymentModel
+    db = SessionLocal()
+    try:
+        record = DeploymentModel(
+            name=req.deployment_name,
+            model_name=req.model_name,
+            task_type=req.task_type,
+            source="huggingface",
+            status="pending"
+        )
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        deployment_id = record.id
+    except Exception as e:
+        db.rollback()
+        deployment_id = None
+    finally:
+        db.close()
+
+    # Trigger GitHub Actions
     url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/model-deploy.yml/dispatches"
     resp = http_requests.post(
         url,
@@ -119,7 +143,11 @@ def deploy_model_endpoint(req: DeployModelRequest):
         }
     )
     if resp.status_code == 204:
-        return {"status": "triggered", "deployment_name": req.deployment_name}
+        return {
+            "status": "triggered",
+            "deployment_name": req.deployment_name,
+            "deployment_id": deployment_id
+        }
     raise HTTPException(status_code=resp.status_code, detail=resp.text)
 
 @app.get("/deployments")
