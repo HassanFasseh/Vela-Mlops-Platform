@@ -181,7 +181,7 @@ def create_model_card(req: ModelCardCreate, user=Depends(get_current_user), db: 
     db.add(card)
     db.commit()
     db.refresh(card)
-    return {"id": card.id, "message": "Model card created"}
+    return {"id": card.id, "message": f"Model card saved successfully (ID: {card.id})"}
 
 @router.get("/model-cards/{deployment_id}")
 def get_model_card(deployment_id: int, db: Session = Depends(get_db)):
