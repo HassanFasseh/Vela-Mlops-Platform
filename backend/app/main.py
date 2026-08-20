@@ -13,6 +13,10 @@ import os
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
+from backend.app.routers.auth import router as auth_router
+app.include_router(auth_router)
+
+
 @app.get("/metrics-summary")
 def metrics_summary():
     return build_metrics_summary()
@@ -154,6 +158,132 @@ def deployments():
         return results
     except Exception as e:
         return []
+
+
+@app.get("/auth/login-page", response_class=HTMLResponse)
+def login_page():
+    return """<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Login — AI-Operated Model Deployment Platform</title>
+<style>
+  body{font-family:monospace;background:#0a0a0f;color:#e0e0e0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+  .box{background:#111;border:1px solid #222;border-radius:12px;padding:2rem;width:360px}
+  h1{font-size:1.1rem;color:#7eb8f7;margin:0 0 1.5rem;text-align:center}
+  input{background:#0a0a0f;border:1px solid #333;color:#e0e0e0;padding:.5rem .7rem;border-radius:4px;font-family:monospace;width:100%;margin:.3rem 0 .7rem;box-sizing:border-box}
+  button{background:#1a3a5c;color:#7eb8f7;border:1px solid #2a5a8c;padding:.5rem 1rem;border-radius:4px;cursor:pointer;font-family:monospace;width:100%;margin:.3rem 0}
+  button:hover{background:#2a5a8c}
+  .toggle{color:#555;font-size:.8rem;text-align:center;margin-top:1rem;cursor:pointer}
+  .toggle span{color:#7eb8f7}
+  #error{color:#f77e7e;font-size:.8rem;min-height:1.2rem;margin:.3rem 0}
+  label{font-size:.8rem;color:#555}
+</style></head>
+<body><div class="box">
+  <h1>&#9881; AI-Operated Model Deployment Platform</h1>
+  <div id="login-form">
+    <label>Email</label>
+    <input type="email" id="email" placeholder="you@example.com">
+    <label>Password</label>
+    <input type="password" id="password" placeholder="••••••••">
+    <div id="error"></div>
+    <button onclick="login()">Log in</button>
+    <div class="toggle">No account? <span onclick="showSignup()">Sign up</span></div>
+  </div>
+  <div id="signup-form" style="display:none">
+    <label>Name</label>
+    <input type="text" id="signup-name" placeholder="Your name">
+    <label>Email</label>
+    <input type="email" id="signup-email" placeholder="you@example.com">
+    <label>Password</label>
+    <input type="password" id="signup-password" placeholder="••••••••">
+    <div id="signup-error"></div>
+    <button onclick="signup()">Create account</button>
+    <div class="toggle">Have an account? <span onclick="showLogin()">Log in</span></div>
+  </div>
+</div>
+<script>
+  function showSignup(){document.getElementById('login-form').style.display='none';document.getElementById('signup-form').style.display='block';}
+  function showLogin(){document.getElementById('signup-form').style.display='none';document.getElementById('login-form').style.display='block';}
+  async function login(){
+    const email=document.getElementById('email').value;
+    const password=document.getElementById('password').value;
+    const r=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+    const d=await r.json();
+    if(r.ok){localStorage.setItem('aodp_token',d.token);window.location.href='/workspaces-page';}
+    else document.getElementById('error').textContent=d.detail||'Login failed';
+  }
+  async function signup(){
+    const name=document.getElementById('signup-name').value;
+    const email=document.getElementById('signup-email').value;
+    const password=document.getElementById('signup-password').value;
+    const r=await fetch('/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,name,password})});
+    const d=await r.json();
+    if(r.ok){localStorage.setItem('aodp_token',d.token);window.location.href='/workspaces-page';}
+    else document.getElementById('signup-error').textContent=d.detail||'Signup failed';
+  }
+  document.addEventListener('keydown',e=>{if(e.key==='Enter')login();});
+</script></body></html>"""
+
+@app.get("/workspaces-page", response_class=HTMLResponse)
+def workspaces_page():
+    return """<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Workspaces</title>
+<style>
+  body{font-family:monospace;background:#0a0a0f;color:#e0e0e0;padding:2rem;max-width:800px;margin:0 auto}
+  h1{color:#7eb8f7;border-bottom:1px solid #222;padding-bottom:.5rem}
+  .card{background:#111;border:1px solid #222;border-radius:8px;padding:1rem;margin:.5rem 0;cursor:pointer}
+  .card:hover{border-color:#7eb8f7}
+  input{background:#0a0a0f;border:1px solid #333;color:#e0e0e0;padding:.4rem .6rem;border-radius:4px;font-family:monospace;width:100%;margin:.3rem 0;box-sizing:border-box}
+  button{background:#1a3a5c;color:#7eb8f7;border:1px solid #2a5a8c;padding:.4rem 1rem;border-radius:4px;cursor:pointer;font-family:monospace}
+  button:hover{background:#2a5a8c}
+  h2{font-size:.85rem;color:#555;text-transform:uppercase;letter-spacing:.1em;margin:1.5rem 0 .5rem}
+  .logout{float:right;font-size:.8rem;color:#555;cursor:pointer}
+  .logout:hover{color:#f77e7e}
+</style></head>
+<body>
+  <h1>&#9881; Workspaces <span class="logout" onclick="logout()">Log out</span></h1>
+  <div id="user-info" style="color:#555;font-size:.85rem;margin-bottom:1rem"></div>
+  <div id="workspaces"></div>
+  <h2>Create new workspace</h2>
+  <div style="background:#111;border:1px solid #222;border-radius:8px;padding:1rem">
+    <input type="text" id="ws-name" placeholder="Workspace name">
+    <input type="text" id="ws-desc" placeholder="Description (optional)">
+    <button onclick="createWorkspace()">Create workspace</button>
+    <div id="ws-error" style="color:#f77e7e;font-size:.8rem;margin-top:.3rem"></div>
+  </div>
+<script>
+  const token = localStorage.getItem('aodp_token');
+  if(!token) window.location.href='/auth/login-page';
+  const headers = {'Content-Type':'application/json','Authorization':'Bearer '+token};
+
+  async function load(){
+    const me = await fetch('/auth/me',{headers});
+    if(!me.ok){logout();return;}
+    const u = await me.json();
+    document.getElementById('user-info').textContent = 'Logged in as '+u.name+' ('+u.email+')';
+    const r = await fetch('/workspaces',{headers});
+    const ws = await r.json();
+    const el = document.getElementById('workspaces');
+    if(ws.length===0){el.innerHTML='<div style="color:#555;font-style:italic">No workspaces yet — create one below.</div>';return;}
+    el.innerHTML = ws.map(w=>
+      '<div class="card" onclick="window.location.href=\'/workspace/\'+w.id">'+
+      '<div style="font-weight:500;color:#e0e0e0">'+w.name+'</div>'+
+      '<div style="font-size:.8rem;color:#555">'+w.description+'</div>'+
+      '</div>'
+    ).join('');
+  }
+
+  async function createWorkspace(){
+    const name=document.getElementById('ws-name').value.trim();
+    const description=document.getElementById('ws-desc').value.trim();
+    if(!name){document.getElementById('ws-error').textContent='Name required';return;}
+    const r=await fetch('/workspaces',{method:'POST',headers,body:JSON.stringify({name,description})});
+    const d=await r.json();
+    if(r.ok) window.location.href='/workspace/'+d.id;
+    else document.getElementById('ws-error').textContent=d.detail||'Failed';
+  }
+
+  function logout(){localStorage.removeItem('aodp_token');window.location.href='/auth/login-page';}
+  load();
+</script></body></html>"""
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard():

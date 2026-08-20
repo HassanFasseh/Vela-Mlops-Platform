@@ -5,3 +5,8 @@ requests
 groq
 # trigger rebuild
 kubernetes
+passlib[bcrypt]
+python-jose[cryptography]
+minio
+python-multipart
+bcrypt==4.0.1
