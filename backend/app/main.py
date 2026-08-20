@@ -1,3 +1,4 @@
+import fastapi
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from backend.app.schemas import Model
@@ -159,6 +160,57 @@ def deployments():
     except Exception as e:
         return []
 
+
+
+@app.post("/api/v1/predict")
+def api_predict(req: PredictRequest, x_api_key: str = fastapi.Header(None, alias="X-API-Key"), authorization: str = fastapi.Header(None)):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import verify_api_key
+    
+    # Accept key from X-API-Key header or Authorization: Bearer aodp_...
+    raw_key = x_api_key
+    if not raw_key and authorization and authorization.startswith("Bearer aodp_"):
+        raw_key = authorization.split(" ")[1]
+    
+    if not raw_key:
+        raise HTTPException(status_code=401, detail="API key required. Pass X-API-Key header or Authorization: Bearer <key>")
+    
+    if not raw_key.startswith("aodp_"):
+        raise HTTPException(status_code=401, detail="Invalid API key format. Keys must start with aodp_")
+    
+    db = SessionLocal()
+    try:
+        api_key = verify_api_key(db, raw_key)
+        if not api_key:
+            raise HTTPException(status_code=401, detail="Invalid or revoked API key")
+        
+        # Route to model based on model_id or service_name
+        if req.model_id == 1:
+            url = MODEL_SERVICE_URL
+        elif req.model_id == 2:
+            url = MODEL_SERVICE_2_URL
+        elif req.service_name:
+            url = f"http://{req.service_name}.default.svc.cluster.local"
+        else:
+            url = MODEL_SERVICE_URL  # default to model 1
+        
+        try:
+            payload = {"text": req.text}
+            if req.model_id == 2:
+                payload["labels"] = req.labels
+            r = http_requests.post(f"{url}/predict", json=payload, timeout=30)
+            result = r.json()
+            
+            # Return with workspace context
+            return {
+                "workspace_id": api_key.workspace_id,
+                "model_id": req.model_id or 1,
+                "result": result
+            }
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"Model service error: {str(e)}")
+    finally:
+        db.close()
 
 @app.get("/auth/login-page", response_class=HTMLResponse)
 def login_page():
