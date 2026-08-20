@@ -26,6 +26,11 @@ spec:
                 secretKeyRef:
                   name: groq-secret
                   key: GROQ_API_KEY
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DATABASE_URL
             - name: GITHUB_TOKEN
               valueFrom:
                 secretKeyRef:

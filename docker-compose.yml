@@ -1,4 +1,22 @@
 services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=aodp
+      - POSTGRES_USER=aodp
+      - POSTGRES_PASSWORD=aodp_secure_pass_2026
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/pgdata
+    environment:
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aodp"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   redis:
     image: redis:7-alpine
     ports:
@@ -18,7 +36,25 @@ services:
     environment:
       - REDIS_HOST=redis
     depends_on:
-      redis:
+      postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=aodp
+      - POSTGRES_USER=aodp
+      - POSTGRES_PASSWORD=aodp_secure_pass_2026
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/pgdata
+    environment:
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aodp"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -39,10 +75,13 @@ services:
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       - GITHUB_REPO=${GITHUB_REPO:-}
       - PROMETHEUS_URL=http://prometheus:9090
+      - DATABASE_URL=postgresql://aodp:aodp_secure_pass_2026@postgres:5432/aodp
       - MODEL_SERVICE_URL=http://model-service:8000
       - MODEL_SERVICE_2_URL=http://model-service:8000
     depends_on:
       model-service:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
@@ -70,3 +109,6 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin
     depends_on:
       - prometheus
+
+volumes:
+  postgres_data:
