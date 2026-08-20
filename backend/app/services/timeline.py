@@ -1,7 +1,8 @@
 import requests
 import time
 
-PROMETHEUS_URL = "http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
+import os
+PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090")
 
 def query_range(promql: str, start: float, end: float, step: str = "30s"):
     resp = requests.get(

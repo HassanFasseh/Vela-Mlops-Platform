@@ -17,8 +17,9 @@ app = FastAPI()
 def metrics_summary():
     return build_metrics_summary()
 
-MODEL_SERVICE_URL   = "http://model-service.default.svc.cluster.local"
-MODEL_SERVICE_2_URL = "http://model-service-2.default.svc.cluster.local"
+import os
+MODEL_SERVICE_URL   = os.environ.get("MODEL_SERVICE_URL", "http://model-service.default.svc.cluster.local")
+MODEL_SERVICE_2_URL = os.environ.get("MODEL_SERVICE_2_URL", "http://model-service-2.default.svc.cluster.local")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO  = os.environ.get("GITHUB_REPO", "")
 

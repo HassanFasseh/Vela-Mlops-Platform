@@ -14,7 +14,8 @@ app = FastAPI()
 
 # Redis connection
 try:
-    r = redis.Redis(host='redis.default.svc.cluster.local', port=6379, decode_responses=True)
+    import os
+    r = redis.Redis(host=os.environ.get('REDIS_HOST', 'redis.default.svc.cluster.local'), port=6379, decode_responses=True)
     r.ping()
     REDIS_AVAILABLE = True
     print("[redis] connected successfully", flush=True)
