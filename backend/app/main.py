@@ -537,12 +537,7 @@ def workspaces_page():
     const ws = await r.json();
     const el = document.getElementById('workspaces');
     if(ws.length===0){el.innerHTML='<div style="color:#555;font-style:italic">No workspaces yet — create one below.</div>';return;}
-    el.innerHTML = ws.map(w=>
-      '<div class="card" onclick="window.location.href=\'/workspace/\'+w.id">'+
-      '<div style="font-weight:500;color:#e0e0e0">'+w.name+'</div>'+
-      '<div style="font-size:.8rem;color:#555">'+w.description+'</div>'+
-      '</div>'
-    ).join('');
+    el.innerHTML = ws.map(w=>'<div class="card" style="cursor:pointer" onclick="goToWorkspace('+w.id+')">'+'<div style="font-weight:500;color:#e0e0e0">'+w.name+'</div>'+'<div style="font-size:.8rem;color:#555">'+w.description+'</div>'+'</div>').join('');
   }
 
   async function createWorkspace(){
@@ -556,6 +551,7 @@ def workspaces_page():
   }
 
   function logout(){localStorage.removeItem('aodp_token');window.location.href='/auth/login-page';}
+  function goToWorkspace(id){window.location.href='/workspace/'+id;}
   load();
 </script></body></html>"""
 
