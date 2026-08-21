@@ -1,19 +1,35 @@
 from sqlalchemy import create_engine
-from backend.app.db.models import Base
 from sqlalchemy.orm import sessionmaker
 import os
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "sqlite:///./app.db"  # fallback for local dev without postgres
+    "sqlite:///./app.db"
 )
 
-# Handle postgres:// vs postgresql:// (some tools use the older format)
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-
 engine = create_engine(DATABASE_URL, connect_args=connect_args)
-Base.metadata.create_all(bind=engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+def run_migrations():
+    """Run Alembic migrations on startup."""
+    try:
+        from alembic.config import Config
+        from alembic import command
+        import os
+        alembic_cfg = Config(os.path.join(os.path.dirname(__file__), "..", "..", "alembic.ini"))
+        alembic_cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
+        command.upgrade(alembic_cfg, "head")
+        print("[db] migrations applied successfully", flush=True)
+    except Exception as e:
+        print(f"[db] migration warning: {e}", flush=True)
+
+# Run migrations and create tables
+from backend.app.db.models import Base
+if DATABASE_URL.startswith("postgresql"):
+    run_migrations()
+else:
+    Base.metadata.create_all(bind=engine)
