@@ -239,6 +239,15 @@ def workspace_dashboard(workspace_id: int, db: Session = Depends(get_db)):
   </div>
   <div id="members-list"></div>
 
+  <h2>Upload your own model</h2>
+  <div class="card">
+    <input type="text" id="upload-model-name" placeholder="Model name (e.g. my-sentiment-model-v1)">
+    <input type="file" id="upload-file" accept=".bin,.pt,.pkl,.safetensors,.h5,.onnx" style="margin:.5rem 0;color:#888">
+    <button onclick="uploadModel()">Upload model</button>
+    <div id="upload-progress" style="font-size:.8rem;color:#888;margin-top:.3rem"></div>
+  </div>
+  <div id="uploaded-models"></div>
+
   <h2>Document a model</h2>
   <div class="card">
     <input type="number" id="mc-dep-id" placeholder="Deployment ID">
@@ -316,5 +325,56 @@ def workspace_dashboard(workspace_id: int, db: Session = Depends(get_db)):
 
   loadKeys();
   loadMembers();
+  loadUploadedModels();
+
+  async function loadUploadedModels(){{
+    const keys = await fetch('/workspaces/'+WS_ID+'/api-keys',{{headers:H}});
+    const keyList = await keys.json();
+    if(!keyList.length) return;
+    const apiKey = keyList[0].prefix + '...';
+    const el = document.getElementById('uploaded-models');
+
+    // Use first key prefix for display only — real upload uses stored key
+    const r = await fetch('/api/v1/workspace/'+WS_ID+'/models', {{
+      headers: {{...H}}
+    }});
+    // Note: this endpoint needs API key not JWT — skip for now, show placeholder
+    el.innerHTML = '<div style="color:#555;font-size:.8rem;padding:.3rem 0">Use the API to list uploaded models: GET /api/v1/workspace/'+WS_ID+'/models with X-API-Key header</div>';
+  }}
+
+  async function uploadModel(){{
+    const name = document.getElementById('upload-model-name').value.trim();
+    const file = document.getElementById('upload-file').files[0];
+    const progress = document.getElementById('upload-progress');
+    if(!name || !file){{ progress.textContent='Please enter a model name and select a file.'; return; }}
+
+    // Get API key for upload
+    const keysR = await fetch('/workspaces/'+WS_ID+'/api-keys',{{headers:H}});
+    const keysList = await keysR.json();
+    if(!keysList.length){{ progress.textContent='Generate an API key first.'; return; }}
+
+    // We need the raw key — prompt user
+    const rawKey = prompt('Enter your full API key (shown when generated):');
+    if(!rawKey){{ progress.textContent='API key required for upload.'; return; }}
+
+    progress.textContent = 'Uploading '+file.name+' ('+Math.round(file.size/1024/1024*10)/10+' MB)...';
+
+    const form = new FormData();
+    form.append('file', file);
+    form.append('model_name', name);
+    form.append('workspace_id', WS_ID);
+
+    const r = await fetch('/api/v1/upload-model', {{
+      method: 'POST',
+      headers: {{'X-API-Key': rawKey}},
+      body: form
+    }});
+    const d = await r.json();
+    if(r.ok){{
+      progress.textContent = 'Uploaded successfully! Deployment ID: '+d.deployment_id+' ('+d.size_mb+' MB)';
+    }} else {{
+      progress.textContent = 'Error: '+(d.detail||JSON.stringify(d));
+    }}
+  }}
 </script>
 </body></html>"""
