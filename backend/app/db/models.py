@@ -61,6 +61,30 @@ class Deployment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
 
+class RemediationConfig(Base):
+    __tablename__ = "remediation_configs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    deployment_id: Mapped[int] = mapped_column(Integer, ForeignKey("deployments.id"), unique=True)
+    workspace_id: Mapped[int] = mapped_column(Integer, ForeignKey("workspaces.id"))
+    drift_threshold: Mapped[float] = mapped_column(default=0.5)
+    action_type: Mapped[str] = mapped_column(String(50), default="github_issue")
+    target: Mapped[str] = mapped_column(String(500), default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_triggered_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class RemediationLog(Base):
+    __tablename__ = "remediation_logs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    config_id: Mapped[int] = mapped_column(Integer, ForeignKey("remediation_configs.id"))
+    deployment_id: Mapped[int] = mapped_column(Integer, ForeignKey("deployments.id"))
+    drift_score: Mapped[float] = mapped_column()
+    action_type: Mapped[str] = mapped_column(String(50))
+    target: Mapped[str] = mapped_column(String(500))
+    status: Mapped[str] = mapped_column(String(20))
+    response: Mapped[str] = mapped_column(Text, default="")
+    triggered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
 class ModelCard(Base):
     __tablename__ = "model_cards"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

@@ -12,7 +12,30 @@ import requests as http_requests
 import os
 
 Base.metadata.create_all(bind=engine)
-app = FastAPI()
+
+from contextlib import asynccontextmanager
+import asyncio
+
+async def remediation_loop():
+    """Check drift and fire remediations every 5 minutes."""
+    while True:
+        try:
+            from backend.app.database import SessionLocal
+            from backend.app.services.remediation import check_and_fire
+            db = SessionLocal()
+            check_and_fire(db)
+            db.close()
+        except Exception as e:
+            print(f"[remediation] loop error: {e}", flush=True)
+        await asyncio.sleep(300)  # 5 minutes
+
+@asynccontextmanager
+async def lifespan(app):
+    task = asyncio.create_task(remediation_loop())
+    yield
+    task.cancel()
+
+app = FastAPI(lifespan=lifespan)
 
 from backend.app.routers.auth import router as auth_router
 app.include_router(auth_router)
@@ -312,6 +335,101 @@ def list_workspace_models(
         if not api_key or api_key.workspace_id != workspace_id:
             raise HTTPException(status_code=401, detail="Invalid API key for this workspace")
         return list_models(workspace_id)
+    finally:
+        db.close()
+
+
+
+from backend.app.db.models import RemediationConfig, RemediationLog
+
+class RemediationConfigCreate(BaseModel):
+    deployment_id: int
+    drift_threshold: float = 0.5
+    action_type: str = "github_issue"
+    target: str = ""
+
+@app.post("/api/v1/remediations")
+def create_remediation(req: RemediationConfigCreate, x_api_key: str = fastapi.Header(None, alias="X-API-Key")):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import verify_api_key
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="API key required")
+    db = SessionLocal()
+    try:
+        api_key = verify_api_key(db, x_api_key)
+        if not api_key:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        config = RemediationConfig(
+            deployment_id=req.deployment_id,
+            workspace_id=api_key.workspace_id,
+            drift_threshold=req.drift_threshold,
+            action_type=req.action_type,
+            target=req.target
+        )
+        db.add(config)
+        db.commit()
+        db.refresh(config)
+        return {"id": config.id, "message": f"Remediation configured: {req.action_type} when drift > {req.drift_threshold}"}
+    finally:
+        db.close()
+
+@app.get("/api/v1/remediations/{workspace_id}")
+def list_remediations(workspace_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key")):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import verify_api_key
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="API key required")
+    db = SessionLocal()
+    try:
+        api_key = verify_api_key(db, x_api_key)
+        if not api_key or api_key.workspace_id != workspace_id:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        configs = db.query(RemediationConfig).filter(RemediationConfig.workspace_id == workspace_id).all()
+        return [{"id": c.id, "deployment_id": c.deployment_id, "drift_threshold": c.drift_threshold, "action_type": c.action_type, "target": c.target, "is_active": c.is_active, "last_triggered_at": c.last_triggered_at} for c in configs]
+    finally:
+        db.close()
+
+@app.get("/api/v1/remediation-logs/{workspace_id}")
+def remediation_logs(workspace_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key")):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import verify_api_key
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="API key required")
+    db = SessionLocal()
+    try:
+        api_key = verify_api_key(db, x_api_key)
+        if not api_key or api_key.workspace_id != workspace_id:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        logs = db.query(RemediationLog).filter(RemediationLog.deployment_id.in_(
+            [c.deployment_id for c in db.query(RemediationConfig).filter(RemediationConfig.workspace_id == workspace_id).all()]
+        )).order_by(RemediationLog.triggered_at.desc()).limit(50).all()
+        return [{"id": l.id, "deployment_id": l.deployment_id, "drift_score": l.drift_score, "action_type": l.action_type, "status": l.status, "triggered_at": l.triggered_at} for l in logs]
+    finally:
+        db.close()
+
+@app.post("/api/v1/remediations/{config_id}/test")
+def test_remediation(config_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key")):
+    """Manually trigger a remediation to test it."""
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import verify_api_key
+    from backend.app.services.remediation import fire_github_issue, fire_webhook, fire_retrain
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="API key required")
+    db = SessionLocal()
+    try:
+        api_key = verify_api_key(db, x_api_key)
+        if not api_key:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        config = db.query(RemediationConfig).filter(RemediationConfig.id == config_id).first()
+        if not config:
+            raise HTTPException(status_code=404, detail="Config not found")
+        if config.action_type == "github_issue":
+            result = fire_github_issue("test-deployment", 0.99, config.target)
+        elif config.action_type == "webhook":
+            result = fire_webhook("test-deployment", 0.99, config.target)
+        else:
+            result = fire_retrain("test-deployment", 0.99, config.target)
+        return result
     finally:
         db.close()
 
