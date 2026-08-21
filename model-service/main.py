@@ -85,6 +85,17 @@ def health():
 def metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
+@app.get("/drift-details")
+def drift_details():
+    if REDIS_AVAILABLE:
+        try:
+            data = r.get("model_service:drift_details")
+            if data:
+                return json.loads(data)
+        except Exception:
+            pass
+    return {"drift_share": 0.0, "columns": [], "computed_at": None}
+
 @app.post("/predict")
 def predict(input: TextIn):
     start = time.time()
@@ -123,6 +134,31 @@ def compute_drift():
         drift_share = result_dict["metrics"][0]["value"]["share"]
         print(f"[drift] computed drift_share = {drift_share}", flush=True)
         DRIFT_SCORE.set(drift_share)
+
+        # Extract per-column detail
+        column_details = []
+        for metric in result_dict["metrics"][1:]:
+            col_name = metric["config"].get("column", "unknown")
+            p_value = float(metric["value"]) if metric["value"] is not None else 1.0
+            drifted = p_value < 0.05
+            column_details.append({
+                "column": col_name,
+                "p_value": round(p_value, 4),
+                "drifted": drifted,
+                "method": metric["config"].get("method", "unknown")
+            })
+            print(f"[drift] column={col_name} p_value={p_value:.4f} drifted={drifted}", flush=True)
+
+        # Persist column details to Redis
+        if REDIS_AVAILABLE:
+            try:
+                r.set("model_service:drift_details", json.dumps({
+                    "drift_share": drift_share,
+                    "columns": column_details,
+                    "computed_at": __import__("time").time()
+                }))
+            except Exception as e:
+                print(f"[drift] failed to save details to Redis: {e}", flush=True)
     except Exception as e:
         import traceback
         print(f"[drift] COMPUTATION FAILED: {e}", flush=True)

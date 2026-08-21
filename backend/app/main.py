@@ -636,6 +636,10 @@ def dashboard():
     <div class="chart-title">Drift score — last 2 hours</div>
     <canvas id="drift-chart" height="80"></canvas>
   </div>
+  <div class="chart-wrap" id="drift-details-wrap" style="display:none">
+    <div class="chart-title">Population-level drift breakdown</div>
+    <div id="drift-details-content"></div>
+  </div>
 
   <h2>Deployed models</h2>
   <div id="core-models" class="models-grid">
@@ -717,6 +721,21 @@ def dashboard():
           driftChart.data.labels=d.drift_history.map(p=>new Date(p[0]*1000).toLocaleTimeString());
           driftChart.data.datasets[0].data=d.drift_history.map(p=>p[1]);
           driftChart.update('none');
+        }
+        if(d.drift_details&&d.drift_details.columns&&d.drift_details.columns.length>0){
+          const wrap=document.getElementById('drift-details-wrap');
+          const content=document.getElementById('drift-details-content');
+          wrap.style.display='block';
+          content.innerHTML=d.drift_details.columns.map(c=>{
+            const color=c.drifted?'#f77e7e':'#7ef7a0';
+            const pct=Math.round((1-c.p_value)*100);
+            return '<div style="display:flex;align-items:center;gap:.5rem;margin:.3rem 0;font-size:.8rem">'+
+              '<span style="min-width:120px;color:#ccc">'+c.column+'</span>'+
+              '<div style="flex:1;background:#1a1a2a;border-radius:3px;height:8px">'+
+              '<div style="width:'+pct+'%;background:'+color+';height:8px;border-radius:3px;transition:width .5s"></div></div>'+
+              '<span style="min-width:60px;color:'+color+';text-align:right">'+
+              (c.drifted?'DRIFTED':'stable')+' p='+c.p_value+'</span></div>';
+          }).join('');
         }
       }catch(e){console.error('metrics',e);}
     }
@@ -807,3 +826,77 @@ def dashboard():
   </script>
 </body>
 </html>"""
+
+import os
+from kubernetes import client as k8s_client, config as k8s_config
+
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+GITHUB_REPO  = os.environ.get("GITHUB_REPO", "")
+
+class DeployModelRequest(BaseModel):
+    model_name: str
+    task_type: str
+    deployment_name: str
+
+@app.post("/deploy-model")
+def deploy_model_endpoint(req: DeployModelRequest):
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        raise HTTPException(status_code=500, detail="GitHub credentials not configured")
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/model-deploy.yml/dispatches"
+    resp = http_requests.post(
+        url,
+        headers={
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28"
+        },
+        json={
+            "ref": "main",
+            "inputs": {
+                "model_name": req.model_name,
+                "task_type": req.task_type,
+                "deployment_name": req.deployment_name
+            }
+        }
+    )
+    if resp.status_code == 204:
+        return {"status": "triggered", "deployment_name": req.deployment_name}
+    raise HTTPException(status_code=resp.status_code, detail=resp.text)
+
+@app.get("/deployments")
+def deployments():
+    try:
+        k8s_config.load_incluster_config()
+        v1 = k8s_client.CoreV1Api()
+        apps_v1 = k8s_client.AppsV1Api()
+        deps = apps_v1.list_namespaced_deployment(
+            namespace="default",
+            label_selector="managed-by=platform"
+        )
+        results = []
+        for d in deps.items:
+            name = d.metadata.name
+            ready = d.status.ready_replicas or 0
+            desired = d.spec.replicas or 1
+            status = "running" if ready == desired else "starting"
+            model_name = next(
+                (e.value for c in d.spec.template.spec.containers
+                 for e in (c.env or []) if e.name == "MODEL_NAME"),
+                "unknown"
+            )
+            task_type = next(
+                (e.value for c in d.spec.template.spec.containers
+                 for e in (c.env or []) if e.name == "TASK_TYPE"),
+                "unknown"
+            )
+            results.append({
+                "name": name,
+                "model_name": model_name,
+                "task_type": task_type,
+                "status": status,
+                "ready": ready,
+                "desired": desired
+            })
+        return results
+    except Exception as e:
+        return []

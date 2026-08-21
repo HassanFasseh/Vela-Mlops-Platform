@@ -85,6 +85,17 @@ def _safe(v):
         return 0.0
     return v
 
+def get_drift_details() -> dict:
+    """Get population-level drift breakdown from model-service."""
+    import os
+    model_url = os.environ.get("MODEL_SERVICE_URL", "http://model-service.default.svc.cluster.local")
+    try:
+        import requests as req
+        r = req.get(f"{model_url}/drift-details", timeout=3)
+        return r.json()
+    except Exception:
+        return {"drift_share": 0.0, "columns": [], "computed_at": None}
+
 def build_metrics_summary() -> dict:
     return {
         "predictions_total": _safe(query_instant('predictions_total{job="model-service"}')),
@@ -95,4 +106,5 @@ def build_metrics_summary() -> dict:
         "node_cpu_percent": _safe(query_instant('100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)')),
         "node_memory_used_gb": _safe(query_instant('(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / 1024^3')),
         "node_memory_total_gb": _safe(query_instant('node_memory_MemTotal_bytes / 1024^3')),
+        "drift_details": get_drift_details(),
     }
