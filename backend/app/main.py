@@ -240,6 +240,82 @@ def api_predict(req: PredictRequest, x_api_key: str = fastapi.Header(None, alias
     finally:
         db.close()
 
+
+from fastapi import UploadFile, File, Form
+
+@app.post("/api/v1/upload-model")
+async def upload_model(
+    file: UploadFile = File(...),
+    model_name: str = Form(...),
+    workspace_id: int = Form(...),
+    x_api_key: str = fastapi.Header(None, alias="X-API-Key")
+):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import verify_api_key
+    from backend.app.services.storage import upload_model as store_model
+    from backend.app.db.models import Deployment as DeploymentModel
+    from datetime import datetime
+
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="API key required")
+
+    db = SessionLocal()
+    try:
+        api_key = verify_api_key(db, x_api_key)
+        if not api_key or api_key.workspace_id != workspace_id:
+            raise HTTPException(status_code=401, detail="Invalid API key for this workspace")
+
+        file_bytes = await file.read()
+        if len(file_bytes) > 500 * 1024 * 1024:  # 500MB limit
+            raise HTTPException(status_code=413, detail="File too large. Maximum size is 500MB")
+
+        storage_path = store_model(file_bytes, workspace_id, model_name)
+
+        record = DeploymentModel(
+            name=model_name,
+            model_name=model_name,
+            task_type="custom",
+            source="upload",
+            storage_path=storage_path,
+            status="uploaded",
+            workspace_id=workspace_id,
+            created_at=datetime.utcnow()
+        )
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+
+        return {
+            "message": "Model uploaded successfully",
+            "deployment_id": record.id,
+            "storage_path": storage_path,
+            "size_mb": round(len(file_bytes) / 1024 / 1024, 2)
+        }
+    finally:
+        db.close()
+
+@app.get("/api/v1/workspace/{workspace_id}/models")
+def list_workspace_models(
+    workspace_id: int,
+    x_api_key: str = fastapi.Header(None, alias="X-API-Key")
+):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import verify_api_key
+    from backend.app.services.storage import list_workspace_models as list_models
+
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="API key required")
+
+    db = SessionLocal()
+    try:
+        api_key = verify_api_key(db, x_api_key)
+        if not api_key or api_key.workspace_id != workspace_id:
+            raise HTTPException(status_code=401, detail="Invalid API key for this workspace")
+        return list_models(workspace_id)
+    finally:
+        db.close()
+
+
 @app.get("/auth/login-page", response_class=HTMLResponse)
 def login_page():
     return """<!DOCTYPE html>
