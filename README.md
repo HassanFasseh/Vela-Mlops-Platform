@@ -1,28 +1,28 @@
 # Vela
 
-Open-source MLOps for regulated industries. Deploy any model, detect drift, understand why — on your infrastructure, under your control.
+Open-source MLOps for regulated industries. Deploy any model, detect drift, understand why, on your infrastructure, under your control.
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
 ## The problem
 
-A data scientist deploys a model on Friday. By Monday something has changed — the data, the behavior, the confidence. The model is silently wrong and nobody knows why. Most teams find out when a business metric drops, weeks later.
+A data scientist deploys a model on Friday. By Monday something has changed: the data, the behavior, the confidence. The model is silently wrong and nobody knows why. Most teams find out when a business metric drops, weeks later.
 
-Vela fixes this. It watches your models continuously, tells you when something changes, and explains what happened in plain language — automatically, on your own servers. No data leaves your network.
+Vela fixes this. It watches your models continuously, tells you when something changes, and explains what happened in plain language, automatically, on your own servers. No data leaves your network.
 
 Built for organizations that cannot use HuggingFace Spaces or cloud ML services: hospitals, banks, universities, government agencies.
 
 ## What it does
 
-**Deploy** — Submit a HuggingFace model name or upload your own weights. GitHub Actions builds a multi-arch Docker image and deploys it to Kubernetes. Live in 5 to 10 minutes.
+**Deploy** Submit a HuggingFace model name or upload your own weights. GitHub Actions builds a multi-arch Docker image and deploys it to Kubernetes. Live in 5 to 10 minutes.
 
-**Monitor** — Prometheus scrapes metrics every 15 seconds. Evidently AI computes statistical drift across a sliding window and tracks which specific signals shifted: confidence score, label distribution, input length. Redis persists state across restarts.
+**Monitor** Prometheus scrapes metrics every 15 seconds. Evidently AI computes statistical drift across a sliding window and tracks which specific signals shifted: confidence score, label distribution, input length. Redis persists state across restarts.
 
-**Explain** — When drift is detected, an LLM generates a plain-language summary naming the drifted columns and their p-values. Not just "drift detected" — "your confidence score and label distribution have both shifted significantly since the deploy 2 hours ago, while latency remains stable."
+**Explain** When drift is detected, an LLM generates a plain-language summary naming the drifted columns and their p-values. Not just "drift detected" but "your confidence score and label distribution have both shifted significantly since the deploy 2 hours ago, while latency remains stable."
 
-**Act** — When drift crosses a configured threshold, Vela automatically opens a GitHub issue, fires a webhook, or triggers a retraining pipeline. No human needs to notice and react.
+**Act** When drift crosses a configured threshold, Vela automatically opens a GitHub issue, fires a webhook, or triggers a retraining pipeline. No human needs to notice and react.
 
-**Control** — Multi-tenant workspaces with JWT auth. Teams with role-based model permissions. Access request and approval flow. API keys scoped to specific teams and models.
+**Control** Multi-tenant workspaces with JWT auth. Teams with role-based model permissions. Access request and approval flow. API keys scoped to specific teams and models.
 
 ![Workspace](docs/screenshots/workspace.png)
 
@@ -36,16 +36,16 @@ Built for organizations that cannot use HuggingFace Spaces or cloud ML services:
 
 ## How it works
 
-**Deployment loop** — runs once per model
+**Deployment loop** runs once per model
 
 ```
-Dashboard form  →  GitHub Actions  →  Docker build (arm64)  →  Registry push  →  kubectl deploy  →  Live endpoint
+Dashboard form  ->  GitHub Actions  ->  Docker build (arm64)  ->  Registry push  ->  kubectl deploy  ->  Live endpoint
 ```
 
-**Operations loop** — runs continuously
+**Operations loop** runs continuously
 
 ```
-Prometheus scrape  →  Evidently drift detection  →  Event correlation  →  LLM explanation  →  Dashboard (30s refresh)
+Prometheus scrape  ->  Evidently drift detection  ->  Event correlation  ->  LLM explanation  ->  Dashboard (30s refresh)
 ```
 
 ![Timeline](docs/screenshots/timeline.png)
@@ -146,8 +146,8 @@ curl -X POST http://your-vela/access-requests \
 Workspace
   ├── Models (deployed and documented by admins)
   ├── Teams
-  │     ├── Radiology Team   →  Model A only
-  │     └── Research Team    →  All models
+  │     ├── Radiology Team   ->  Model A only
+  │     └── Research Team    ->  All models
   └── API Keys (scoped per team and per model)
 ```
 
@@ -193,15 +193,15 @@ Copy `.env.example` to `.env`:
 | `GEMINI_API_KEY` | Yes | Google AI Studio key (Gemini Flash fallback) |
 | `GITHUB_TOKEN` | Yes | Fine-grained PAT with Actions and Issues write |
 | `GITHUB_REPO` | Yes | Your repo in owner/repo format |
-| `MODEL_SERVICE_URL` | No | Overrides model service URL (local dev) |
-| `PROMETHEUS_URL` | No | Overrides Prometheus URL (local dev) |
+| `MODEL_SERVICE_URL` | No | Overrides model service URL for local dev |
+| `PROMETHEUS_URL` | No | Overrides Prometheus URL for local dev |
 
 ## Honest limitations
 
 - **Single-node cluster** on Oracle Always Free. Not suitable for high-availability production. Swap to a multi-node cluster for real workloads.
-- **Public dashboard** — `/dashboard` requires no login currently. Auth-gated dashboard is on the roadmap.
-- **3 LoadBalancer limit** — Oracle Free tier caps at 3. User-deployed models use ClusterIP and are accessible in-cluster only. An ingress controller removes this constraint.
-- **Batch drift detection** — drift is computed every 30 predictions, not as a continuous stream.
+- **Public dashboard** `/dashboard` requires no login currently. Auth-gated dashboard is on the roadmap.
+- **3 LoadBalancer limit** Oracle Free tier caps at 3. User-deployed models use ClusterIP and are accessible in-cluster only. An ingress controller removes this constraint.
+- **Batch drift detection** Drift is computed every 30 predictions, not as a continuous stream.
 
 ## Roadmap
 
