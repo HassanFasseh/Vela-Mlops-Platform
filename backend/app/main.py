@@ -38,7 +38,9 @@ async def lifespan(app):
 app = FastAPI(lifespan=lifespan)
 
 from backend.app.routers.auth import router as auth_router
+from backend.app.routers.teams import router as teams_router
 app.include_router(auth_router)
+app.include_router(teams_router)
 
 
 @app.get("/metrics-summary")
@@ -235,6 +237,13 @@ def api_predict(req: PredictRequest, x_api_key: str = fastapi.Header(None, alias
         if not api_key:
             raise HTTPException(status_code=401, detail="Invalid or revoked API key")
         
+        # Check team-level model permission if key is team-scoped
+        if api_key.team_id or api_key.deployment_id:
+            from backend.app.services.teams import check_team_model_permission
+            target_deployment_id = req.model_id if req.model_id else None
+            if target_deployment_id and not check_team_model_permission(db, api_key, target_deployment_id):
+                raise HTTPException(status_code=403, detail="Your API key does not have permission to use this model")
+
         # Route to model based on model_id or service_name
         if req.model_id == 1:
             url = MODEL_SERVICE_URL

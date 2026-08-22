@@ -47,6 +47,9 @@ class WorkspaceApiKey(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_used_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    team_id: Mapped[int] = mapped_column(Integer, ForeignKey("teams.id"), nullable=True)
+    deployment_id: Mapped[int] = mapped_column(Integer, ForeignKey("deployments.id"), nullable=True)
+    description: Mapped[str] = mapped_column(String(200), default="")
 
 class Deployment(Base):
     __tablename__ = "deployments"
@@ -100,3 +103,43 @@ class ModelCard(Base):
     created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class Team(Base):
+    __tablename__ = "teams"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    workspace_id: Mapped[int] = mapped_column(Integer, ForeignKey("workspaces.id"))
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class TeamMember(Base):
+    __tablename__ = "team_members"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    team_id: Mapped[int] = mapped_column(Integer, ForeignKey("teams.id"))
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
+    role: Mapped[str] = mapped_column(String(20), default="member")  # member, lead
+    joined_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class TeamModelPermission(Base):
+    __tablename__ = "team_model_permissions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    team_id: Mapped[int] = mapped_column(Integer, ForeignKey("teams.id"))
+    deployment_id: Mapped[int] = mapped_column(Integer, ForeignKey("deployments.id"))
+    can_predict: Mapped[bool] = mapped_column(Boolean, default=True)
+    can_view_metrics: Mapped[bool] = mapped_column(Boolean, default=False)
+    granted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    granted_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+
+class AccessRequest(Base):
+    __tablename__ = "access_requests"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
+    workspace_id: Mapped[int] = mapped_column(Integer, ForeignKey("workspaces.id"))
+    team_id: Mapped[int] = mapped_column(Integer, ForeignKey("teams.id"), nullable=True)
+    deployment_id: Mapped[int] = mapped_column(Integer, ForeignKey("deployments.id"), nullable=True)
+    message: Mapped[str] = mapped_column(String(500), default="")
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending, approved, denied
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    reviewed_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    review_note: Mapped[str] = mapped_column(String(500), default="")
