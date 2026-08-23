@@ -341,6 +341,14 @@ body.has-shell {
   z-index: var(--z-command);
 }
 
+/* `display: flex` above otherwise beats the browser's default
+   `[hidden] { display: none }` at equal specificity (author CSS wins
+   ties over the UA stylesheet regardless of specificity) — without this,
+   the palette shows on page load instead of only on Cmd/Ctrl+K. */
+.shell-command-overlay[hidden] {
+  display: none;
+}
+
 .shell-command-palette {
   width: 100%;
   max-width: 520px;
