@@ -37,7 +37,8 @@ _ASSETS = """<link rel="stylesheet" href="/static/css/tokens.css">
 
 _SCRIPTS = """<script src="/static/js/api.js"></script>
 <script src="/static/js/shell.js"></script>
-<script src="/static/js/ui.js"></script>"""
+<script src="/static/js/ui.js"></script>
+<script src="/static/js/predictor.js"></script>"""
 
 
 def _boot_script(active_path: str, breadcrumb_label: str, on_ready: str) -> str:
@@ -299,20 +300,26 @@ def member_team_detail_page(team_id: int):
       body.innerHTML = '<tr><td colspan="4">' + UI.emptyState('No models yet', 'This team has not been granted access to any models.') + '</td></tr>';
       return;
     }
-    body.innerHTML = perms.map((p, idx) =>
-      '<tr>' +
-      '<td>' + UI.escapeHtml(p.model_name) + '</td>' +
-      '<td>' + UI.escapeHtml(p.task_type) + '</td>' +
-      '<td>' + UI.statusBadge(p.status) + '</td>' +
-      '<td>' + (p.can_predict
-        ? '<button class="btn btn-secondary btn-sm" data-get-key="' + idx + '" type="button">Get API key</button>'
-        : UI.badge('View only', 'neutral')
-      ) + '</td>' +
-      '</tr>'
-    ).join('');
+    body.innerHTML = perms.map((p, idx) => {
+      const uid = 'd' + p.deployment_id;
+      const lastCell = p.can_predict
+        ? '<button class="btn btn-secondary btn-sm" data-get-key="' + idx + '" type="button">Get API key</button>' +
+          '<div style="margin-top:.6rem;max-width:280px">' + Predictor.render(uid, TEAM_ID, p.deployment_id) + '</div>'
+        : UI.badge('View only', 'neutral');
+      return '<tr>' +
+        '<td>' + UI.escapeHtml(p.model_name) + '</td>' +
+        '<td>' + UI.escapeHtml(p.task_type) + '</td>' +
+        '<td>' + UI.statusBadge(p.status) + '</td>' +
+        '<td>' + lastCell + '</td>' +
+        '</tr>';
+    }).join('');
     body.querySelectorAll('[data-get-key]').forEach(btn => {
       const idx = parseInt(btn.dataset.getKey, 10);
       btn.addEventListener('click', () => getApiKey(teamPerms[idx], btn));
+    });
+    perms.forEach(p => {
+      if (!p.can_predict) return;
+      Predictor.wire('d' + p.deployment_id, TEAM_ID, p.deployment_id);
     });
   }
 
@@ -409,16 +416,17 @@ def member_models_page():
   // directly, so it's used as the source of truth rather than attempting
   // a join that the other two endpoints don't have the data to support.
   //
-  // API key comes from sessionStorage, set when a key is generated from a
-  // team page (see /app/teams/{id}). Never routed through the shared Api
-  // helper — that attaches the JWT and treats any 401 as "session
-  // expired", which would be wrong for a bad/missing API key.
+  // The prediction tester's API key comes from sessionStorage, scoped
+  // per team+deployment (see predictor.js) — set inline from the tester
+  // itself now, no detour through /app/teams/{id} required. Never
+  // routed through the shared Api helper — that attaches the JWT and
+  // treats any 401 as "session expired", which would be wrong for a
+  // bad/missing model API key.
   let modelRows = [];
 
   async function loadModels() {
     const grid = document.getElementById('models-grid');
     grid.innerHTML = '<div class="card"><span class="skeleton skeleton-text">&nbsp;</span></div>'.repeat(3);
-    const hasKey = !!sessionStorage.getItem('vela_member_api_key');
     try {
       const teams = await Api.get('/users/me/teams');
       if (!teams.length) {
@@ -446,16 +454,11 @@ def member_models_page():
         return;
       }
 
-      grid.innerHTML = modelRows.map((r, idx) => renderCard(r, idx, hasKey)).join('');
-      if (hasKey) {
-        modelRows.forEach((r, idx) => {
-          if (!r.can_predict) return;
-          const btn = document.querySelector('[data-predict="' + idx + '"]');
-          const input = document.getElementById('predict-input-' + idx);
-          if (btn) btn.addEventListener('click', () => runPredict(idx));
-          if (input) input.addEventListener('keydown', (e) => { if (e.key === 'Enter') runPredict(idx); });
-        });
-      }
+      grid.innerHTML = modelRows.map(renderCard).join('');
+      modelRows.forEach(r => {
+        if (!r.can_predict) return;
+        Predictor.wire('d' + r.deployment_id, r.team_id, r.deployment_id);
+      });
     } catch (e) {
       grid.innerHTML = UI.errorState(e.message, loadModels);
     }
@@ -468,16 +471,10 @@ def member_models_page():
     );
   }
 
-  function renderCard(r, idx, hasKey) {
-    const testerHtml = !r.can_predict
-      ? UI.badge('View only', 'neutral')
-      : (hasKey
-        ? '<div class="field" style="margin-bottom:.5rem">' +
-          '<input class="input" type="text" id="predict-input-' + idx + '" placeholder="Try a prediction…" style="font-size:var(--text-xs)">' +
-          '</div>' +
-          '<button class="btn btn-secondary btn-sm" data-predict="' + idx + '" type="button">Run</button>' +
-          '<div id="predict-result-' + idx + '" class="text-secondary" style="font-size:var(--text-xs);margin-top:.5rem;min-height:1.2em"></div>'
-        : '<a class="link-secondary" style="font-size:var(--text-xs)" href="/app/teams/' + r.team_id + '">Get an API key &rarr;</a>');
+  function renderCard(r) {
+    const testerHtml = r.can_predict
+      ? Predictor.render('d' + r.deployment_id, r.team_id, r.deployment_id)
+      : UI.badge('View only', 'neutral');
 
     return '<div class="card">' +
       '<div class="card-title">' + UI.escapeHtml(r.model_name) + '</div>' +
@@ -486,51 +483,6 @@ def member_models_page():
       '<a class="link-secondary" style="font-size:var(--text-xs)" href="/app/tickets?model=' + encodeURIComponent(r.model_name) + '">Report an issue &rarr;</a>' +
       '<div style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--color-border-subtle)">' + testerHtml + '</div>' +
       '</div>';
-  }
-
-  async function predictFetch(payload) {
-    const apiKey = sessionStorage.getItem('vela_member_api_key') || '';
-    const res = await fetch('/api/v1/predict', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-      body: JSON.stringify(payload),
-    });
-    const text = await res.text();
-    let data = null;
-    if (text) { try { data = JSON.parse(text); } catch (e) { data = text; } }
-    if (!res.ok) {
-      throw new Error((data && data.detail) || res.statusText || 'Request failed');
-    }
-    return data;
-  }
-
-  async function runPredict(idx) {
-    const row = modelRows[idx];
-    const input = document.getElementById('predict-input-' + idx);
-    const resultEl = document.getElementById('predict-result-' + idx);
-    const btn = document.querySelector('[data-predict="' + idx + '"]');
-    const text = input.value.trim();
-    if (!text) { resultEl.textContent = 'Enter some text first.'; return; }
-    btn.disabled = true;
-    btn.textContent = 'Running…';
-    resultEl.textContent = '';
-    try {
-      const data = await predictFetch({ text: text, deployment_id: row.deployment_id });
-      const result = data.result || {};
-      if (result.all_labels && Object.keys(result.all_labels).length) {
-        const top = Object.entries(result.all_labels).sort((a, b) => b[1] - a[1])[0];
-        resultEl.textContent = 'Top: ' + result.label + ' (' + (top[1] * 100).toFixed(1) + '%)';
-      } else if (result.label != null) {
-        resultEl.textContent = 'Label: ' + result.label + (result.score != null ? ' — Score: ' + (result.score * 100).toFixed(1) + '%' : '');
-      } else {
-        resultEl.textContent = 'No result returned.';
-      }
-    } catch (e) {
-      resultEl.textContent = 'Error: ' + e.message;
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Run';
-    }
   }
 </script>"""
 
