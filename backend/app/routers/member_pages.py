@@ -162,7 +162,7 @@ def member_overview_page():
   }
 </script>"""
 
-    ready = "document.getElementById('loading-root').hidden = true; document.getElementById('page-content').hidden = false; loadOverview(user);"
+    ready = "loadOverview(user);"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
@@ -224,7 +224,7 @@ def member_models_page():
   }
 </script>"""
 
-    ready = "document.getElementById('loading-root').hidden = true; document.getElementById('page-content').hidden = false; loadModels();"
+    ready = "loadModels();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
@@ -382,7 +382,7 @@ def member_tickets_page():
   }
 </script>"""
 
-    ready = "document.getElementById('loading-root').hidden = true; document.getElementById('page-content').hidden = false; loadTickets();"
+    ready = "loadTickets();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
@@ -539,7 +539,7 @@ def member_api_keys_page():
   document.getElementById('new-key-btn').addEventListener('click', openNewKeyModal);
 </script>"""
 
-    ready = "document.getElementById('loading-root').hidden = true; document.getElementById('page-content').hidden = false; loadKeys();"
+    ready = "loadKeys();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
@@ -559,7 +559,7 @@ def member_api_keys_page():
 
 @router.get("/app/monitoring", response_class=HTMLResponse)
 def member_monitoring_page():
-    ready = "document.getElementById('loading-root').hidden = true; document.getElementById('page-content').hidden = false; Monitoring.start();"
+    ready = "Monitoring.start();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
@@ -579,11 +579,7 @@ def member_monitoring_page():
 
 @router.get("/app/drift", response_class=HTMLResponse)
 def member_drift_page():
-    ready = (
-        "document.getElementById('loading-root').hidden = true; "
-        "document.getElementById('page-content').hidden = false; "
-        "Drift.start({actionHref: '/app/tickets?model=' + encodeURIComponent('DistilBERT Sentiment'), actionLabel: 'File a ticket'});"
-    )
+    ready = "Drift.start({actionHref: '/app/tickets?model=' + encodeURIComponent('DistilBERT Sentiment'), actionLabel: 'File a ticket'});"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
@@ -603,7 +599,7 @@ def member_drift_page():
 
 @router.get("/app/docs", response_class=HTMLResponse)
 def member_docs_page():
-    ready = "document.getElementById('loading-root').hidden = true; document.getElementById('page-content').hidden = false; Docs.start();"
+    ready = "Docs.start();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
@@ -623,7 +619,7 @@ def member_docs_page():
 
 @router.get("/app/settings", response_class=HTMLResponse)
 def member_settings_page():
-    ready = "document.getElementById('loading-root').hidden = true; document.getElementById('page-content').hidden = false; Settings.start(user);"
+    ready = "Settings.start(user);"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"

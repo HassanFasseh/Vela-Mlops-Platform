@@ -208,7 +208,7 @@ def admin_overview_page():
   }
 </script>"""
 
-    ready = "document.getElementById('loading-root').hidden = true; document.getElementById('page-content').hidden = false; loadOverview(user);"
+    ready = "loadOverview(user);"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
@@ -359,8 +359,7 @@ def admin_users_page():
   document.getElementById('new-user-btn').addEventListener('click', openNewUserModal);
 </script>"""
 
-    ready = ("document.getElementById('loading-root').hidden = true; document.getElementById('page-content').hidden = false; "
-             "currentUser = user; loadUsers();")
+    ready = "currentUser = user; loadUsers();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
@@ -547,7 +546,7 @@ def admin_teams_page():
   document.getElementById('new-team-btn').addEventListener('click', openNewTeamModal);
 </script>"""
 
-    ready = "document.getElementById('loading-root').hidden = true; document.getElementById('page-content').hidden = false; loadTeams();"
+    ready = "loadTeams();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
@@ -694,7 +693,7 @@ def admin_tickets_page():
   });
 </script>"""
 
-    ready = "document.getElementById('loading-root').hidden = true; document.getElementById('page-content').hidden = false; loadTickets();"
+    ready = "loadTickets();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
@@ -714,7 +713,7 @@ def admin_tickets_page():
 
 @router.get("/admin/monitoring", response_class=HTMLResponse)
 def admin_monitoring_page():
-    ready = "document.getElementById('loading-root').hidden = true; document.getElementById('page-content').hidden = false; Monitoring.start();"
+    ready = "Monitoring.start();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
@@ -734,11 +733,7 @@ def admin_monitoring_page():
 
 @router.get("/admin/drift", response_class=HTMLResponse)
 def admin_drift_page():
-    ready = (
-        "document.getElementById('loading-root').hidden = true; "
-        "document.getElementById('page-content').hidden = false; "
-        "Drift.start({actionHref: '/admin/tickets-page', actionLabel: 'View open tickets'});"
-    )
+    ready = "Drift.start({actionHref: '/admin/tickets-page', actionLabel: 'View open tickets'});"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
@@ -1034,7 +1029,7 @@ def admin_remediation_page():
   })();
 </script>"""
 
-    ready = "document.getElementById('loading-root').hidden = true; document.getElementById('page-content').hidden = false;"
+    ready = ""
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
@@ -1054,7 +1049,7 @@ def admin_remediation_page():
 
 @router.get("/admin/docs", response_class=HTMLResponse)
 def admin_docs_page():
-    ready = "document.getElementById('loading-root').hidden = true; document.getElementById('page-content').hidden = false; Docs.start();"
+    ready = "Docs.start();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
@@ -1074,7 +1069,7 @@ def admin_docs_page():
 
 @router.get("/admin/settings", response_class=HTMLResponse)
 def admin_settings_page():
-    ready = "document.getElementById('loading-root').hidden = true; document.getElementById('page-content').hidden = false; Settings.start(user);"
+    ready = "Settings.start(user);"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
