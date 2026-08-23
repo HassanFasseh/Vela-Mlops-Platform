@@ -1,0 +1,119 @@
+/*
+ * Vela design tokens.
+ * Single source of truth for color, type, spacing, radius, shadow and motion.
+ * Formalizes the palette already documented in CLAUDE.md — do not fork new
+ * ad-hoc values in component CSS, extend this file instead.
+ */
+
+:root {
+  /* ---- Surfaces --------------------------------------------------- */
+  --color-bg: #0a0a0f;
+  --color-bg-elevated: #0d0d18;
+  --color-surface: #111119;
+  --color-surface-2: #14141f;
+  --color-surface-hover: #17172333;
+
+  --color-border: #1e1e2e;
+  --color-border-subtle: #16161f;
+  --color-border-strong: #3a3a4c;
+
+  /* ---- Text --------------------------------------------------------*/
+  --color-text: #e0e0e0;
+  --color-text-secondary: #8a8a9a;
+  --color-text-muted: #85858f;
+  --color-text-inverse: #0a0a0f;
+
+  /* ---- Accent (single restrained accent, per spec) ------------------*/
+  --color-accent: #7eb8f7;
+  --color-accent-strong: #a8d4ff;
+  --color-accent-bg: #16283d;
+  --color-accent-bg-hover: #1c3350;
+  --color-accent-border: #2a5a8c;
+
+  /* ---- Semantic status ---------------------------------------------*/
+  --color-success: #7ef7a0;
+  --color-success-bg: #14261a;
+  --color-success-border: #285c37;
+
+  --color-warning: #f7c97e;
+  --color-warning-bg: #2a2214;
+  --color-warning-border: #6b4f1f;
+
+  --color-danger: #f77e7e;
+  --color-danger-bg: #2a1616;
+  --color-danger-border: #6b2b2b;
+
+  --color-info: #7eb8f7;
+  --color-info-bg: #16283d;
+  --color-info-border: #2a5a8c;
+
+  --color-neutral: #9a9aa8;
+  --color-neutral-bg: #1a1a24;
+  --color-neutral-border: #2a2a38;
+
+  /* ---- Typography ----------------------------------------------------*/
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  --text-xs: 0.72rem;
+  --text-sm: 0.82rem;
+  --text-base: 0.92rem;
+  --text-md: 1.05rem;
+  --text-lg: 1.3rem;
+  --text-xl: 1.7rem;
+  --text-2xl: 2.2rem;
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.55;
+  --tracking-label: 0.08em;
+
+  /* ---- Spacing scale --------------------------------------------------*/
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* ---- Radius -----------------------------------------------------*/
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 999px;
+
+  /* ---- Elevation ----------------------------------------------------*/
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --shadow-focus: 0 0 0 3px rgba(126, 184, 247, 0.35);
+
+  /* ---- Layout ------------------------------------------------------*/
+  --sidebar-width: 240px;
+  --sidebar-width-collapsed: 60px;
+  --topbar-height: 56px;
+  --content-max-width: 1200px;
+
+  /* ---- Motion -------------------------------------------------------*/
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 500ms;
+
+  /* ---- Z-index scale --------------------------------------------------*/
+  --z-sidebar: 90;
+  --z-topbar: 100;
+  --z-dropdown: 200;
+  --z-modal: 300;
+  --z-command: 350;
+  --z-toast: 400;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+    --duration-slow: 0ms;
+  }
+}

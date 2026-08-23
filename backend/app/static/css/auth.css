@@ -1,0 +1,69 @@
+/*
+ * Vela pre-app / interstitial auth pages (login, forced password change).
+ * These pages match the authenticated app's dark visual identity (spec §5)
+ * even though they render outside the AppShell.
+ */
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background:
+    radial-gradient(circle at 50% 0%, #101725 0%, transparent 55%),
+    var(--color-bg);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6) var(--space-5);
+  box-shadow: var(--shadow-lg);
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: center;
+  margin-bottom: var(--space-3);
+}
+
+.auth-brand-mark {
+  color: var(--color-accent);
+  width: 20px;
+  height: 20px;
+}
+
+.auth-brand-name {
+  font-size: var(--text-md);
+  font-weight: 700;
+  letter-spacing: var(--tracking-label);
+}
+
+.auth-subtitle {
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-5);
+}
+
+.auth-footer-link {
+  text-align: center;
+  margin-top: var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.auth-loading {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}

@@ -1,6 +1,7 @@
 import fastapi
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from backend.app.schemas import Model
 from backend.app.db.models import Base
 from backend.app.database import engine
@@ -37,6 +38,9 @@ async def lifespan(app):
 
 app = FastAPI(lifespan=lifespan)
 
+_STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+
 def get_verified_user(authorization: str, db=None):
     """Get current user and enforce force_password_change."""
     from backend.app.services.auth import decode_token
@@ -69,8 +73,12 @@ def get_verified_user(authorization: str, db=None):
 
 from backend.app.routers.auth import router as auth_router
 from backend.app.routers.teams import router as teams_router
+from backend.app.routers.admin_pages import router as admin_pages_router
+from backend.app.routers.member_pages import router as member_pages_router
 app.include_router(auth_router)
 app.include_router(teams_router)
+app.include_router(admin_pages_router)
+app.include_router(member_pages_router)
 
 
 @app.get("/metrics-summary")
@@ -94,9 +102,127 @@ class DeployModelRequest(BaseModel):
     task_type: str
     deployment_name: str
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 def root():
-    return {"message": "Hello World"}
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vela — Self-hosted MLOps</title>
+<style>
+  :root{
+    --bg:#f7f6f3; --ink:#0a0a0f; --sub:#5c5c66; --line:#d8d6cf;
+    --accent:#2b5a8a; --accent-soft:#2b5a8a55;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;overflow:hidden}
+  body{
+    font-family:ui-monospace,"JetBrains Mono","SFMono-Regular",Menlo,Consolas,monospace;
+    background:var(--bg); color:var(--ink);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    position:relative;
+  }
+  /* subtle technical grid */
+  .grid{position:absolute; inset:0; opacity:.5;
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size:56px 56px;
+    -webkit-mask-image:radial-gradient(ellipse at 50% 40%, #000 0%, transparent 72%);
+            mask-image:radial-gradient(ellipse at 50% 40%, #000 0%, transparent 72%);
+  }
+  /* deployment-topology style node graphic */
+  .graphic{position:absolute; inset:0; opacity:.35; pointer-events:none}
+  .graphic circle{fill:var(--accent)}
+  .graphic line{stroke:var(--accent); stroke-width:1}
+  .graphic .drift{animation:drift 26s ease-in-out infinite alternate}
+  @keyframes drift{
+    0%{transform:translate(0,0)}
+    100%{transform:translate(6px,-8px)}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .graphic .drift{animation:none}
+  }
+  main{position:relative; z-index:1; text-align:center; padding:0 1.5rem; max-width:640px}
+  .wordmark{
+    font-size:clamp(2.2rem, 6vw, 3.4rem); font-weight:800; letter-spacing:.02em;
+    margin:0 0 .9rem;
+  }
+  .tagline{font-size:clamp(.85rem,1.6vw,1rem); color:var(--sub); line-height:1.7; margin:0 0 2rem}
+  .tagline b{color:var(--ink); font-weight:600}
+  .cta-row{display:flex; gap:1rem; align-items:center; justify-content:center; flex-wrap:wrap}
+  .btn-primary{
+    background:var(--ink); color:#fff; border:1px solid var(--ink);
+    padding:.65rem 1.4rem; border-radius:6px; font:inherit; font-size:.85rem; font-weight:600;
+    text-decoration:none; cursor:pointer; letter-spacing:.02em;
+  }
+  .btn-primary:hover{background:#232330}
+  .link-secondary{color:var(--accent); font-size:.82rem; text-decoration:none; border-bottom:1px solid transparent}
+  .link-secondary:hover{border-bottom-color:var(--accent)}
+  footer{
+    position:absolute; bottom:0; left:0; right:0; z-index:1;
+    display:flex; gap:1.6rem; justify-content:center; padding:1.4rem 1rem;
+    font-size:.72rem; color:var(--sub);
+  }
+  footer a{color:var(--sub); text-decoration:none}
+  footer a:hover{color:var(--ink)}
+  @media (max-height:560px){
+    .wordmark{font-size:1.8rem;margin-bottom:.5rem}
+    .tagline{margin-bottom:1.2rem}
+    footer{padding:.8rem 1rem}
+  }
+</style>
+</head>
+<body>
+  <div class="grid" aria-hidden="true"></div>
+  <svg class="graphic" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <g class="drift">
+      <line x1="120" y1="140" x2="300" y2="220"/>
+      <line x1="300" y1="220" x2="230" y2="380"/>
+      <line x1="300" y1="220" x2="470" y2="180"/>
+      <line x1="470" y1="180" x2="620" y2="260"/>
+      <line x1="620" y1="260" x2="560" y2="420"/>
+      <line x1="620" y1="260" x2="800" y2="200"/>
+      <line x1="800" y1="200" x2="880" y2="360"/>
+      <line x1="230" y1="380" x2="380" y2="470"/>
+      <line x1="560" y1="420" x2="380" y2="470"/>
+      <line x1="130" y1="470" x2="230" y2="380"/>
+    </g>
+    <g class="drift">
+      <circle cx="120" cy="140" r="3.5"/>
+      <circle cx="300" cy="220" r="4.5"/>
+      <circle cx="230" cy="380" r="3.5"/>
+      <circle cx="470" cy="180" r="4"/>
+      <circle cx="620" cy="260" r="5"/>
+      <circle cx="560" cy="420" r="3.5"/>
+      <circle cx="800" cy="200" r="4"/>
+      <circle cx="880" cy="360" r="3.5"/>
+      <circle cx="380" cy="470" r="4"/>
+      <circle cx="130" cy="470" r="3"/>
+    </g>
+  </svg>
+
+  <main>
+    <h1 class="wordmark">VELA</h1>
+    <p class="tagline">
+      Self-hosted MLOps.<br>
+      <b>Your models. Your infrastructure. Your data.</b>
+    </p>
+    <div class="cta-row">
+      <a class="btn-primary" href="/login">Get Started</a>
+      <a class="link-secondary" href="/docs">Documentation</a>
+    </div>
+  </main>
+
+  <footer>
+    <a href="/docs">Documentation</a>
+    <a href="https://github.com/HassanFasseh/vela" target="_blank" rel="noopener">GitHub</a>
+    <a href="/about">About</a>
+    <a href="/privacy">Privacy</a>
+  </footer>
+</body>
+</html>"""
 
 @app.post("/deploy")
 def deploy(model: Model):
@@ -820,67 +946,223 @@ def admin_create_team(name: str, description: str = "", workspace_id: int = 1, a
     finally:
         db.close()
 
-@app.get("/auth/login-page", response_class=HTMLResponse)
+@app.get("/auth/login-page")
+def login_page_legacy_redirect():
+    # Legacy route — the email/password login form this used to serve
+    # doesn't match the username/password auth contract. Preserve the URL
+    # for anyone with it bookmarked, but send them to the real page.
+    return RedirectResponse(url="/login", status_code=302)
+
+
+@app.get("/login", response_class=HTMLResponse)
 def login_page():
     return """<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>Login — AI-Operated Model Deployment Platform</title>
-<style>
-  body{font-family:monospace;background:#0a0a0f;color:#e0e0e0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
-  .box{background:#111;border:1px solid #222;border-radius:12px;padding:2rem;width:360px}
-  h1{font-size:1.1rem;color:#7eb8f7;margin:0 0 1.5rem;text-align:center}
-  input{background:#0a0a0f;border:1px solid #333;color:#e0e0e0;padding:.5rem .7rem;border-radius:4px;font-family:monospace;width:100%;margin:.3rem 0 .7rem;box-sizing:border-box}
-  button{background:#1a3a5c;color:#7eb8f7;border:1px solid #2a5a8c;padding:.5rem 1rem;border-radius:4px;cursor:pointer;font-family:monospace;width:100%;margin:.3rem 0}
-  button:hover{background:#2a5a8c}
-  .toggle{color:#555;font-size:.8rem;text-align:center;margin-top:1rem;cursor:pointer}
-  .toggle span{color:#7eb8f7}
-  #error{color:#f77e7e;font-size:.8rem;min-height:1.2rem;margin:.3rem 0}
-  label{font-size:.8rem;color:#555}
-</style></head>
-<body><div class="box">
-  <h1>&#9881; AI-Operated Model Deployment Platform</h1>
-  <div id="login-form">
-    <label>Email</label>
-    <input type="email" id="email" placeholder="you@example.com">
-    <label>Password</label>
-    <input type="password" id="password" placeholder="••••••••">
-    <div id="error"></div>
-    <button onclick="login()">Log in</button>
-    <div class="toggle">No account? <span onclick="showSignup()">Sign up</span></div>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Log in — Vela</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/base.css">
+<link rel="stylesheet" href="/static/css/components.css">
+<link rel="stylesheet" href="/static/css/auth.css">
+</head>
+<body>
+  <div class="auth-page">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <svg class="auth-brand-mark" viewBox="0 0 24 24" fill="currentColor"><path d="M4 20 L12 3 L12 20 Z"/></svg>
+        <span class="auth-brand-name">VELA</span>
+      </div>
+      <p class="auth-subtitle">Sign in to your workspace</p>
+
+      <form id="login-form" novalidate>
+        <div class="field">
+          <label class="field-label" for="username">Username</label>
+          <input class="input" type="text" id="username" name="username" autocomplete="username" autofocus required>
+        </div>
+        <div class="field">
+          <label class="field-label" for="password">Password</label>
+          <input class="input" type="password" id="password" name="password" autocomplete="current-password" required>
+        </div>
+        <div class="field-error" id="error" role="alert"></div>
+        <button class="btn btn-primary btn-block" type="submit" id="submit-btn">Log in</button>
+      </form>
+
+      <div class="auth-footer-link">Accounts are created by an administrator.</div>
+    </div>
   </div>
-  <div id="signup-form" style="display:none">
-    <label>Name</label>
-    <input type="text" id="signup-name" placeholder="Your name">
-    <label>Email</label>
-    <input type="email" id="signup-email" placeholder="you@example.com">
-    <label>Password</label>
-    <input type="password" id="signup-password" placeholder="••••••••">
-    <div id="signup-error"></div>
-    <button onclick="signup()">Create account</button>
-    <div class="toggle">Have an account? <span onclick="showLogin()">Log in</span></div>
-  </div>
-</div>
+
+<script src="/static/js/api.js"></script>
 <script>
-  function showSignup(){document.getElementById('login-form').style.display='none';document.getElementById('signup-form').style.display='block';}
-  function showLogin(){document.getElementById('signup-form').style.display='none';document.getElementById('login-form').style.display='block';}
-  async function login(){
-    const email=document.getElementById('email').value;
-    const password=document.getElementById('password').value;
-    const r=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
-    const d=await r.json();
-    if(r.ok){localStorage.setItem('aodp_token',d.token);window.location.href='/workspaces-page';}
-    else document.getElementById('error').textContent=d.detail||'Login failed';
+  function destinationFor(user) {
+    if (user.force_password_change) return '/change-password';
+    return user.is_admin ? '/admin' : '/app';
   }
-  async function signup(){
-    const name=document.getElementById('signup-name').value;
-    const email=document.getElementById('signup-email').value;
-    const password=document.getElementById('signup-password').value;
-    const r=await fetch('/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,name,password})});
-    const d=await r.json();
-    if(r.ok){localStorage.setItem('aodp_token',d.token);window.location.href='/workspaces-page';}
-    else document.getElementById('signup-error').textContent=d.detail||'Signup failed';
+
+  // If we already hold a valid session, skip the form entirely.
+  (async function bootstrap() {
+    if (!Api.isAuthed()) return;
+    try {
+      const user = await Api.me();
+      window.location.href = destinationFor(user);
+    } catch (e) {
+      Api.clearToken();
+    }
+  })();
+
+  const form = document.getElementById('login-form');
+  const errorEl = document.getElementById('error');
+  const submitBtn = document.getElementById('submit-btn');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorEl.textContent = '';
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    if (!username || !password) {
+      errorEl.textContent = 'Enter your username and password.';
+      return;
+    }
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Logging in…';
+    try {
+      // Raw fetch, not Api.request — a 401 here is a normal "wrong
+      // credentials" outcome we want to show inline, not the global
+      // "session expired, go to /login" redirect (we're already here).
+      const res = await fetch('/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        errorEl.textContent = data.detail || 'Login failed.';
+        return;
+      }
+      Api.setToken(data.token);
+      window.location.href = destinationFor(data.user);
+    } catch (e) {
+      errorEl.textContent = 'Network error — is the API reachable?';
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Log in';
+    }
+  });
+</script>
+</body>
+</html>"""
+
+
+@app.get("/change-password", response_class=HTMLResponse)
+def change_password_page():
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Change password — Vela</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/base.css">
+<link rel="stylesheet" href="/static/css/components.css">
+<link rel="stylesheet" href="/static/css/auth.css">
+</head>
+<body>
+  <div class="auth-page" id="page-root" hidden>
+    <div class="auth-card">
+      <div class="auth-brand">
+        <svg class="auth-brand-mark" viewBox="0 0 24 24" fill="currentColor"><path d="M4 20 L12 3 L12 20 Z"/></svg>
+        <span class="auth-brand-name">VELA</span>
+      </div>
+      <p class="auth-subtitle" id="subtitle">Change your password</p>
+
+      <div class="alert alert-warning" id="forced-banner" style="display:none;margin-bottom:1rem">
+        <div>
+          <div class="alert-title">Password change required</div>
+          <div class="alert-body">An administrator set a temporary password for your account. Choose a new one to continue.</div>
+        </div>
+      </div>
+
+      <form id="pw-form" novalidate>
+        <div class="field">
+          <label class="field-label" for="new-password">New password</label>
+          <input class="input" type="password" id="new-password" autocomplete="new-password" required minlength="8">
+        </div>
+        <div class="field">
+          <label class="field-label" for="confirm-password">Confirm new password</label>
+          <input class="input" type="password" id="confirm-password" autocomplete="new-password" required minlength="8">
+        </div>
+        <div class="field-error" id="error" role="alert"></div>
+        <button class="btn btn-primary btn-block" type="submit" id="submit-btn">Set new password</button>
+      </form>
+
+      <div class="auth-footer-link" id="cancel-link-wrap" style="display:none">
+        <a href="#" id="cancel-link">Cancel</a>
+      </div>
+    </div>
+  </div>
+  <div class="auth-loading" id="loading-root">Loading…</div>
+
+<script src="/static/js/api.js"></script>
+<script>
+  let currentUser = null;
+
+  function destinationFor(user) {
+    return user.is_admin ? '/admin' : '/app';
   }
-  document.addEventListener('keydown',e=>{if(e.key==='Enter')login();});
-</script></body></html>"""
+
+  (async function init() {
+    if (!Api.isAuthed()) { window.location.href = '/login'; return; }
+    try {
+      currentUser = await Api.me();
+    } catch (e) {
+      window.location.href = '/login';
+      return;
+    }
+    document.getElementById('loading-root').hidden = true;
+    document.getElementById('page-root').hidden = false;
+
+    if (currentUser.force_password_change) {
+      document.getElementById('forced-banner').style.display = 'flex';
+      document.getElementById('subtitle').textContent = 'Set a new password to continue';
+    } else {
+      document.getElementById('cancel-link-wrap').style.display = 'block';
+      document.getElementById('cancel-link').href = destinationFor(currentUser);
+    }
+  })();
+
+  const form = document.getElementById('pw-form');
+  const errorEl = document.getElementById('error');
+  const submitBtn = document.getElementById('submit-btn');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorEl.textContent = '';
+    const pw = document.getElementById('new-password').value;
+    const confirm = document.getElementById('confirm-password').value;
+    if (pw.length < 8) {
+      errorEl.textContent = 'Password must be at least 8 characters.';
+      return;
+    }
+    if (pw !== confirm) {
+      errorEl.textContent = 'Passwords do not match.';
+      return;
+    }
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Saving…';
+    try {
+      await Api.post('/auth/change-password', { new_password: pw });
+      window.location.href = destinationFor(currentUser);
+    } catch (err) {
+      errorEl.textContent = err.message || 'Could not change password.';
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Set new password';
+    }
+  });
+</script>
+</body>
+</html>"""
 
 @app.get("/workspaces-page", response_class=HTMLResponse)
 def workspaces_page():
@@ -1208,77 +1490,3 @@ def dashboard():
   </script>
 </body>
 </html>"""
-
-import os
-from kubernetes import client as k8s_client, config as k8s_config
-
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-GITHUB_REPO  = os.environ.get("GITHUB_REPO", "")
-
-class DeployModelRequest(BaseModel):
-    model_name: str
-    task_type: str
-    deployment_name: str
-
-@app.post("/deploy-model")
-def deploy_model_endpoint(req: DeployModelRequest):
-    if not GITHUB_TOKEN or not GITHUB_REPO:
-        raise HTTPException(status_code=500, detail="GitHub credentials not configured")
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/model-deploy.yml/dispatches"
-    resp = http_requests.post(
-        url,
-        headers={
-            "Authorization": f"Bearer {GITHUB_TOKEN}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28"
-        },
-        json={
-            "ref": "main",
-            "inputs": {
-                "model_name": req.model_name,
-                "task_type": req.task_type,
-                "deployment_name": req.deployment_name
-            }
-        }
-    )
-    if resp.status_code == 204:
-        return {"status": "triggered", "deployment_name": req.deployment_name}
-    raise HTTPException(status_code=resp.status_code, detail=resp.text)
-
-@app.get("/deployments")
-def deployments():
-    try:
-        k8s_config.load_incluster_config()
-        v1 = k8s_client.CoreV1Api()
-        apps_v1 = k8s_client.AppsV1Api()
-        deps = apps_v1.list_namespaced_deployment(
-            namespace="default",
-            label_selector="managed-by=platform"
-        )
-        results = []
-        for d in deps.items:
-            name = d.metadata.name
-            ready = d.status.ready_replicas or 0
-            desired = d.spec.replicas or 1
-            status = "running" if ready == desired else "starting"
-            model_name = next(
-                (e.value for c in d.spec.template.spec.containers
-                 for e in (c.env or []) if e.name == "MODEL_NAME"),
-                "unknown"
-            )
-            task_type = next(
-                (e.value for c in d.spec.template.spec.containers
-                 for e in (c.env or []) if e.name == "TASK_TYPE"),
-                "unknown"
-            )
-            results.append({
-                "name": name,
-                "model_name": model_name,
-                "task_type": task_type,
-                "status": status,
-                "ready": ready,
-                "desired": desired
-            })
-        return results
-    except Exception as e:
-        return []
