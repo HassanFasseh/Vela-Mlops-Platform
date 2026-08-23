@@ -181,7 +181,6 @@ const Shell = (() => {
     } catch (e) {}
 
     document.body.innerHTML = "";
-    document.body.classList.add("has-shell");
 
     const skipLink = document.createElement("a");
     skipLink.className = "shell-skip-link";
@@ -248,12 +247,13 @@ const Shell = (() => {
 
     wireEvents(shell, role);
 
-    // Mounted last, and only here — mount() just did
-    // document.body.innerHTML = "" above, which would destroy a canvas
-    // inserted any earlier in this function or by the page itself.
-    if (window.Particles && typeof Particles.mount === "function") {
-      Particles.mount();
-    }
+    // Added last, after the whole shell subtree is in place — both the
+    // light dashboard theme (tokens.css: body.has-shell token overrides)
+    // and the shell layout lock (shell.css: body.has-shell { overflow:
+    // hidden; height:100vh }) key off this class, so it must land after
+    // the document.body.innerHTML reset above and after every element
+    // that needs to inherit those tokens has already been appended.
+    document.body.classList.add("has-shell");
   }
 
   function wireEvents(shell, role) {

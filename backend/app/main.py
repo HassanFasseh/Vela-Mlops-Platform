@@ -1198,38 +1198,207 @@ def login_page():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Log in — Vela</title>
-<link rel="stylesheet" href="/static/css/tokens.css">
-<link rel="stylesheet" href="/static/css/base.css">
-<link rel="stylesheet" href="/static/css/components.css">
-<link rel="stylesheet" href="/static/css/auth.css">
+<style>
+  /* Self-contained, like the landing page (/) — this is its natural
+     continuation, one step before entering the app, so it reuses the
+     same off-white/warm background, technical grid and constellation
+     canvas rather than the authenticated app's dark design system. */
+  :root{
+    --bg:#f7f6f3; --ink:#0a0a0f; --sub:#5c5c66; --line:#d8d6cf;
+    --accent:#0ea5e9; --accent-hover:#0284c7; --danger:#dc2626;
+  }
+  *{box-sizing:border-box}
+  html{height:100%}
+  body{
+    margin:0; min-height:100vh; position:relative;
+    font-family:ui-monospace,"JetBrains Mono","SFMono-Regular",Menlo,Consolas,monospace;
+    background:var(--bg); color:var(--ink);
+    display:flex; align-items:center; justify-content:center; padding:1.5rem;
+  }
+  .grid{position:absolute; inset:0; opacity:.5;
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size:56px 56px;
+    -webkit-mask-image:radial-gradient(ellipse at 50% 40%, #000 0%, transparent 72%);
+            mask-image:radial-gradient(ellipse at 50% 40%, #000 0%, transparent 72%);
+  }
+  /* Constellation — same live canvas network as the landing page (see /):
+     ~40 nodes drifting at .3px/frame, bouncing off the edges, connecting
+     to nearby nodes as they pass within ~150px. */
+  .graphic{position:absolute; inset:0; display:block; width:100%; height:100%; opacity:.35; pointer-events:none}
+
+  .auth-card{
+    position:relative; z-index:1; width:100%; max-width:380px;
+    background:#ffffff; border-radius:12px; padding:2.2rem 1.9rem;
+    box-shadow:0 12px 32px rgba(10,10,15,.1), 0 2px 8px rgba(10,10,15,.06);
+  }
+  .auth-brand{display:flex; align-items:center; justify-content:center; gap:.5rem; margin-bottom:.6rem}
+  .auth-brand-mark{width:1.15em; height:1.15em; flex-shrink:0}
+  .auth-brand-name{font-size:1.15rem; font-weight:800; letter-spacing:.04em; color:var(--ink)}
+  .auth-subtitle{text-align:center; font-size:.82rem; color:var(--sub); margin:0 0 1.7rem}
+
+  .field{display:flex; flex-direction:column; gap:.35rem; margin-bottom:1rem}
+  .field-label{font-size:.72rem; color:var(--sub); text-transform:uppercase; letter-spacing:.06em}
+  .input{
+    font:inherit; font-size:.85rem; color:var(--ink);
+    background:#ffffff; border:1px solid var(--line); border-radius:6px;
+    padding:.6rem .7rem; width:100%;
+  }
+  .input::placeholder{color:#9a9aa0}
+  .input:hover{border-color:#b8b6ae}
+  .input:focus-visible{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(14,165,233,.18)}
+
+  .field-error{font-size:.74rem; color:var(--danger); min-height:1.1em; margin-bottom:.5rem}
+
+  .btn-primary{
+    display:flex; align-items:center; justify-content:center; width:100%;
+    background:var(--accent); color:#fff; border:1px solid var(--accent);
+    padding:.68rem 1rem; border-radius:6px; font:inherit; font-size:.85rem; font-weight:600;
+    cursor:pointer; letter-spacing:.02em;
+  }
+  .btn-primary:hover:not(:disabled){background:var(--accent-hover); border-color:var(--accent-hover)}
+  .btn-primary:disabled{opacity:.6; cursor:not-allowed}
+
+  .auth-footer-link{text-align:center; margin-top:1.4rem; font-size:.72rem; color:var(--sub)}
+</style>
 </head>
 <body>
-  <div class="auth-page">
-    <div class="auth-card">
-      <div class="auth-brand">
-        <svg class="auth-brand-mark" viewBox="0 0 24 24" fill="currentColor"><path d="M4 20 L12 3 L12 20 Z"/></svg>
-        <span class="auth-brand-name">VELA</span>
-      </div>
-      <p class="auth-subtitle">Sign in to your workspace</p>
+  <div class="grid" aria-hidden="true"></div>
+  <canvas class="graphic" id="constellation" aria-hidden="true"></canvas>
 
-      <form id="login-form" novalidate>
-        <div class="field">
-          <label class="field-label" for="username">Username</label>
-          <input class="input" type="text" id="username" name="username" autocomplete="username" autofocus required>
-        </div>
-        <div class="field">
-          <label class="field-label" for="password">Password</label>
-          <input class="input" type="password" id="password" name="password" autocomplete="current-password" required>
-        </div>
-        <div class="field-error" id="error" role="alert"></div>
-        <button class="btn btn-primary btn-block" type="submit" id="submit-btn">Log in</button>
-      </form>
-
-      <div class="auth-footer-link">Accounts are created by an administrator.</div>
+  <div class="auth-card">
+    <div class="auth-brand">
+      <svg class="auth-brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 20 L12 6 L18 20 Z" fill="var(--ink)" opacity=".12"/>
+        <path d="M4 20 L12 3 L12 20 Z" fill="#0ea5e9"/>
+        <line x1="2.5" y1="20.5" x2="19.5" y2="20.5" stroke="var(--ink)" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+      <span class="auth-brand-name">VELA</span>
     </div>
+    <p class="auth-subtitle">Sign in to your workspace</p>
+
+    <form id="login-form" novalidate>
+      <div class="field">
+        <label class="field-label" for="username">Username</label>
+        <input class="input" type="text" id="username" name="username" autocomplete="username" autofocus required>
+      </div>
+      <div class="field">
+        <label class="field-label" for="password">Password</label>
+        <input class="input" type="password" id="password" name="password" autocomplete="current-password" required>
+      </div>
+      <div class="field-error" id="error" role="alert"></div>
+      <button class="btn-primary" type="submit" id="submit-btn">Log in</button>
+    </form>
+
+    <div class="auth-footer-link">Accounts are created by an administrator.</div>
   </div>
 
 <script src="/static/js/api.js"></script>
+<script>
+(function(){
+  // Constellation — identical to the landing page's (see GET /): ~40
+  // nodes drifting in random directions, bouncing off the viewport
+  // edges, with connections drawn dynamically between any two nodes
+  // within ~150px of each other each frame.
+  var canvas = document.getElementById('constellation');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+
+  var NODE_COUNT = 40;
+  var MAX_DIST = 150;
+  var SPEED = 0.3;
+  var NODE_COLOR = '30, 41, 59'; // dark navy/slate (#1e293b), rgb triplet for rgba()
+
+  var DPR = window.devicePixelRatio || 1;
+  var W = 0, H = 0;
+  var nodes = [];
+
+  function rand(min, max){ return min + Math.random() * (max - min); }
+
+  function resize(){
+    W = canvas.offsetWidth;
+    H = canvas.offsetHeight;
+    canvas.width = Math.max(1, Math.round(W * DPR));
+    canvas.height = Math.max(1, Math.round(H * DPR));
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+
+  function seed(){
+    nodes = [];
+    for (var i = 0; i < NODE_COUNT; i++) {
+      var angle = rand(0, Math.PI * 2);
+      nodes.push({
+        x: rand(0, W),
+        y: rand(0, H),
+        vx: Math.cos(angle) * SPEED,
+        vy: Math.sin(angle) * SPEED,
+        r: rand(1.4, 3)
+      });
+    }
+  }
+
+  function step(){
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      n.x += n.vx;
+      n.y += n.vy;
+      if (n.x <= 0 || n.x >= W) { n.vx *= -1; n.x = Math.min(W, Math.max(0, n.x)); }
+      if (n.y <= 0 || n.y >= H) { n.vy *= -1; n.y = Math.min(H, Math.max(0, n.y)); }
+    }
+  }
+
+  function draw(){
+    ctx.clearRect(0, 0, W, H);
+    for (var i = 0; i < nodes.length; i++) {
+      for (var j = i + 1; j < nodes.length; j++) {
+        var a = nodes[i], b = nodes[j];
+        var dx = a.x - b.x, dy = a.y - b.y;
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < MAX_DIST) {
+          ctx.strokeStyle = 'rgba(' + NODE_COLOR + ',' + ((1 - dist / MAX_DIST) * 0.5) + ')';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+        }
+      }
+    }
+    ctx.fillStyle = 'rgba(' + NODE_COLOR + ', 0.85)';
+    for (var k = 0; k < nodes.length; k++) {
+      var node = nodes[k];
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  var reduceMotion = false;
+  try { reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+
+  function loop(){
+    step();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  resize();
+  seed();
+  draw();
+  if (!reduceMotion) { requestAnimationFrame(loop); }
+
+  var resizeTimer;
+  window.addEventListener('resize', function(){
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function(){
+      resize();
+      seed();
+      draw();
+    }, 150);
+  });
+})();
+</script>
 <script>
   function destinationFor(user) {
     if (user.force_password_change) return '/change-password';
@@ -1298,48 +1467,228 @@ def change_password_page():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Change password — Vela</title>
-<link rel="stylesheet" href="/static/css/tokens.css">
-<link rel="stylesheet" href="/static/css/base.css">
-<link rel="stylesheet" href="/static/css/components.css">
-<link rel="stylesheet" href="/static/css/auth.css">
+<style>
+  /* Self-contained, like the landing page (/) and /login — same
+     off-white/warm background, technical grid and constellation canvas
+     rather than the authenticated app's dark design system. */
+  :root{
+    --bg:#f7f6f3; --ink:#0a0a0f; --sub:#5c5c66; --line:#d8d6cf;
+    --accent:#0ea5e9; --accent-hover:#0284c7; --danger:#dc2626;
+    --warn-bg:#fffbeb; --warn-border:#fde68a; --warn-ink:#92660a;
+  }
+  *{box-sizing:border-box}
+  html{height:100%}
+  body{
+    margin:0; min-height:100vh; position:relative;
+    font-family:ui-monospace,"JetBrains Mono","SFMono-Regular",Menlo,Consolas,monospace;
+    background:var(--bg); color:var(--ink);
+    display:flex; align-items:center; justify-content:center; padding:1.5rem;
+  }
+  .grid{position:absolute; inset:0; opacity:.5;
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size:56px 56px;
+    -webkit-mask-image:radial-gradient(ellipse at 50% 40%, #000 0%, transparent 72%);
+            mask-image:radial-gradient(ellipse at 50% 40%, #000 0%, transparent 72%);
+  }
+  /* Constellation — same live canvas network as the landing page (see /):
+     ~40 nodes drifting at .3px/frame, bouncing off the edges, connecting
+     to nearby nodes as they pass within ~150px. */
+  .graphic{position:absolute; inset:0; display:block; width:100%; height:100%; opacity:.35; pointer-events:none}
+
+  .auth-card{
+    position:relative; z-index:1; width:100%; max-width:380px;
+    background:#ffffff; border-radius:12px; padding:2.2rem 1.9rem;
+    box-shadow:0 12px 32px rgba(10,10,15,.1), 0 2px 8px rgba(10,10,15,.06);
+  }
+  .auth-brand{display:flex; align-items:center; justify-content:center; gap:.5rem; margin-bottom:.6rem}
+  .auth-brand-mark{width:1.15em; height:1.15em; flex-shrink:0}
+  .auth-brand-name{font-size:1.15rem; font-weight:800; letter-spacing:.04em; color:var(--ink)}
+  .auth-subtitle{text-align:center; font-size:.82rem; color:var(--sub); margin:0 0 1.4rem}
+
+  .alert-warning{
+    display:flex; gap:.6rem; align-items:flex-start;
+    background:var(--warn-bg); border:1px solid var(--warn-border); color:var(--warn-ink);
+    border-radius:8px; padding:.7rem .8rem; margin-bottom:1rem; font-size:.78rem; line-height:1.5;
+  }
+  .alert-title{font-weight:700; margin-bottom:2px}
+
+  .field{display:flex; flex-direction:column; gap:.35rem; margin-bottom:1rem}
+  .field-label{font-size:.72rem; color:var(--sub); text-transform:uppercase; letter-spacing:.06em}
+  .input{
+    font:inherit; font-size:.85rem; color:var(--ink);
+    background:#ffffff; border:1px solid var(--line); border-radius:6px;
+    padding:.6rem .7rem; width:100%;
+  }
+  .input::placeholder{color:#9a9aa0}
+  .input:hover{border-color:#b8b6ae}
+  .input:focus-visible{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(14,165,233,.18)}
+
+  .field-error{font-size:.74rem; color:var(--danger); min-height:1.1em; margin-bottom:.5rem}
+
+  .btn-primary{
+    display:flex; align-items:center; justify-content:center; width:100%;
+    background:var(--accent); color:#fff; border:1px solid var(--accent);
+    padding:.68rem 1rem; border-radius:6px; font:inherit; font-size:.85rem; font-weight:600;
+    cursor:pointer; letter-spacing:.02em;
+  }
+  .btn-primary:hover:not(:disabled){background:var(--accent-hover); border-color:var(--accent-hover)}
+  .btn-primary:disabled{opacity:.6; cursor:not-allowed}
+
+  .auth-footer-link{text-align:center; margin-top:1.4rem; font-size:.72rem; color:var(--sub)}
+  .auth-footer-link a{color:var(--accent); text-decoration:none; border-bottom:1px solid transparent}
+  .auth-footer-link a:hover{border-bottom-color:var(--accent)}
+
+  .auth-loading{position:relative; z-index:1; color:var(--sub); font-size:.85rem}
+</style>
 </head>
 <body>
-  <div class="auth-page" id="page-root" hidden>
-    <div class="auth-card">
-      <div class="auth-brand">
-        <svg class="auth-brand-mark" viewBox="0 0 24 24" fill="currentColor"><path d="M4 20 L12 3 L12 20 Z"/></svg>
-        <span class="auth-brand-name">VELA</span>
-      </div>
-      <p class="auth-subtitle" id="subtitle">Change your password</p>
+  <div class="grid" aria-hidden="true"></div>
+  <canvas class="graphic" id="constellation" aria-hidden="true"></canvas>
 
-      <div class="alert alert-warning" id="forced-banner" style="display:none;margin-bottom:1rem">
-        <div>
-          <div class="alert-title">Password change required</div>
-          <div class="alert-body">An administrator set a temporary password for your account. Choose a new one to continue.</div>
-        </div>
-      </div>
+  <div class="auth-card" id="page-root" hidden>
+    <div class="auth-brand">
+      <svg class="auth-brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 20 L12 6 L18 20 Z" fill="var(--ink)" opacity=".12"/>
+        <path d="M4 20 L12 3 L12 20 Z" fill="#0ea5e9"/>
+        <line x1="2.5" y1="20.5" x2="19.5" y2="20.5" stroke="var(--ink)" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+      <span class="auth-brand-name">VELA</span>
+    </div>
+    <p class="auth-subtitle" id="subtitle">Change your password</p>
 
-      <form id="pw-form" novalidate>
-        <div class="field">
-          <label class="field-label" for="new-password">New password</label>
-          <input class="input" type="password" id="new-password" autocomplete="new-password" required minlength="8">
-        </div>
-        <div class="field">
-          <label class="field-label" for="confirm-password">Confirm new password</label>
-          <input class="input" type="password" id="confirm-password" autocomplete="new-password" required minlength="8">
-        </div>
-        <div class="field-error" id="error" role="alert"></div>
-        <button class="btn btn-primary btn-block" type="submit" id="submit-btn">Set new password</button>
-      </form>
-
-      <div class="auth-footer-link" id="cancel-link-wrap" style="display:none">
-        <a href="#" id="cancel-link">Cancel</a>
+    <div class="alert-warning" id="forced-banner" style="display:none">
+      <div>
+        <div class="alert-title">Password change required</div>
+        <div>An administrator set a temporary password for your account. Choose a new one to continue.</div>
       </div>
+    </div>
+
+    <form id="pw-form" novalidate>
+      <div class="field">
+        <label class="field-label" for="new-password">New password</label>
+        <input class="input" type="password" id="new-password" autocomplete="new-password" required minlength="8">
+      </div>
+      <div class="field">
+        <label class="field-label" for="confirm-password">Confirm new password</label>
+        <input class="input" type="password" id="confirm-password" autocomplete="new-password" required minlength="8">
+      </div>
+      <div class="field-error" id="error" role="alert"></div>
+      <button class="btn-primary" type="submit" id="submit-btn">Set new password</button>
+    </form>
+
+    <div class="auth-footer-link" id="cancel-link-wrap" style="display:none">
+      <a href="#" id="cancel-link">Cancel</a>
     </div>
   </div>
   <div class="auth-loading" id="loading-root">Loading…</div>
 
 <script src="/static/js/api.js"></script>
+<script>
+(function(){
+  // Constellation — identical to the landing page's (see GET /): ~40
+  // nodes drifting in random directions, bouncing off the viewport
+  // edges, with connections drawn dynamically between any two nodes
+  // within ~150px of each other each frame.
+  var canvas = document.getElementById('constellation');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+
+  var NODE_COUNT = 40;
+  var MAX_DIST = 150;
+  var SPEED = 0.3;
+  var NODE_COLOR = '30, 41, 59'; // dark navy/slate (#1e293b), rgb triplet for rgba()
+
+  var DPR = window.devicePixelRatio || 1;
+  var W = 0, H = 0;
+  var nodes = [];
+
+  function rand(min, max){ return min + Math.random() * (max - min); }
+
+  function resize(){
+    W = canvas.offsetWidth;
+    H = canvas.offsetHeight;
+    canvas.width = Math.max(1, Math.round(W * DPR));
+    canvas.height = Math.max(1, Math.round(H * DPR));
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+
+  function seed(){
+    nodes = [];
+    for (var i = 0; i < NODE_COUNT; i++) {
+      var angle = rand(0, Math.PI * 2);
+      nodes.push({
+        x: rand(0, W),
+        y: rand(0, H),
+        vx: Math.cos(angle) * SPEED,
+        vy: Math.sin(angle) * SPEED,
+        r: rand(1.4, 3)
+      });
+    }
+  }
+
+  function step(){
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      n.x += n.vx;
+      n.y += n.vy;
+      if (n.x <= 0 || n.x >= W) { n.vx *= -1; n.x = Math.min(W, Math.max(0, n.x)); }
+      if (n.y <= 0 || n.y >= H) { n.vy *= -1; n.y = Math.min(H, Math.max(0, n.y)); }
+    }
+  }
+
+  function draw(){
+    ctx.clearRect(0, 0, W, H);
+    for (var i = 0; i < nodes.length; i++) {
+      for (var j = i + 1; j < nodes.length; j++) {
+        var a = nodes[i], b = nodes[j];
+        var dx = a.x - b.x, dy = a.y - b.y;
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < MAX_DIST) {
+          ctx.strokeStyle = 'rgba(' + NODE_COLOR + ',' + ((1 - dist / MAX_DIST) * 0.5) + ')';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+        }
+      }
+    }
+    ctx.fillStyle = 'rgba(' + NODE_COLOR + ', 0.85)';
+    for (var k = 0; k < nodes.length; k++) {
+      var node = nodes[k];
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  var reduceMotion = false;
+  try { reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+
+  function loop(){
+    step();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  resize();
+  seed();
+  draw();
+  if (!reduceMotion) { requestAnimationFrame(loop); }
+
+  var resizeTimer;
+  window.addEventListener('resize', function(){
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function(){
+      resize();
+      seed();
+      draw();
+    }, 150);
+  });
+})();
+</script>
 <script>
   let currentUser = null;
 
