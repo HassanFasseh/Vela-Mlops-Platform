@@ -1,3 +1,4 @@
+import traceback
 from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -102,19 +103,41 @@ def invite_member(workspace_id: int, email: str, role: str = "member", user=Depe
 
 @router.post("/workspaces/{workspace_id}/api-keys")
 def create_api_key(workspace_id: int, req: ApiKeyCreate, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    member_check = db.query(WorkspaceMember).filter(
-        WorkspaceMember.workspace_id == workspace_id,
-        WorkspaceMember.user_id == user.id
-    ).first()
-    if not member_check or member_check.role not in ["admin", "member"]:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    raw_key, api_key = generate_api_key(db, workspace_id, req.name)
-    return {
-        "key": raw_key,
-        "prefix": api_key.key_prefix,
-        "name": api_key.name,
-        "warning": "Copy this key now — it will not be shown again"
-    }
+    # This endpoint was 500ing with nothing in the logs — the exception was
+    # happening somewhere inside FastAPI's default unhandled-exception path,
+    # which returns a bare "Internal Server Error" to the client and prints
+    # nothing of its own. Logging explicitly here, at both the membership
+    # check and around the whole body, so the actual traceback shows up in
+    # the server log (matches this codebase's print(..., flush=True) style
+    # used everywhere else — services/remediation.py, model-service, etc —
+    # rather than introducing the logging module just for this one route).
+    try:
+        try:
+            member_check = db.query(WorkspaceMember).filter(
+                WorkspaceMember.workspace_id == workspace_id,
+                WorkspaceMember.user_id == user.id
+            ).first()
+        except Exception:
+            print(f"[api-keys] workspace membership check failed — user_id={user.id} workspace_id={workspace_id}", flush=True)
+            traceback.print_exc()
+            raise
+
+        if not member_check or member_check.role not in ["admin", "member"]:
+            raise HTTPException(status_code=403, detail="Not authorized")
+
+        raw_key, api_key = generate_api_key(db, workspace_id, req.name)
+        return {
+            "key": raw_key,
+            "prefix": api_key.key_prefix,
+            "name": api_key.name,
+            "warning": "Copy this key now — it will not be shown again"
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        print(f"[api-keys] create_api_key failed — user_id={user.id} workspace_id={workspace_id} name={req.name!r}", flush=True)
+        traceback.print_exc()
+        raise
 
 @router.get("/workspaces/{workspace_id}/api-keys")
 def list_api_keys(workspace_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
