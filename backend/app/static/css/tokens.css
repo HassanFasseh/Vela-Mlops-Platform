@@ -132,3 +132,69 @@
     --duration-slow: 0ms;
   }
 }
+
+/* =====================================================================
+   Dashboard content-area theme — light, Linear/Vercel-style, with the
+   sidebar kept dark (spec: "light content area, dark sidebar only").
+   Redefining the shared tokens here re-themes every component built on
+   them (cards, tables, badges, buttons, forms, dropdowns, modals, toasts,
+   metric tiles) for the authenticated app shell without a parallel
+   stylesheet. The sidebar and topbar chrome are hardcoded directly in
+   shell.css instead of via these tokens, so they're unaffected by this
+   block. Landing page and auth pages (login, change-password) render
+   outside body.has-shell and keep the original dark tokens above.
+   ===================================================================== */
+body.has-shell {
+  --color-bg: #f8f9fb;
+  --color-bg-elevated: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-2: #f8fafc;
+  --color-surface-hover: #f8fafc;
+
+  --color-border: #e2e8f0;
+  --color-border-subtle: #f1f5f9;
+  --color-border-strong: #cbd5e1;
+
+  --color-text: #0f172a;
+  --color-text-secondary: #64748b;
+  --color-text-muted: #64748b;
+  --color-text-inverse: #ffffff;
+
+  --color-accent: #0ea5e9;
+  --color-accent-strong: #0284c7;
+  --color-accent-bg: #0ea5e9;
+  --color-accent-bg-hover: #0284c7;
+  --color-accent-border: #0ea5e9;
+
+  --color-accent-teal: #38bdf8;
+  --color-accent-teal-strong: #0284c7;
+
+  --glow-accent: none;
+  --glow-teal: none;
+  --glow-accent-sm: none;
+
+  --color-success: #16a34a;
+  --color-success-bg: #f0fdf4;
+  --color-success-border: #bbf7d0;
+
+  --color-warning: #d97706;
+  --color-warning-bg: #fffbeb;
+  --color-warning-border: #fde68a;
+
+  --color-danger: #dc2626;
+  --color-danger-bg: #fef2f2;
+  --color-danger-border: #fecaca;
+
+  --color-info: #0ea5e9;
+  --color-info-bg: #f0f9ff;
+  --color-info-border: #bae6fd;
+
+  --color-neutral: #64748b;
+  --color-neutral-bg: #f1f5f9;
+  --color-neutral-border: #e2e8f0;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.16);
+  --shadow-focus: 0 0 0 3px rgba(14, 165, 233, 0.35);
+}

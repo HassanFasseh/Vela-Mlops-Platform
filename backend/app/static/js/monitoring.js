@@ -37,7 +37,7 @@ const Monitoring = (() => {
           plugins: { legend: { display: false } },
           scales: {
             x: { display: false },
-            y: { min: 0, max: 1, ticks: { color: "#8a8a9a", font: { size: 10 } }, grid: { color: "#1e1e2e" } },
+            y: { min: 0, max: 1, ticks: { color: "#94a3b8", font: { size: 10 } }, grid: { color: "#f1f5f9" } },
           },
         },
       });
@@ -52,7 +52,7 @@ const Monitoring = (() => {
           plugins: { legend: { display: false } },
           scales: {
             x: { display: false },
-            y: { beginAtZero: true, ticks: { color: "#8a8a9a", font: { size: 10 } }, grid: { color: "#1e1e2e" } },
+            y: { beginAtZero: true, ticks: { color: "#94a3b8", font: { size: 10 } }, grid: { color: "#f1f5f9" } },
           },
         },
       });

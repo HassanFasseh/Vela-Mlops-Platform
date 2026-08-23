@@ -18,14 +18,18 @@ body.has-shell {
 
 /* ---- Sidebar ----------------------------------------------------------*/
 
+/* Sidebar chrome is hardcoded rather than token-driven (spec: "light
+   content area, dark sidebar only" — it must stay dark regardless of the
+   light theme body.has-shell applies to the rest of the shell in
+   tokens.css). */
 .shell-sidebar {
   flex-shrink: 0;
   width: var(--sidebar-width);
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, #050f1f 0%, #03091a 100%);
-  border-right: 1px solid var(--color-border);
+  background: #0a0f1e;
+  border-right: 1px solid rgba(148, 163, 184, 0.12);
   z-index: var(--z-sidebar);
   transition: width var(--duration-base) var(--ease);
 }
@@ -41,11 +45,11 @@ body.has-shell {
   height: var(--topbar-height);
   padding: 0 var(--space-4);
   flex-shrink: 0;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 }
 
 .shell-brand-mark {
-  color: var(--color-accent);
+  color: #38bdf8;
   width: 18px;
   height: 18px;
   flex-shrink: 0;
@@ -55,7 +59,7 @@ body.has-shell {
   font-size: var(--text-sm);
   font-weight: 700;
   letter-spacing: var(--tracking-label);
-  color: var(--color-text);
+  color: #38bdf8;
 }
 
 .shell.is-collapsed .shell-brand-name,
@@ -72,7 +76,7 @@ body.has-shell {
 
 .shell-nav-section-label {
   font-size: var(--text-xs);
-  color: var(--color-text-muted);
+  color: #475569;
   text-transform: uppercase;
   letter-spacing: var(--tracking-label);
   padding: var(--space-3) var(--space-3) var(--space-1);
@@ -85,20 +89,20 @@ body.has-shell {
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
-  color: var(--color-text-secondary);
+  color: #94a3b8;
   font-size: var(--text-sm);
   margin: 1px 0;
 }
 
 .shell-nav-item:hover {
-  background: var(--color-surface-2);
-  color: var(--color-text);
+  background: rgba(148, 163, 184, 0.08);
+  color: #e2e8f0;
   text-decoration: none;
 }
 
 .shell-nav-item.is-active {
-  background: var(--color-accent-bg);
-  color: var(--color-accent);
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
 }
 
 /* Left border glow on the active item — a running-light/instrument feel
@@ -111,8 +115,8 @@ body.has-shell {
   bottom: 4px;
   width: 3px;
   border-radius: var(--radius-full);
-  background: var(--color-accent);
-  box-shadow: var(--glow-accent);
+  background: #38bdf8;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.3);
 }
 
 .shell-nav-item-icon {
@@ -129,14 +133,14 @@ body.has-shell {
   gap: var(--space-2);
   height: 44px;
   border: none;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
   background: none;
-  color: var(--color-text-muted);
+  color: #94a3b8;
   cursor: pointer;
 }
 .shell-collapse-btn:hover {
-  color: var(--color-text);
-  background: var(--color-surface-2);
+  color: #e2e8f0;
+  background: rgba(148, 163, 184, 0.08);
 }
 
 /* ---- Body / topbar / main ----------------------------------------------*/
@@ -156,8 +160,8 @@ body.has-shell {
   align-items: center;
   gap: var(--space-3);
   padding: 0 var(--space-4);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg);
+  border-bottom: 1px solid #e2e8f0;
+  background: #ffffff;
   z-index: var(--z-topbar);
 }
 
@@ -281,6 +285,14 @@ body.has-shell {
   font-weight: 700;
   flex-shrink: 0;
 }
+/* Dashboard light theme: --color-accent-bg and --color-accent resolve to
+   the same blue, which would make the initials invisible — swap in a
+   tinted background + darker text pairing instead (same pattern used for
+   the sidebar's active nav item and the command palette's active row). */
+body.has-shell .shell-avatar {
+  background: rgba(14, 165, 233, 0.12);
+  color: #0284c7;
+}
 
 .shell-user-name {
   font-size: var(--text-sm);
@@ -332,6 +344,14 @@ body.has-shell {
   padding: var(--space-2) var(--space-4);
   font-size: var(--text-sm);
   transition: top var(--duration-fast) var(--ease);
+}
+/* Same invisible-text risk as .shell-avatar above under the light theme —
+   force a solid fill + white text instead of the dark theme's tinted-bg
+   + colored-text pairing. */
+body.has-shell .shell-skip-link {
+  background: #0ea5e9;
+  color: #ffffff;
+  border-color: #0284c7;
 }
 
 .shell-skip-link:focus-visible {
@@ -408,6 +428,11 @@ body.has-shell {
 .shell-command-result.is-active {
   background: var(--color-accent-bg);
   color: var(--color-accent);
+}
+/* Same invisible-text risk as .shell-avatar above under the light theme. */
+body.has-shell .shell-command-result.is-active {
+  background: rgba(14, 165, 233, 0.12);
+  color: #0284c7;
 }
 
 .shell-command-empty {

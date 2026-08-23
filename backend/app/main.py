@@ -114,7 +114,7 @@ def root():
 <style>
   :root{
     --bg:#f7f6f3; --ink:#0a0a0f; --sub:#5c5c66; --line:#d8d6cf;
-    --accent:#2b5a8a; --accent-soft:#2b5a8a55; --teal:#0e6e78;
+    --accent:#2b5a8a; --accent-soft:#2b5a8a55; --teal:#0d9aa6;
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0;overflow:hidden}
@@ -133,32 +133,22 @@ def root():
     -webkit-mask-image:radial-gradient(ellipse at 50% 40%, #000 0%, transparent 72%);
             mask-image:radial-gradient(ellipse at 50% 40%, #000 0%, transparent 72%);
   }
-  /* deployment-topology style node graphic — drifts slowly, nodes pulse
-     gently, like a star chart or a constellation used for navigation. */
-  .graphic{position:absolute; inset:0; opacity:.35; pointer-events:none}
-  .graphic circle{fill:var(--accent); animation:node-pulse 3.6s ease-in-out infinite}
-  .graphic line{stroke:var(--accent); stroke-width:1}
-  .graphic .drift{animation:drift 26s ease-in-out infinite alternate}
-  @keyframes drift{
-    0%{transform:translate(0,0)}
-    100%{transform:translate(6px,-8px)}
-  }
-  @keyframes node-pulse{
-    0%,100%{opacity:.5}
-    50%{opacity:1}
-  }
-  @media (prefers-reduced-motion: reduce){
-    .graphic .drift, .graphic circle{animation:none}
-  }
+  /* Constellation — a live canvas network (not SVG): nodes drift in random
+     directions, bounce off the viewport edges, and connect to nearby
+     nodes as they pass within range, like a star chart or a shipping
+     network used for navigation. Rendered/animated in the script below;
+     this just sizes and dims the canvas. */
+  .graphic{position:absolute; inset:0; display:block; width:100%; height:100%; opacity:.35; pointer-events:none}
 
   /* Waves — a slow, seamless horizontal scroll built from a path that
      repeats every 1200 units inside a 2400-wide viewBox; translating by
-     exactly -50% loops it with no visible seam. Dark blue/teal, low
-     opacity — an accent, not a marketing banner. */
-  .waves{position:absolute; left:0; right:0; bottom:0; height:112px; overflow:hidden; pointer-events:none}
+     exactly -50% loops it with no visible seam. Real ocean-wave amplitude,
+     saturated teal — an accent that actually reads as water, not a
+     hairline gradient. */
+  .waves{position:absolute; left:0; right:0; bottom:0; height:180px; overflow:hidden; pointer-events:none}
   .wave{position:absolute; bottom:0; left:0; width:200%; height:100%; animation:wave-scroll linear infinite}
-  .wave-back{fill:var(--accent); opacity:.12; animation-duration:32s}
-  .wave-front{fill:var(--teal); opacity:.16; animation-duration:20s}
+  .wave-back{fill:var(--accent); opacity:.18; animation-duration:32s}
+  .wave-front{fill:var(--teal); opacity:.4; animation-duration:20s}
   @keyframes wave-scroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
   @media (prefers-reduced-motion: reduce){.wave{animation:none}}
 
@@ -168,9 +158,17 @@ def root():
     font-size:clamp(2.2rem, 6vw, 3.4rem); font-weight:800; letter-spacing:.02em;
     margin:0 0 .9rem;
   }
-  .sail-icon{width:.85em; height:.85em; flex-shrink:0}
+  .sail-icon{width:1.25em; height:1.25em; flex-shrink:0}
   .tagline{font-size:clamp(.85rem,1.6vw,1rem); color:var(--sub); line-height:1.7; margin:0 0 1.6rem}
-  .tagline b{color:var(--ink); font-weight:600}
+  /* Headline — 40% larger than the tagline it sits under, bold, and a
+     left-to-right ink-to-accent gradient rather than a flat color. */
+  .tagline .headline{
+    display:inline-block; margin-top:.35rem;
+    font-size:clamp(1.19rem, 2.24vw, 1.4rem); font-weight:800;
+    background:linear-gradient(90deg, #0f172a, #0ea5e9);
+    -webkit-background-clip:text; background-clip:text;
+    color:transparent; -webkit-text-fill-color:transparent;
+  }
   .cta-row{display:flex; gap:1rem; align-items:center; justify-content:center; flex-wrap:wrap}
   .btn-primary{
     background:var(--ink); color:#fff; border:1px solid var(--ink);
@@ -230,39 +228,14 @@ def root():
 </head>
 <body>
   <div class="grid" aria-hidden="true"></div>
-  <svg class="graphic" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-    <g class="drift">
-      <line x1="120" y1="140" x2="300" y2="220"/>
-      <line x1="300" y1="220" x2="230" y2="380"/>
-      <line x1="300" y1="220" x2="470" y2="180"/>
-      <line x1="470" y1="180" x2="620" y2="260"/>
-      <line x1="620" y1="260" x2="560" y2="420"/>
-      <line x1="620" y1="260" x2="800" y2="200"/>
-      <line x1="800" y1="200" x2="880" y2="360"/>
-      <line x1="230" y1="380" x2="380" y2="470"/>
-      <line x1="560" y1="420" x2="380" y2="470"/>
-      <line x1="130" y1="470" x2="230" y2="380"/>
-    </g>
-    <g class="drift">
-      <circle cx="120" cy="140" r="3.5" style="animation-delay:0s"/>
-      <circle cx="300" cy="220" r="4.5" style="animation-delay:.3s"/>
-      <circle cx="230" cy="380" r="3.5" style="animation-delay:.6s"/>
-      <circle cx="470" cy="180" r="4"   style="animation-delay:.9s"/>
-      <circle cx="620" cy="260" r="5"   style="animation-delay:1.2s"/>
-      <circle cx="560" cy="420" r="3.5" style="animation-delay:1.5s"/>
-      <circle cx="800" cy="200" r="4"   style="animation-delay:1.8s"/>
-      <circle cx="880" cy="360" r="3.5" style="animation-delay:2.1s"/>
-      <circle cx="380" cy="470" r="4"   style="animation-delay:2.4s"/>
-      <circle cx="130" cy="470" r="3"   style="animation-delay:2.7s"/>
-    </g>
-  </svg>
+  <canvas class="graphic" id="constellation" aria-hidden="true"></canvas>
 
   <div class="waves" aria-hidden="true">
-    <svg class="wave wave-back" viewBox="0 0 2400 120" preserveAspectRatio="none">
-      <path d="M0,40 C150,80 350,0 600,40 C850,80 1050,0 1200,40 C1350,80 1550,0 1800,40 C2050,80 2250,0 2400,40 L2400,120 L0,120 Z"/>
+    <svg class="wave wave-back" viewBox="0 0 2400 200" preserveAspectRatio="none">
+      <path d="M0,80 C150,150 350,10 600,80 C850,150 1050,10 1200,80 C1350,150 1550,10 1800,80 C2050,150 2250,10 2400,80 L2400,200 L0,200 Z"/>
     </svg>
-    <svg class="wave wave-front" viewBox="0 0 2400 120" preserveAspectRatio="none">
-      <path d="M0,60 C200,20 400,90 600,60 C800,20 1000,90 1200,60 C1400,20 1600,90 1800,60 C2000,20 2200,90 2400,60 L2400,120 L0,120 Z"/>
+    <svg class="wave wave-front" viewBox="0 0 2400 200" preserveAspectRatio="none">
+      <path d="M0,110 C200,40 400,180 600,110 C800,40 1000,180 1200,110 C1400,40 1600,180 1800,110 C2000,40 2200,180 2400,110 L2400,200 L0,200 Z"/>
     </svg>
   </div>
 
@@ -270,14 +243,14 @@ def root():
     <h1 class="wordmark">
       <svg class="sail-icon" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M12 20 L12 6 L18 20 Z" fill="var(--ink)" opacity=".12"/>
-        <path d="M4 20 L12 3 L12 20 Z" fill="var(--accent)"/>
+        <path d="M4 20 L12 3 L12 20 Z" fill="#0ea5e9"/>
         <line x1="2.5" y1="20.5" x2="19.5" y2="20.5" stroke="var(--ink)" stroke-width="1.4" stroke-linecap="round"/>
       </svg>
       VELA
     </h1>
     <p class="tagline">
       Self-hosted MLOps.<br>
-      <b>Your models. Your infrastructure. Your data.</b>
+      <b class="headline">Your models. Your infrastructure. Your data.</b>
     </p>
     <div class="cta-row">
       <a class="btn-primary" href="/login">Get Started</a>
@@ -302,6 +275,111 @@ def root():
     <a href="/privacy">Privacy</a>
   </footer>
 
+<script>
+(function(){
+  // Constellation — ~40 nodes drifting in random directions, bouncing off
+  // the viewport edges, with connections drawn dynamically between any
+  // two nodes within ~150px of each other each frame. Dark navy/slate,
+  // low opacity via the .graphic CSS class — an alive, sailing network
+  // rather than a static star chart.
+  var canvas = document.getElementById('constellation');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+
+  var NODE_COUNT = 40;
+  var MAX_DIST = 150;
+  var SPEED = 0.3;
+  var NODE_COLOR = '30, 41, 59'; // dark navy/slate (#1e293b), rgb triplet for rgba()
+
+  var DPR = window.devicePixelRatio || 1;
+  var W = 0, H = 0;
+  var nodes = [];
+
+  function rand(min, max){ return min + Math.random() * (max - min); }
+
+  function resize(){
+    W = canvas.offsetWidth;
+    H = canvas.offsetHeight;
+    canvas.width = Math.max(1, Math.round(W * DPR));
+    canvas.height = Math.max(1, Math.round(H * DPR));
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+
+  function seed(){
+    nodes = [];
+    for (var i = 0; i < NODE_COUNT; i++) {
+      var angle = rand(0, Math.PI * 2);
+      nodes.push({
+        x: rand(0, W),
+        y: rand(0, H),
+        vx: Math.cos(angle) * SPEED,
+        vy: Math.sin(angle) * SPEED,
+        r: rand(1.4, 3)
+      });
+    }
+  }
+
+  function step(){
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      n.x += n.vx;
+      n.y += n.vy;
+      if (n.x <= 0 || n.x >= W) { n.vx *= -1; n.x = Math.min(W, Math.max(0, n.x)); }
+      if (n.y <= 0 || n.y >= H) { n.vy *= -1; n.y = Math.min(H, Math.max(0, n.y)); }
+    }
+  }
+
+  function draw(){
+    ctx.clearRect(0, 0, W, H);
+    for (var i = 0; i < nodes.length; i++) {
+      for (var j = i + 1; j < nodes.length; j++) {
+        var a = nodes[i], b = nodes[j];
+        var dx = a.x - b.x, dy = a.y - b.y;
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < MAX_DIST) {
+          ctx.strokeStyle = 'rgba(' + NODE_COLOR + ',' + ((1 - dist / MAX_DIST) * 0.5) + ')';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+        }
+      }
+    }
+    ctx.fillStyle = 'rgba(' + NODE_COLOR + ', 0.85)';
+    for (var k = 0; k < nodes.length; k++) {
+      var node = nodes[k];
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  var reduceMotion = false;
+  try { reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+
+  function loop(){
+    step();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  resize();
+  seed();
+  draw();
+  if (!reduceMotion) { requestAnimationFrame(loop); }
+
+  var resizeTimer;
+  window.addEventListener('resize', function(){
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function(){
+      resize();
+      seed();
+      draw();
+    }, 150);
+  });
+})();
+</script>
 <script>
 (function(){
   var LOG = document.getElementById('term-log');
