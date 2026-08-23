@@ -58,32 +58,7 @@ class ModelCardCreate(BaseModel):
     performance_notes: str = ""
     limitations: str = ""
 
-@router.post("/auth/signup")
-def signup(req: SignupRequest, db: Session = Depends(get_db)):
-    try:
-        if get_user_by_email(db, req.email):
-            raise HTTPException(status_code=400, detail="Email already registered")
-        user = create_user(db, req.email, req.name, req.password)
-        token = create_access_token(user.id, user.email)
-        return {"token": token, "user": {"id": user.id, "email": user.email, "name": user.name}}
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)} | {traceback.format_exc()[-300:]}")
-
-@router.post("/auth/login")
-def login(req: LoginRequest, db: Session = Depends(get_db)):
-    user = authenticate_user(db, req.email, req.password)
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    token = create_access_token(user.id, user.email)
-    return {"token": token, "user": {"id": user.id, "email": user.email, "name": user.name}}
-
-@router.get("/auth/me")
-def me(user=Depends(get_current_user)):
-    return {"id": user.id, "email": user.email, "name": user.name}
-
+# Auth endpoints handled in main.py
 @router.post("/workspaces")
 def create_ws(req: WorkspaceCreate, user=Depends(get_current_user), db: Session = Depends(get_db)):
     ws = create_workspace(db, req.name, req.description, user)
