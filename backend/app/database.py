@@ -31,5 +31,13 @@ def run_migrations():
 from backend.app.db.models import Base
 if DATABASE_URL.startswith("postgresql"):
     run_migrations()
+    # Ensure default admin account exists
+    try:
+        from backend.app.services.auth import ensure_admin_exists
+        _db = SessionLocal()
+        ensure_admin_exists(_db)
+        _db.close()
+    except Exception as e:
+        print(f"[auth] admin check warning: {e}", flush=True)
 else:
     Base.metadata.create_all(bind=engine)

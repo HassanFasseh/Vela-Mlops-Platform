@@ -14,11 +14,15 @@ class WorkspaceRole(str, enum.Enum):
 class User(Base):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=True)  # optional, for notifications
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    force_password_change: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_by: Mapped[int] = mapped_column(Integer, nullable=True)  # admin who created this user
 
 class Workspace(Base):
     __tablename__ = "workspaces"
@@ -143,3 +147,21 @@ class AccessRequest(Base):
     reviewed_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     reviewed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     review_note: Mapped[str] = mapped_column(String(500), default="")
+
+class Ticket(Base):
+    __tablename__ = "tickets"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    ticket_type: Mapped[str] = mapped_column(String(20), default="bug")  # bug, anomaly, feedback, other
+    severity: Mapped[str] = mapped_column(String(20), default="medium")  # low, medium, high, critical
+    status: Mapped[str] = mapped_column(String(20), default="open")  # open, investigating, resolved, closed
+    deployment_id: Mapped[int] = mapped_column(Integer, ForeignKey("deployments.id"), nullable=True)
+    workspace_id: Mapped[int] = mapped_column(Integer, ForeignKey("workspaces.id"), nullable=True)
+    team_id: Mapped[int] = mapped_column(Integer, ForeignKey("teams.id"), nullable=True)
+    filed_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
+    filed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    resolved_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    resolved_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    resolution_note: Mapped[str] = mapped_column(Text, default="")
+    evidence: Mapped[str] = mapped_column(Text, default="")  # text evidence, logs, etc

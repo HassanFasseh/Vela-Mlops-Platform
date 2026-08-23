@@ -443,6 +443,268 @@ def test_remediation(config_id: int, x_api_key: str = fastapi.Header(None, alias
         db.close()
 
 
+
+from backend.app.services.tickets import (
+    create_ticket, get_all_tickets, get_user_tickets,
+    get_team_tickets, update_ticket_status
+)
+
+class TicketCreate(BaseModel):
+    title: str
+    description: str
+    ticket_type: str = "bug"
+    severity: str = "medium"
+    deployment_id: int = None
+    team_id: int = None
+    evidence: str = ""
+
+class TicketUpdate(BaseModel):
+    status: str
+    resolution_note: str = ""
+
+class UserCreate(BaseModel):
+    username: str
+    name: str
+    password: str
+    is_admin: bool = False
+    force_password_change: bool = True
+
+class PasswordChange(BaseModel):
+    new_password: str
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+@app.post("/auth/login")
+def login(req: LoginRequest):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import authenticate_user, create_access_token
+    db = SessionLocal()
+    try:
+        user = authenticate_user(db, req.username, req.password)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+        token = create_access_token(user.id, user.username)
+        return {
+            "token": token,
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "name": user.name,
+                "is_admin": user.is_admin,
+                "force_password_change": user.force_password_change
+            }
+        }
+    finally:
+        db.close()
+
+@app.get("/auth/me")
+def me(authorization: str = fastapi.Header(None)):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token
+    from backend.app.db.models import User
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        return {
+            "id": user.id,
+            "username": user.username,
+            "name": user.name,
+            "is_admin": user.is_admin,
+            "force_password_change": user.force_password_change
+        }
+    finally:
+        db.close()
+
+@app.post("/auth/change-password")
+def change_password_endpoint(req: PasswordChange, authorization: str = fastapi.Header(None)):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token, change_password
+    from backend.app.db.models import User
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        success = change_password(db, int(payload["sub"]), req.new_password)
+        if not success:
+            raise HTTPException(status_code=404, detail="User not found")
+        return {"message": "Password changed successfully"}
+    finally:
+        db.close()
+
+# Admin endpoints
+@app.post("/admin/users")
+def admin_create_user(req: UserCreate, authorization: str = fastapi.Header(None)):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token, create_user, get_user_by_username
+    from backend.app.db.models import User
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not admin or not admin.is_admin:
+            raise HTTPException(status_code=403, detail="Admin required")
+        if get_user_by_username(db, req.username):
+            raise HTTPException(status_code=400, detail="Username already exists")
+        user = create_user(db, req.username, req.name, req.password,
+                          req.is_admin, admin.id, req.force_password_change)
+        return {"id": user.id, "username": user.username, "name": user.name,
+                "is_admin": user.is_admin, "force_password_change": user.force_password_change}
+    finally:
+        db.close()
+
+@app.get("/admin/users")
+def admin_list_users(authorization: str = fastapi.Header(None)):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token
+    from backend.app.db.models import User
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not admin or not admin.is_admin:
+            raise HTTPException(status_code=403, detail="Admin required")
+        users = db.query(User).all()
+        return [{"id": u.id, "username": u.username, "name": u.name,
+                 "is_admin": u.is_admin, "is_active": u.is_active,
+                 "force_password_change": u.force_password_change,
+                 "created_at": u.created_at} for u in users]
+    finally:
+        db.close()
+
+@app.delete("/admin/users/{user_id}")
+def admin_delete_user(user_id: int, authorization: str = fastapi.Header(None)):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token
+    from backend.app.db.models import User
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not admin or not admin.is_admin:
+            raise HTTPException(status_code=403, detail="Admin required")
+        if int(payload["sub"]) == user_id:
+            raise HTTPException(status_code=400, detail="Cannot delete yourself")
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.is_active = False
+        db.commit()
+        return {"message": f"User {user.username} deactivated"}
+    finally:
+        db.close()
+
+@app.get("/admin/tickets")
+def admin_get_tickets(status: str = None, authorization: str = fastapi.Header(None)):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token
+    from backend.app.db.models import User
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not admin or not admin.is_admin:
+            raise HTTPException(status_code=403, detail="Admin required")
+        return get_all_tickets(db, status)
+    finally:
+        db.close()
+
+@app.patch("/admin/tickets/{ticket_id}")
+def admin_update_ticket(ticket_id: int, req: TicketUpdate, authorization: str = fastapi.Header(None)):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token
+    from backend.app.db.models import User
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not admin or not admin.is_admin:
+            raise HTTPException(status_code=403, detail="Admin required")
+        ticket = update_ticket_status(db, ticket_id, req.status, admin.id, req.resolution_note)
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        return {"id": ticket.id, "status": ticket.status, "message": "Ticket updated"}
+    finally:
+        db.close()
+
+# User ticket endpoints
+@app.post("/tickets")
+def file_ticket(req: TicketCreate, authorization: str = fastapi.Header(None)):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token
+    from backend.app.db.models import User, WorkspaceMember
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        ws = db.query(WorkspaceMember).filter(WorkspaceMember.user_id == user.id).first()
+        workspace_id = ws.workspace_id if ws else None
+        ticket = create_ticket(
+            db, req.title, req.description, req.ticket_type,
+            req.severity, user.id, req.deployment_id,
+            workspace_id, req.team_id, req.evidence
+        )
+        return {"id": ticket.id, "message": "Ticket filed successfully", "status": ticket.status}
+    finally:
+        db.close()
+
+@app.get("/tickets/my")
+def my_tickets(authorization: str = fastapi.Header(None)):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token
+    from backend.app.db.models import User
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        return get_user_tickets(db, user.id)
+    finally:
+        db.close()
+
+
 @app.get("/auth/login-page", response_class=HTMLResponse)
 def login_page():
     return """<!DOCTYPE html>

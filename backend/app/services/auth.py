@@ -23,7 +23,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 def create_access_token(user_id: int, email: str) -> str:
     expire = datetime.utcnow() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
     return jwt.encode(
-        {"sub": str(user_id), "email": email, "exp": expire},
+        {"sub": str(user_id), "username": email, "exp": expire},
         SECRET_KEY, algorithm=ALGORITHM
     )
 
@@ -33,21 +33,60 @@ def decode_token(token: str) -> Optional[dict]:
     except JWTError:
         return None
 
-def create_user(db: Session, email: str, name: str, password: str) -> User:
-    user = User(email=email, name=name, password_hash=hash_password(password))
+def create_user(db: Session, username: str, name: str, password: str,
+                is_admin: bool = False, created_by: int = None,
+                force_password_change: bool = False) -> User:
+    user = User(
+        username=username,
+        name=name,
+        password_hash=hash_password(password),
+        is_admin=is_admin,
+        created_by=created_by,
+        force_password_change=force_password_change
+    )
     db.add(user)
     db.commit()
     db.refresh(user)
     return user
 
+def get_user_by_username(db: Session, username: str) -> Optional[User]:
+    return db.query(User).filter(User.username == username).first()
+
 def get_user_by_email(db: Session, email: str) -> Optional[User]:
     return db.query(User).filter(User.email == email).first()
 
-def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
-    user = get_user_by_email(db, email)
+def authenticate_user(db: Session, username: str, password: str) -> Optional[User]:
+    user = get_user_by_username(db, username)
     if not user or not verify_password(password, user.password_hash):
         return None
+    if not user.is_active:
+        return None
     return user
+
+def ensure_admin_exists(db: Session):
+    """Create default admin account if no admin exists."""
+    from backend.app.db.models import User
+    admin = db.query(User).filter(User.is_admin == True).first()
+    if not admin:
+        admin = create_user(
+            db,
+            username="admin",
+            name="Administrator",
+            password="admin",
+            is_admin=True,
+            force_password_change=True
+        )
+        print("[auth] default admin account created — username: admin, password: admin", flush=True)
+    return admin
+
+def change_password(db: Session, user_id: int, new_password: str) -> bool:
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        return False
+    user.password_hash = hash_password(new_password)
+    user.force_password_change = False
+    db.commit()
+    return True
 
 def create_workspace(db: Session, name: str, description: str, owner: User) -> Workspace:
     slug = name.lower().replace(" ", "-").replace("_", "-")
