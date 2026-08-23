@@ -169,6 +169,8 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: var(--space-4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .card-elevated {
@@ -230,11 +232,13 @@
   flex-shrink: 0;
 }
 
-.badge-success { background: var(--color-success-bg); color: var(--color-success); }
-.badge-warning { background: var(--color-warning-bg); color: var(--color-warning); }
-.badge-danger  { background: var(--color-danger-bg);  color: var(--color-danger); }
-.badge-info    { background: var(--color-info-bg);    color: var(--color-info); }
-.badge-neutral { background: var(--color-neutral-bg); color: var(--color-neutral); }
+/* Subtle glow per variant — currentColor at low alpha, so it always
+   matches the badge's own status color without new per-variant tokens. */
+.badge-success { background: var(--color-success-bg); color: var(--color-success); box-shadow: 0 0 8px rgba(126, 247, 160, 0.2); }
+.badge-warning { background: var(--color-warning-bg); color: var(--color-warning); box-shadow: 0 0 8px rgba(247, 201, 126, 0.2); }
+.badge-danger  { background: var(--color-danger-bg);  color: var(--color-danger);  box-shadow: 0 0 8px rgba(247, 126, 126, 0.2); }
+.badge-info    { background: var(--color-info-bg);    color: var(--color-info);    box-shadow: 0 0 8px rgba(126, 184, 247, 0.2); }
+.badge-neutral { background: var(--color-neutral-bg); color: var(--color-neutral); box-shadow: 0 0 6px rgba(154, 154, 168, 0.12); }
 
 /* =====================================================================
    Alerts / banners
@@ -648,10 +652,30 @@
 }
 
 .metric-tile {
+  position: relative;
+  overflow: hidden;
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: var(--space-3) var(--space-4);
+  transition: transform var(--duration-base) var(--ease), border-color var(--duration-base) var(--ease);
+}
+
+/* Gradient top border, blue -> teal — an instrument-panel accent line
+   rather than a full border, so it reads as a highlight, not a frame. */
+.metric-tile::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--color-accent), var(--color-accent-teal));
+}
+
+.metric-tile:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-border-strong);
 }
 
 .metric-tile-value {
@@ -659,6 +683,7 @@
   font-weight: 700;
   color: var(--color-text);
   line-height: 1.1;
+  text-shadow: var(--glow-accent-sm);
 }
 
 .metric-tile-label {
@@ -669,9 +694,9 @@
   margin-top: var(--space-1);
 }
 
-.metric-tile-value.is-warning { color: var(--color-warning); }
-.metric-tile-value.is-danger { color: var(--color-danger); }
-.metric-tile-value.is-success { color: var(--color-success); }
+.metric-tile-value.is-warning { color: var(--color-warning); text-shadow: 0 0 8px rgba(247, 201, 126, 0.3); }
+.metric-tile-value.is-danger  { color: var(--color-danger);  text-shadow: 0 0 8px rgba(247, 126, 126, 0.3); }
+.metric-tile-value.is-success { color: var(--color-success); text-shadow: 0 0 8px rgba(126, 247, 160, 0.3); }
 
 /* =====================================================================
    Permission-denied (spec §22) — explain without leaking protected info

@@ -24,7 +24,7 @@ body.has-shell {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--color-bg-elevated);
+  background: linear-gradient(180deg, #050f1f 0%, #03091a 100%);
   border-right: 1px solid var(--color-border);
   z-index: var(--z-sidebar);
   transition: width var(--duration-base) var(--ease);
@@ -79,6 +79,7 @@ body.has-shell {
 }
 
 .shell-nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -98,6 +99,20 @@ body.has-shell {
 .shell-nav-item.is-active {
   background: var(--color-accent-bg);
   color: var(--color-accent);
+}
+
+/* Left border glow on the active item — a running-light/instrument feel
+   rather than a flat highlight block. */
+.shell-nav-item.is-active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  box-shadow: var(--glow-accent);
 }
 
 .shell-nav-item-icon {

@@ -6,29 +6,44 @@
  */
 
 :root {
-  /* ---- Surfaces --------------------------------------------------- */
-  --color-bg: #0a0a0f;
-  --color-bg-elevated: #0d0d18;
-  --color-surface: #111119;
-  --color-surface-2: #14141f;
-  --color-surface-hover: #17172333;
+  /* ---- Surfaces -----------------------------------------------------
+     Deep navy instead of flat near-black, with translucent "glass"
+     surfaces layered on top (cards/tiles show the particle background
+     faintly through them) rather than opaque panels. */
+  --color-bg: #020818;
+  --color-bg-elevated: #050f1f;
+  --color-surface: rgba(255, 255, 255, 0.03);
+  --color-surface-2: rgba(255, 255, 255, 0.05);
+  --color-surface-hover: rgba(255, 255, 255, 0.07);
 
-  --color-border: #1e1e2e;
-  --color-border-subtle: #16161f;
-  --color-border-strong: #3a3a4c;
+  --color-border: rgba(99, 179, 237, 0.1);
+  --color-border-subtle: rgba(99, 179, 237, 0.06);
+  --color-border-strong: rgba(99, 179, 237, 0.15);
 
   /* ---- Text --------------------------------------------------------*/
   --color-text: #e0e0e0;
   --color-text-secondary: #8a8a9a;
   --color-text-muted: #85858f;
-  --color-text-inverse: #0a0a0f;
+  --color-text-inverse: #020818;
 
-  /* ---- Accent (single restrained accent, per spec) ------------------*/
+  /* ---- Accent — blue stays primary, teal is the secondary accent used
+     for gradients/glows (spec: "keep #7eb8f7 blue but add a secondary
+     teal #38bdf8") — still one restrained *family*, not a rainbow. ---*/
   --color-accent: #7eb8f7;
   --color-accent-strong: #a8d4ff;
   --color-accent-bg: #16283d;
   --color-accent-bg-hover: #1c3350;
   --color-accent-border: #2a5a8c;
+
+  --color-accent-teal: #38bdf8;
+  --color-accent-teal-strong: #7dd3fc;
+
+  /* ---- Glow shadows — used sparingly: metric values, active nav item,
+     badge auras, card hover. Not a replacement for --shadow-*, which
+     stay pure drop-shadows for layering (modals, dropdowns). ---------*/
+  --glow-accent: 0 0 12px rgba(126, 184, 247, 0.35);
+  --glow-teal: 0 0 12px rgba(56, 189, 248, 0.3);
+  --glow-accent-sm: 0 0 8px rgba(126, 184, 247, 0.25);
 
   /* ---- Semantic status ---------------------------------------------*/
   --color-success: #7ef7a0;

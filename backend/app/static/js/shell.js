@@ -247,6 +247,13 @@ const Shell = (() => {
     main.appendChild(pageContent);
 
     wireEvents(shell, role);
+
+    // Mounted last, and only here — mount() just did
+    // document.body.innerHTML = "" above, which would destroy a canvas
+    // inserted any earlier in this function or by the page itself.
+    if (window.Particles && typeof Particles.mount === "function") {
+      Particles.mount();
+    }
   }
 
   function wireEvents(shell, role) {

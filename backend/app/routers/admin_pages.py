@@ -32,6 +32,7 @@ _ASSETS = """<link rel="stylesheet" href="/static/css/tokens.css">
 
 _SCRIPTS = """<script src="/static/js/api.js"></script>
 <script src="/static/js/shell.js"></script>
+<script src="/static/js/particles.js"></script>
 <script src="/static/js/ui.js"></script>"""
 
 # Shared boot sequence: authenticate, require is_admin, mount the shell.

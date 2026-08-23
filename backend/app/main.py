@@ -114,7 +114,7 @@ def root():
 <style>
   :root{
     --bg:#f7f6f3; --ink:#0a0a0f; --sub:#5c5c66; --line:#d8d6cf;
-    --accent:#2b5a8a; --accent-soft:#2b5a8a55;
+    --accent:#2b5a8a; --accent-soft:#2b5a8a55; --teal:#0e6e78;
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0;overflow:hidden}
@@ -133,24 +133,43 @@ def root():
     -webkit-mask-image:radial-gradient(ellipse at 50% 40%, #000 0%, transparent 72%);
             mask-image:radial-gradient(ellipse at 50% 40%, #000 0%, transparent 72%);
   }
-  /* deployment-topology style node graphic */
+  /* deployment-topology style node graphic — drifts slowly, nodes pulse
+     gently, like a star chart or a constellation used for navigation. */
   .graphic{position:absolute; inset:0; opacity:.35; pointer-events:none}
-  .graphic circle{fill:var(--accent)}
+  .graphic circle{fill:var(--accent); animation:node-pulse 3.6s ease-in-out infinite}
   .graphic line{stroke:var(--accent); stroke-width:1}
   .graphic .drift{animation:drift 26s ease-in-out infinite alternate}
   @keyframes drift{
     0%{transform:translate(0,0)}
     100%{transform:translate(6px,-8px)}
   }
-  @media (prefers-reduced-motion: reduce){
-    .graphic .drift{animation:none}
+  @keyframes node-pulse{
+    0%,100%{opacity:.5}
+    50%{opacity:1}
   }
+  @media (prefers-reduced-motion: reduce){
+    .graphic .drift, .graphic circle{animation:none}
+  }
+
+  /* Waves — a slow, seamless horizontal scroll built from a path that
+     repeats every 1200 units inside a 2400-wide viewBox; translating by
+     exactly -50% loops it with no visible seam. Dark blue/teal, low
+     opacity — an accent, not a marketing banner. */
+  .waves{position:absolute; left:0; right:0; bottom:0; height:112px; overflow:hidden; pointer-events:none}
+  .wave{position:absolute; bottom:0; left:0; width:200%; height:100%; animation:wave-scroll linear infinite}
+  .wave-back{fill:var(--accent); opacity:.12; animation-duration:32s}
+  .wave-front{fill:var(--teal); opacity:.16; animation-duration:20s}
+  @keyframes wave-scroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+  @media (prefers-reduced-motion: reduce){.wave{animation:none}}
+
   main{position:relative; z-index:1; text-align:center; padding:0 1.5rem; max-width:640px}
   .wordmark{
+    display:flex; align-items:center; justify-content:center; gap:.5rem;
     font-size:clamp(2.2rem, 6vw, 3.4rem); font-weight:800; letter-spacing:.02em;
     margin:0 0 .9rem;
   }
-  .tagline{font-size:clamp(.85rem,1.6vw,1rem); color:var(--sub); line-height:1.7; margin:0 0 2rem}
+  .sail-icon{width:.85em; height:.85em; flex-shrink:0}
+  .tagline{font-size:clamp(.85rem,1.6vw,1rem); color:var(--sub); line-height:1.7; margin:0 0 1.6rem}
   .tagline b{color:var(--ink); font-weight:600}
   .cta-row{display:flex; gap:1rem; align-items:center; justify-content:center; flex-wrap:wrap}
   .btn-primary{
@@ -161,6 +180,36 @@ def root():
   .btn-primary:hover{background:#232330}
   .link-secondary{color:var(--accent); font-size:.82rem; text-decoration:none; border-bottom:1px solid transparent}
   .link-secondary:hover{border-bottom-color:var(--accent)}
+
+  /* Terminal — a small "instrument" showing Vela actually doing things:
+     a deploy, then a drift detection + explanation cycle, looping. */
+  .terminal{
+    margin:1.5rem auto 0; text-align:left; width:100%; max-width:460px;
+    background:#0a0a0f; border:1px solid #1e1e2e; border-radius:10px;
+    box-shadow:0 16px 36px rgba(10,10,15,.16); overflow:hidden;
+  }
+  .terminal-bar{
+    display:flex; align-items:center; gap:.35rem;
+    padding:.5rem .7rem; background:#111119; border-bottom:1px solid #1e1e2e;
+  }
+  .term-dot{width:8px; height:8px; border-radius:50%}
+  .term-dot.r{background:#f77e7e} .term-dot.y{background:#f7c97e} .term-dot.g{background:#7ef7a0}
+  .terminal-title{margin-left:.45rem; font-size:.66rem; color:#6b6b78; letter-spacing:.02em}
+  .terminal-body{
+    padding:.75rem .9rem; height:150px; overflow:hidden;
+    font-size:.7rem; line-height:1.7; color:#c7cfe0; text-align:left;
+  }
+  .term-line{white-space:pre-wrap; word-break:break-word; margin:0}
+  .term-line.cmd{color:#7eb8f7}
+  .term-line.ok{color:#7ef7a0}
+  .term-cursor{
+    display:inline-block; width:6px; height:.9em; margin-left:1px;
+    background:#38bdf8; vertical-align:text-bottom;
+    animation:term-blink 1s step-end infinite;
+  }
+  @keyframes term-blink{50%{opacity:0}}
+  @media (prefers-reduced-motion: reduce){.term-cursor{animation:none}}
+
   footer{
     position:absolute; bottom:0; left:0; right:0; z-index:1;
     display:flex; gap:1.6rem; justify-content:center; padding:1.4rem 1rem;
@@ -168,9 +217,13 @@ def root():
   }
   footer a{color:var(--sub); text-decoration:none}
   footer a:hover{color:var(--ink)}
+  @media (max-height:700px){
+    .terminal-body{height:118px}
+  }
   @media (max-height:560px){
     .wordmark{font-size:1.8rem;margin-bottom:.5rem}
-    .tagline{margin-bottom:1.2rem}
+    .tagline{margin-bottom:1rem}
+    .terminal{display:none}
     footer{padding:.8rem 1rem}
   }
 </style>
@@ -191,21 +244,37 @@ def root():
       <line x1="130" y1="470" x2="230" y2="380"/>
     </g>
     <g class="drift">
-      <circle cx="120" cy="140" r="3.5"/>
-      <circle cx="300" cy="220" r="4.5"/>
-      <circle cx="230" cy="380" r="3.5"/>
-      <circle cx="470" cy="180" r="4"/>
-      <circle cx="620" cy="260" r="5"/>
-      <circle cx="560" cy="420" r="3.5"/>
-      <circle cx="800" cy="200" r="4"/>
-      <circle cx="880" cy="360" r="3.5"/>
-      <circle cx="380" cy="470" r="4"/>
-      <circle cx="130" cy="470" r="3"/>
+      <circle cx="120" cy="140" r="3.5" style="animation-delay:0s"/>
+      <circle cx="300" cy="220" r="4.5" style="animation-delay:.3s"/>
+      <circle cx="230" cy="380" r="3.5" style="animation-delay:.6s"/>
+      <circle cx="470" cy="180" r="4"   style="animation-delay:.9s"/>
+      <circle cx="620" cy="260" r="5"   style="animation-delay:1.2s"/>
+      <circle cx="560" cy="420" r="3.5" style="animation-delay:1.5s"/>
+      <circle cx="800" cy="200" r="4"   style="animation-delay:1.8s"/>
+      <circle cx="880" cy="360" r="3.5" style="animation-delay:2.1s"/>
+      <circle cx="380" cy="470" r="4"   style="animation-delay:2.4s"/>
+      <circle cx="130" cy="470" r="3"   style="animation-delay:2.7s"/>
     </g>
   </svg>
 
+  <div class="waves" aria-hidden="true">
+    <svg class="wave wave-back" viewBox="0 0 2400 120" preserveAspectRatio="none">
+      <path d="M0,40 C150,80 350,0 600,40 C850,80 1050,0 1200,40 C1350,80 1550,0 1800,40 C2050,80 2250,0 2400,40 L2400,120 L0,120 Z"/>
+    </svg>
+    <svg class="wave wave-front" viewBox="0 0 2400 120" preserveAspectRatio="none">
+      <path d="M0,60 C200,20 400,90 600,60 C800,20 1000,90 1200,60 C1400,20 1600,90 1800,60 C2000,20 2200,90 2400,60 L2400,120 L0,120 Z"/>
+    </svg>
+  </div>
+
   <main>
-    <h1 class="wordmark">VELA</h1>
+    <h1 class="wordmark">
+      <svg class="sail-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 20 L12 6 L18 20 Z" fill="var(--ink)" opacity=".12"/>
+        <path d="M4 20 L12 3 L12 20 Z" fill="var(--accent)"/>
+        <line x1="2.5" y1="20.5" x2="19.5" y2="20.5" stroke="var(--ink)" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+      VELA
+    </h1>
     <p class="tagline">
       Self-hosted MLOps.<br>
       <b>Your models. Your infrastructure. Your data.</b>
@@ -213,6 +282,16 @@ def root():
     <div class="cta-row">
       <a class="btn-primary" href="/login">Get Started</a>
       <a class="link-secondary" href="/docs">Documentation</a>
+    </div>
+
+    <div class="terminal" role="img" aria-label="Terminal demo: deploying a model, then detecting and explaining drift">
+      <div class="terminal-bar">
+        <span class="term-dot r"></span><span class="term-dot y"></span><span class="term-dot g"></span>
+        <span class="terminal-title">vela — zsh</span>
+      </div>
+      <div class="terminal-body">
+        <div id="term-log"></div><span class="term-cursor" aria-hidden="true"></span>
+      </div>
     </div>
   </main>
 
@@ -222,6 +301,62 @@ def root():
     <a href="/about">About</a>
     <a href="/privacy">Privacy</a>
   </footer>
+
+<script>
+(function(){
+  var LOG = document.getElementById('term-log');
+  if (!LOG) return;
+  var LINES = [
+    {cls:'cmd', text:'$ vela deploy sentiment-model'},
+    {cls:'ok',  text:'\\u2713 Building multi-arch image...'},
+    {cls:'ok',  text:'\\u2713 Pushing to registry...'},
+    {cls:'ok',  text:'\\u2713 Model live in 47s'},
+    {cls:'cmd', text:'$ drift detected \\u2014 score 0.94'},
+    {cls:'cmd', text:'$ generating explanation...'},
+    {cls:'ok',  text:'\\u2713 confidence score and label distribution shifted'}
+  ];
+  var LONG_PAUSE_AFTER = 3; // pause after "Model live in 47s" before the drift sequence
+
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+
+  function renderStatic(){
+    LOG.innerHTML = LINES.map(function(l){
+      return '<p class="term-line ' + l.cls + '">' + l.text + '</p>';
+    }).join('');
+  }
+
+  function typeLine(text, cls){
+    return new Promise(function(resolve){
+      var el = document.createElement('p');
+      el.className = 'term-line ' + cls;
+      LOG.appendChild(el);
+      var i = 0;
+      (function step(){
+        if (i >= text.length) { resolve(); return; }
+        el.textContent += text[i];
+        i++;
+        setTimeout(step, 16 + Math.random() * 22);
+      })();
+    });
+  }
+
+  async function run(){
+    while (true) {
+      LOG.innerHTML = '';
+      for (var i = 0; i < LINES.length; i++) {
+        await typeLine(LINES[i].text, LINES[i].cls);
+        await sleep(i === LONG_PAUSE_AFTER ? 1100 : 280);
+      }
+      await sleep(2200);
+    }
+  }
+
+  var reduceMotion = false;
+  try { reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+
+  if (reduceMotion) { renderStatic(); } else { run(); }
+})();
+</script>
 </body>
 </html>"""
 
