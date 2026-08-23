@@ -67,6 +67,16 @@ table {
   width: 100%;
 }
 
+/* Any component that sets its own `display` (flex/grid/inline-flex/...)
+   at the same specificity as the browser's default [hidden]{display:none}
+   silently wins the tie via source order, making the `hidden` attribute a
+   no-op — bit .shell-command-overlay in practice (fixed locally there),
+   and .btn has the identical latent bug. Fix it once, globally, instead
+   of chasing it per component: `hidden` must always win. */
+[hidden] {
+  display: none !important;
+}
+
 /* ---- Accessible focus ring — never rely on color alone (spec §24) ---- */
 :focus {
   outline: none;

@@ -197,29 +197,110 @@ def member_models_page():
 
     script = """
 <script>
+  // API key comes from sessionStorage, set by /app/api-keys when a key is
+  // generated (tab-scoped, matching how the Remediation admin page and
+  // this same key's own reveal modal handle it). Never routed through the
+  // shared Api helper — that attaches the JWT and treats any 401 as
+  // "session expired", which would be wrong for a bad/missing API key.
+  let modelRows = [];
+
   async function loadModels() {
     const grid = document.getElementById('models-grid');
     grid.innerHTML = '<div class="card"><span class="skeleton skeleton-text">&nbsp;</span></div>'.repeat(3);
+    const hasKey = !!sessionStorage.getItem('vela_member_api_key');
     try {
       const [models, deployments] = await Promise.all([Api.get('/models/status'), Api.get('/deployments')]);
-      const rows = [];
-      models.forEach(m => rows.push({ name: m.name, task: m.task, source: 'Core service', status: m.status, detail: 'backing model: ' + (m.model || 'unknown') }));
-      deployments.forEach(d => rows.push({ name: d.name, task: d.task_type, source: 'Deployment', status: d.status, detail: d.ready + '/' + d.desired + ' replicas ready' }));
-      if (!rows.length) {
+      modelRows = [];
+      models.forEach(m => modelRows.push({
+        name: m.name, task: m.task, source: 'Core service', status: m.status,
+        detail: 'backing model: ' + (m.model || 'unknown'),
+        predictParam: { model_id: m.id },
+      }));
+      deployments.forEach(d => modelRows.push({
+        name: d.name, task: d.task_type, source: 'Deployment', status: d.status,
+        detail: d.ready + '/' + d.desired + ' replicas ready',
+        predictParam: { service_name: d.name },
+      }));
+      if (!modelRows.length) {
         grid.innerHTML = UI.emptyState('No models deployed yet', 'Check back once models have been deployed.');
         return;
       }
-      grid.innerHTML = rows.map(r =>
-        '<div class="card">' +
-        '<div class="card-title">' + UI.escapeHtml(r.name) + '</div>' +
-        '<div class="card-subtitle">' + UI.escapeHtml(r.task) + ' &middot; ' + UI.escapeHtml(r.source) + '</div>' +
-        '<div style="margin:.5rem 0">' + UI.statusBadge(r.status) + '</div>' +
-        '<div class="text-secondary" style="font-size:var(--text-xs);margin-bottom:.6rem">' + UI.escapeHtml(r.detail) + '</div>' +
-        '<a class="link-secondary" style="font-size:var(--text-xs)" href="/app/tickets?model=' + encodeURIComponent(r.name) + '">Report an issue &rarr;</a>' +
-        '</div>'
-      ).join('');
+      grid.innerHTML = modelRows.map((r, idx) => renderCard(r, idx, hasKey)).join('');
+      if (hasKey) {
+        modelRows.forEach((r, idx) => {
+          const btn = document.querySelector('[data-predict="' + idx + '"]');
+          const input = document.getElementById('predict-input-' + idx);
+          if (btn) btn.addEventListener('click', () => runPredict(idx));
+          if (input) input.addEventListener('keydown', (e) => { if (e.key === 'Enter') runPredict(idx); });
+        });
+      }
     } catch (e) {
       grid.innerHTML = UI.errorState(e.message, loadModels);
+    }
+  }
+
+  function renderCard(r, idx, hasKey) {
+    const testerHtml = hasKey
+      ? '<div class="field" style="margin-bottom:.5rem">' +
+        '<input class="input" type="text" id="predict-input-' + idx + '" placeholder="Try a prediction…" style="font-size:var(--text-xs)">' +
+        '</div>' +
+        '<button class="btn btn-secondary btn-sm" data-predict="' + idx + '" type="button">Run</button>' +
+        '<div id="predict-result-' + idx + '" class="text-secondary" style="font-size:var(--text-xs);margin-top:.5rem;min-height:1.2em"></div>'
+      : '<a class="link-secondary" style="font-size:var(--text-xs)" href="/app/api-keys">Get an API key to test this model &rarr;</a>';
+
+    return '<div class="card">' +
+      '<div class="card-title">' + UI.escapeHtml(r.name) + '</div>' +
+      '<div class="card-subtitle">' + UI.escapeHtml(r.task) + ' &middot; ' + UI.escapeHtml(r.source) + '</div>' +
+      '<div style="margin:.5rem 0">' + UI.statusBadge(r.status) + '</div>' +
+      '<div class="text-secondary" style="font-size:var(--text-xs);margin-bottom:.6rem">' + UI.escapeHtml(r.detail) + '</div>' +
+      '<a class="link-secondary" style="font-size:var(--text-xs)" href="/app/tickets?model=' + encodeURIComponent(r.name) + '">Report an issue &rarr;</a>' +
+      '<div style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--color-border-subtle)">' + testerHtml + '</div>' +
+      '</div>';
+  }
+
+  async function predictFetch(payload) {
+    const apiKey = sessionStorage.getItem('vela_member_api_key') || '';
+    const res = await fetch('/api/v1/predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text();
+    let data = null;
+    if (text) { try { data = JSON.parse(text); } catch (e) { data = text; } }
+    if (!res.ok) {
+      throw new Error((data && data.detail) || res.statusText || 'Request failed');
+    }
+    return data;
+  }
+
+  async function runPredict(idx) {
+    const row = modelRows[idx];
+    const input = document.getElementById('predict-input-' + idx);
+    const resultEl = document.getElementById('predict-result-' + idx);
+    const btn = document.querySelector('[data-predict="' + idx + '"]');
+    const text = input.value.trim();
+    if (!text) { resultEl.textContent = 'Enter some text first.'; return; }
+    btn.disabled = true;
+    btn.textContent = 'Running…';
+    resultEl.textContent = '';
+    try {
+      const payload = Object.assign({ text: text }, row.predictParam);
+      const data = await predictFetch(payload);
+      const result = data.result || {};
+      if (result.all_labels && Object.keys(result.all_labels).length) {
+        const top = Object.entries(result.all_labels).sort((a, b) => b[1] - a[1])[0];
+        resultEl.textContent = 'Top: ' + result.label + ' (' + (top[1] * 100).toFixed(1) + '%)';
+      } else if (result.label != null) {
+        resultEl.textContent = 'Label: ' + result.label + (result.score != null ? ' — Score: ' + (result.score * 100).toFixed(1) + '%' : '');
+      } else {
+        resultEl.textContent = 'No result returned.';
+      }
+    } catch (e) {
+      resultEl.textContent = 'Error: ' + e.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Run';
     }
   }
 </script>"""
@@ -407,7 +488,7 @@ def member_api_keys_page():
   <div class="page-max">
     <div class="card-header">
       <h1 style="font-size:var(--text-lg)">API keys</h1>
-      <button class="btn btn-primary" id="new-key-btn" type="button">New API key</button>
+      <button class="btn btn-primary" id="new-key-btn" type="button" hidden>New API key</button>
     </div>
     <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-4)">
       Use an API key to call the prediction API directly. Keys are shown in full only once, at creation.
@@ -420,18 +501,18 @@ def member_api_keys_page():
 
     script = """
 <script>
+  // Members don't self-provision a workspace here anymore — that flow
+  // (an on-demand POST /workspaces) could fail server-side and had no
+  // graceful fallback. Workspace membership is something an admin sets
+  // up; this page just reflects whether the member already has one.
   let workspaceId = null;
 
-  async function ensureWorkspace() {
-    if (workspaceId) return workspaceId;
-    const workspaces = await Api.get('/workspaces');
-    if (workspaces.length) {
-      workspaceId = workspaces[0].id;
-    } else {
-      const ws = await Api.post('/workspaces', { name: 'Personal Workspace', description: 'Bootstrapped automatically for API keys' });
-      workspaceId = ws.id;
-    }
-    return workspaceId;
+  function noWorkspaceState() {
+    document.getElementById('keys-list').innerHTML = UI.emptyState(
+      'No workspace access yet',
+      'Contact your admin to get API access.'
+    );
+    document.getElementById('new-key-btn').hidden = true;
   }
 
   async function loadKeys() {
@@ -440,10 +521,11 @@ def member_api_keys_page():
     try {
       const workspaces = await Api.get('/workspaces');
       if (!workspaces.length) {
-        list.innerHTML = UI.emptyState('No API keys yet', 'Create your first key to start calling the prediction API.');
+        noWorkspaceState();
         return;
       }
       workspaceId = workspaces[0].id;
+      document.getElementById('new-key-btn').hidden = false;
       const keys = await Api.get('/workspaces/' + workspaceId + '/api-keys');
       renderKeys(keys);
     } catch (e) {
@@ -498,9 +580,12 @@ def member_api_keys_page():
       const errorEl = overlay.querySelector('#nk-error');
       const name = overlay.querySelector('#nk-name').value.trim();
       if (!name) { errorEl.textContent = 'Give the key a name.'; return; }
+      if (!workspaceId) {
+        errorEl.textContent = 'No workspace access. Contact your admin to get API access.';
+        return;
+      }
       try {
-        const wsId = await ensureWorkspace();
-        const result = await Api.post('/workspaces/' + wsId + '/api-keys', { name });
+        const result = await Api.post('/workspaces/' + workspaceId + '/api-keys', { name });
         showRawKey(result);
         loadKeys();
       } catch (err) {
@@ -510,11 +595,17 @@ def member_api_keys_page():
   }
 
   function showRawKey(result) {
+    // Remembered for this browser tab so the "Run" testers on the Models
+    // page can call the prediction API without asking again.
+    try {
+      sessionStorage.setItem('vela_member_api_key', result.key);
+    } catch (e) {}
+
     const overlay = UI.openModal({
       title: 'Copy your API key',
       bodyHtml: `
         <div class="alert alert-warning" style="margin-bottom:.75rem">
-          <div><div class="alert-title">Shown once</div><div class="alert-body">This key will not be shown again — copy it now and store it somewhere safe.</div></div>
+          <div><div class="alert-title">Shown once</div><div class="alert-body">This key will not be shown again — copy it now and store it somewhere safe. It's also been remembered for this browser tab so the model testers on the Models page can use it.</div></div>
         </div>
         <div class="field">
           <label class="field-label">${UI.escapeHtml(result.name)}</label>
