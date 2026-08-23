@@ -356,21 +356,31 @@ def member_models_page():
   <div class="page-max">
     <h1 style="font-size:var(--text-lg);margin-bottom:2px">Models</h1>
     <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)">
-      Models currently deployed on the platform.
+      Models your teams have been granted access to.
     </p>
     <div class="card-grid" id="models-grid"></div>
   </div>
 </div>
-<div class="auth-loading" id="loading-root">Loading…</div>
+<div class="auth-loading" id="loading-root">Loading&hellip;</div>
 """
 
     script = """
 <script>
-  // API key comes from sessionStorage, set by /app/api-keys when a key is
-  // generated (tab-scoped, matching how the Remediation admin page and
-  // this same key's own reveal modal handle it). Never routed through the
-  // shared Api helper — that attaches the JWT and treats any 401 as
-  // "session expired", which would be wrong for a bad/missing API key.
+  // Scoped to what the user's teams actually have permission for — built
+  // straight from GET /teams/{id}/permissions across all of GET
+  // /users/me/teams, not from /models/status + /deployments. Those two
+  // can't be filtered this way even in principle: /deployments (k8s)
+  // never carries a DB deployment_id at all, and the two hardcoded core
+  // services in /models/status aren't Deployment rows, so they can never
+  // have a TeamModelPermission grant either way. The permissions endpoint
+  // already carries deployment_id, model_name, task_type and status
+  // directly, so it's used as the source of truth rather than attempting
+  // a join that the other two endpoints don't have the data to support.
+  //
+  // API key comes from sessionStorage, set when a key is generated from a
+  // team page (see /app/teams/{id}). Never routed through the shared Api
+  // helper — that attaches the JWT and treats any 401 as "session
+  // expired", which would be wrong for a bad/missing API key.
   let modelRows = [];
 
   async function loadModels() {
@@ -378,25 +388,36 @@ def member_models_page():
     grid.innerHTML = '<div class="card"><span class="skeleton skeleton-text">&nbsp;</span></div>'.repeat(3);
     const hasKey = !!sessionStorage.getItem('vela_member_api_key');
     try {
-      const [models, deployments] = await Promise.all([Api.get('/models/status'), Api.get('/deployments')]);
-      modelRows = [];
-      models.forEach(m => modelRows.push({
-        name: m.name, task: m.task, source: 'Core service', status: m.status,
-        detail: 'backing model: ' + (m.model || 'unknown'),
-        predictParam: { model_id: m.id },
-      }));
-      deployments.forEach(d => modelRows.push({
-        name: d.name, task: d.task_type, source: 'Deployment', status: d.status,
-        detail: d.ready + '/' + d.desired + ' replicas ready',
-        predictParam: { service_name: d.name },
-      }));
-      if (!modelRows.length) {
-        grid.innerHTML = UI.emptyState('No models deployed yet', 'Check back once models have been deployed.');
+      const teams = await Api.get('/users/me/teams');
+      if (!teams.length) {
+        renderNoAccess();
         return;
       }
+
+      const perTeam = await Promise.allSettled(
+        teams.map(t => Api.get('/teams/' + t.id + '/permissions').then(perms =>
+          perms.map(p => Object.assign({}, p, { team_id: t.id, team_name: t.name }))
+        ))
+      );
+
+      const byDeployment = new Map();
+      perTeam.forEach(result => {
+        if (result.status !== 'fulfilled') return;
+        result.value.forEach(p => {
+          if (!byDeployment.has(p.deployment_id)) byDeployment.set(p.deployment_id, p);
+        });
+      });
+      modelRows = Array.from(byDeployment.values());
+
+      if (!modelRows.length) {
+        renderNoAccess();
+        return;
+      }
+
       grid.innerHTML = modelRows.map((r, idx) => renderCard(r, idx, hasKey)).join('');
       if (hasKey) {
         modelRows.forEach((r, idx) => {
+          if (!r.can_predict) return;
           const btn = document.querySelector('[data-predict="' + idx + '"]');
           const input = document.getElementById('predict-input-' + idx);
           if (btn) btn.addEventListener('click', () => runPredict(idx));
@@ -408,21 +429,29 @@ def member_models_page():
     }
   }
 
+  function renderNoAccess() {
+    document.getElementById('models-grid').innerHTML = UI.emptyState(
+      "Your team hasn't been granted model access yet.",
+      "Contact your admin."
+    );
+  }
+
   function renderCard(r, idx, hasKey) {
-    const testerHtml = hasKey
-      ? '<div class="field" style="margin-bottom:.5rem">' +
-        '<input class="input" type="text" id="predict-input-' + idx + '" placeholder="Try a prediction…" style="font-size:var(--text-xs)">' +
-        '</div>' +
-        '<button class="btn btn-secondary btn-sm" data-predict="' + idx + '" type="button">Run</button>' +
-        '<div id="predict-result-' + idx + '" class="text-secondary" style="font-size:var(--text-xs);margin-top:.5rem;min-height:1.2em"></div>'
-      : '<a class="link-secondary" style="font-size:var(--text-xs)" href="/app">Get an API key from your team &rarr;</a>';
+    const testerHtml = !r.can_predict
+      ? UI.badge('View only', 'neutral')
+      : (hasKey
+        ? '<div class="field" style="margin-bottom:.5rem">' +
+          '<input class="input" type="text" id="predict-input-' + idx + '" placeholder="Try a prediction…" style="font-size:var(--text-xs)">' +
+          '</div>' +
+          '<button class="btn btn-secondary btn-sm" data-predict="' + idx + '" type="button">Run</button>' +
+          '<div id="predict-result-' + idx + '" class="text-secondary" style="font-size:var(--text-xs);margin-top:.5rem;min-height:1.2em"></div>'
+        : '<a class="link-secondary" style="font-size:var(--text-xs)" href="/app/teams/' + r.team_id + '">Get an API key &rarr;</a>');
 
     return '<div class="card">' +
-      '<div class="card-title">' + UI.escapeHtml(r.name) + '</div>' +
-      '<div class="card-subtitle">' + UI.escapeHtml(r.task) + ' &middot; ' + UI.escapeHtml(r.source) + '</div>' +
+      '<div class="card-title">' + UI.escapeHtml(r.model_name) + '</div>' +
+      '<div class="card-subtitle">' + UI.escapeHtml(r.task_type) + ' &middot; ' + UI.escapeHtml(r.team_name) + '</div>' +
       '<div style="margin:.5rem 0">' + UI.statusBadge(r.status) + '</div>' +
-      '<div class="text-secondary" style="font-size:var(--text-xs);margin-bottom:.6rem">' + UI.escapeHtml(r.detail) + '</div>' +
-      '<a class="link-secondary" style="font-size:var(--text-xs)" href="/app/tickets?model=' + encodeURIComponent(r.name) + '">Report an issue &rarr;</a>' +
+      '<a class="link-secondary" style="font-size:var(--text-xs)" href="/app/tickets?model=' + encodeURIComponent(r.model_name) + '">Report an issue &rarr;</a>' +
       '<div style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--color-border-subtle)">' + testerHtml + '</div>' +
       '</div>';
   }
@@ -454,8 +483,7 @@ def member_models_page():
     btn.textContent = 'Running…';
     resultEl.textContent = '';
     try {
-      const payload = Object.assign({ text: text }, row.predictParam);
-      const data = await predictFetch(payload);
+      const data = await predictFetch({ text: text, deployment_id: row.deployment_id });
       const result = data.result || {};
       if (result.all_labels && Object.keys(result.all_labels).length) {
         const top = Object.entries(result.all_labels).sort((a, b) => b[1] - a[1])[0];
