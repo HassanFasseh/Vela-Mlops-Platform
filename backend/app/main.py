@@ -37,6 +37,36 @@ async def lifespan(app):
 
 app = FastAPI(lifespan=lifespan)
 
+def get_verified_user(authorization: str, db=None):
+    """Get current user and enforce force_password_change."""
+    from backend.app.services.auth import decode_token
+    from backend.app.db.models import User
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    from backend.app.database import SessionLocal
+    close_db = db is None
+    if db is None:
+        db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        if user.force_password_change:
+            raise HTTPException(
+                status_code=403,
+                detail="Password change required",
+                headers={"X-Force-Password-Change": "true"}
+            )
+        return user, db
+    finally:
+        if close_db:
+            db.close()
+
+
+
 from backend.app.routers.auth import router as auth_router
 from backend.app.routers.teams import router as teams_router
 app.include_router(auth_router)
@@ -704,6 +734,108 @@ def my_tickets(authorization: str = fastapi.Header(None)):
     finally:
         db.close()
 
+
+
+@app.post("/admin/teams/{team_id}/users/{user_id}")
+def admin_assign_user_to_team(team_id: int, user_id: int, role: str = "member", authorization: str = fastapi.Header(None)):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token
+    from backend.app.services.teams import add_team_member
+    from backend.app.db.models import User, Team
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not admin or not admin.is_admin:
+            raise HTTPException(status_code=403, detail="Admin required")
+        team = db.query(Team).filter(Team.id == team_id).first()
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        member = add_team_member(db, team_id, user_id, role)
+        return {"message": f"{user.username} added to team {team.name} as {role}",
+                "team_id": team_id, "user_id": user_id, "role": member.role}
+    finally:
+        db.close()
+
+@app.delete("/admin/teams/{team_id}/users/{user_id}")
+def admin_remove_user_from_team(team_id: int, user_id: int, authorization: str = fastapi.Header(None)):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token
+    from backend.app.services.teams import remove_team_member
+    from backend.app.db.models import User, Team
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not admin or not admin.is_admin:
+            raise HTTPException(status_code=403, detail="Admin required")
+        success = remove_team_member(db, team_id, user_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Member not found")
+        return {"message": f"User {user_id} removed from team {team_id}"}
+    finally:
+        db.close()
+
+@app.get("/admin/teams")
+def admin_list_teams(authorization: str = fastapi.Header(None)):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token
+    from backend.app.services.teams import get_workspace_teams, get_team_members, get_team_permissions
+    from backend.app.db.models import User, Workspace
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not admin or not admin.is_admin:
+            raise HTTPException(status_code=403, detail="Admin required")
+        from backend.app.db.models import Team
+        teams = db.query(Team).all()
+        return [{
+            "id": t.id,
+            "name": t.name,
+            "description": t.description,
+            "workspace_id": t.workspace_id,
+            "members": get_team_members(db, t.id),
+            "permissions": get_team_permissions(db, t.id)
+        } for t in teams]
+    finally:
+        db.close()
+
+@app.post("/admin/teams")
+def admin_create_team(name: str, description: str = "", workspace_id: int = 1, authorization: str = fastapi.Header(None)):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token
+    from backend.app.services.teams import create_team
+    from backend.app.db.models import User
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not admin or not admin.is_admin:
+            raise HTTPException(status_code=403, detail="Admin required")
+        team = create_team(db, workspace_id, name, description, admin.id)
+        return {"id": team.id, "name": team.name, "description": team.description}
+    finally:
+        db.close()
 
 @app.get("/auth/login-page", response_class=HTMLResponse)
 def login_page():
