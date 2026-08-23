@@ -1081,3 +1081,496 @@ def admin_settings_page():
         + "\n</body>\n</html>"
     )
     return html
+
+
+# =========================================================================
+# Model Registry — /admin/models
+#
+# Every row here comes from either /models/status (the two hardcoded core
+# services, both HuggingFace-hosted) or /deployments (k8s Deployments
+# labeled managed-by=platform). Only /deploy-model ever creates one of
+# those k8s objects — /api/v1/upload-model stores a DB record and never
+# touches the Kubernetes API — so "source" is honestly "huggingface" for
+# every row this page can show; uploaded models have no way to surface
+# here at all. There's also no endpoint mapping a k8s deployment name to
+# its DB Deployment.id, so a per-row "model card exists?" check isn't
+# possible — the doc link goes to the lookup page instead of a specific
+# card. See Docs/Teams/Remediation pages for the same underlying gap.
+# =========================================================================
+
+@router.get("/admin/models", response_class=HTMLResponse)
+def admin_models_page():
+    body = """
+<div id="page-content" hidden>
+  <div class="page-max">
+    <h1 style="font-size:var(--text-lg);margin-bottom:2px">Model Registry</h1>
+    <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)">
+      Every model currently reachable on the platform &mdash; core services and self-service deployments.
+    </p>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Model</th><th>Task</th><th>Source</th><th>Status</th><th></th></tr></thead>
+        <tbody id="registry-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<div class="auth-loading" id="loading-root">Loading&hellip;</div>
+"""
+
+    script = """
+<script>
+  async function loadRegistry() {
+    const body = document.getElementById('registry-body');
+    body.innerHTML = UI.skeletonRows(5, 4);
+    try {
+      const [models, deployments] = await Promise.all([Api.get('/models/status'), Api.get('/deployments')]);
+      const rows = [];
+      models.forEach(m => rows.push({ name: m.name, task: m.task, status: m.status }));
+      deployments.forEach(d => rows.push({ name: d.name, task: d.task_type, status: d.status }));
+      if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="5">' + UI.emptyState('No models registered yet', 'Deploy a model from the Deployments page to see it here.') + '</td></tr>';
+        return;
+      }
+      body.innerHTML = rows.map(r =>
+        '<tr><td>' + UI.escapeHtml(r.name) + '</td><td>' + UI.escapeHtml(r.task) + '</td>' +
+        '<td>' + UI.badge('huggingface', 'neutral') + '</td><td>' + UI.statusBadge(r.status) + '</td>' +
+        '<td><a class="link-secondary" style="font-size:var(--text-xs)" href="/admin/docs">Look up documentation &rarr;</a></td></tr>'
+      ).join('');
+    } catch (e) {
+      body.innerHTML = '<tr><td colspan="5">' + UI.errorState(e.message, loadRegistry) + '</td></tr>';
+    }
+  }
+</script>"""
+
+    ready = "loadRegistry();"
+
+    html = (
+        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+        "<title>Model Registry — Vela Admin</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        + body
+        + "\n" + _SCRIPTS + "\n" + script
+        + _boot_script("/admin/models", "Model Registry", ready)
+        + "\n</body>\n</html>"
+    )
+    return html
+
+
+# =========================================================================
+# Deployment Manager — /admin/deployments
+# =========================================================================
+
+@router.get("/admin/deployments", response_class=HTMLResponse)
+def admin_deployments_page():
+    body = """
+<div id="page-content" hidden>
+  <div class="page-max">
+    <h1 style="font-size:var(--text-lg);margin-bottom:2px">Deployments</h1>
+    <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)">
+      Operational status of every deployment, and a form to trigger a new one.
+    </p>
+
+    <div class="table-wrap" style="margin-bottom:var(--space-5)">
+      <table class="table">
+        <thead><tr><th>Deployment</th><th>Model</th><th>Task</th><th>Status</th><th>Replicas</th><th>Managed by</th></tr></thead>
+        <tbody id="deployments-body"></tbody>
+      </table>
+    </div>
+
+    <div class="section-label">Deploy a model</div>
+    <div class="card">
+      <form id="deploy-form" novalidate>
+        <div class="field"><label class="field-label" for="dp-model">HuggingFace model name</label><input class="input" id="dp-model" placeholder="e.g. distilbert-base-uncased-finetuned-sst-2-english" required></div>
+        <div class="field">
+          <label class="field-label" for="dp-task">Task</label>
+          <select class="select" id="dp-task">
+            <option value="sentiment-analysis">Sentiment analysis</option>
+            <option value="zero-shot-classification">Zero-shot classification</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label" for="dp-name">Deployment name</label>
+          <input class="input" id="dp-name" placeholder="lowercase-with-hyphens" required>
+          <div class="field-hint">Lowercase letters, numbers, and hyphens only.</div>
+        </div>
+        <div class="field-error" id="dp-error" role="alert"></div>
+        <div id="dp-success" style="display:none;margin-bottom:1rem"></div>
+        <button class="btn btn-primary" type="submit" id="dp-submit">Deploy via GitHub Actions</button>
+      </form>
+    </div>
+  </div>
+</div>
+<div class="auth-loading" id="loading-root">Loading&hellip;</div>
+"""
+
+    script = """
+<script>
+  async function loadDeployments() {
+    const body = document.getElementById('deployments-body');
+    body.innerHTML = UI.skeletonRows(6, 3);
+    try {
+      const [models, deployments] = await Promise.all([Api.get('/models/status'), Api.get('/deployments')]);
+      const rows = [];
+      models.forEach(m => rows.push({ name: m.name, model: m.model, task: m.task, status: m.status, replicas: '—', managed: 'core service' }));
+      deployments.forEach(d => rows.push({ name: d.name, model: d.model_name, task: d.task_type, status: d.status, replicas: d.ready + '/' + d.desired, managed: 'platform' }));
+      if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="6">' + UI.emptyState('No deployments yet', 'Use the form below to deploy your first model.') + '</td></tr>';
+        return;
+      }
+      body.innerHTML = rows.map(r =>
+        '<tr><td>' + UI.escapeHtml(r.name) + '</td><td class="text-secondary">' + UI.escapeHtml(r.model || '—') + '</td><td>' + UI.escapeHtml(r.task) + '</td>' +
+        '<td>' + UI.statusBadge(r.status) + '</td><td class="text-secondary">' + r.replicas + '</td><td>' + UI.badge(r.managed, 'neutral') + '</td></tr>'
+      ).join('');
+    } catch (e) {
+      body.innerHTML = '<tr><td colspan="6">' + UI.errorState(e.message, loadDeployments) + '</td></tr>';
+    }
+  }
+
+  document.getElementById('deploy-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById('dp-error');
+    const successEl = document.getElementById('dp-success');
+    const submitBtn = document.getElementById('dp-submit');
+    errorEl.textContent = '';
+    successEl.style.display = 'none';
+    const model_name = document.getElementById('dp-model').value.trim();
+    const task_type = document.getElementById('dp-task').value;
+    const deployment_name = document.getElementById('dp-name').value.trim();
+    if (!model_name || !deployment_name) { errorEl.textContent = 'Fill in all fields.'; return; }
+    if (!/^[a-z0-9-]+$/.test(deployment_name)) { errorEl.textContent = 'Deployment name: lowercase letters, numbers, hyphens only.'; return; }
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Triggering…';
+    try {
+      const result = await Api.post('/deploy-model', { model_name, task_type, deployment_name });
+      successEl.style.display = 'block';
+      successEl.innerHTML = UI.badge('Triggered', 'success', true) +
+        ' <span class="text-secondary" style="font-size:var(--text-sm)">&ldquo;' + UI.escapeHtml(deployment_name) + '&rdquo; will appear here in ~5&ndash;10 min.' +
+        (result.deployment_id ? ' <a class="link-secondary" href="/admin/docs?deployment_id=' + result.deployment_id + '">Document it now &rarr;</a>' : '') +
+        '</span>';
+      UI.toast('Deployment triggered', 'success');
+      document.getElementById('deploy-form').reset();
+    } catch (err) {
+      errorEl.textContent = err.message || 'Could not trigger deployment.';
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Deploy via GitHub Actions';
+    }
+  });
+</script>"""
+
+    ready = "loadDeployments();"
+
+    html = (
+        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+        "<title>Deployments — Vela Admin</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        + body
+        + "\n" + _SCRIPTS + "\n" + script
+        + _boot_script("/admin/deployments", "Deployments", ready)
+        + "\n</body>\n</html>"
+    )
+    return html
+
+
+# =========================================================================
+# Infrastructure — /admin/infrastructure
+#
+# "Running instances" and the services table are built from
+# /models/status + /deployments' replica counts, not the Kubernetes Pod
+# API directly (no endpoint exposes individual Pod objects) — labeled
+# accordingly rather than claiming pod-level precision. "Uptime" is
+# derived from the most recent "deploy" event on /timeline (itself
+# sourced from Prometheus process_start_time_seconds), with a graceful
+# fallback since /timeline 500s if Prometheus is unreachable.
+# =========================================================================
+
+@router.get("/admin/infrastructure", response_class=HTMLResponse)
+def admin_infrastructure_page():
+    body = """
+<div id="page-content" hidden>
+  <div class="page-max">
+    <h1 style="font-size:var(--text-lg);margin-bottom:2px">Infrastructure</h1>
+    <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)">Node resource usage and running services.</p>
+
+    <div class="grid-2" style="margin-bottom:var(--space-4)">
+      <div class="card">
+        <div class="meter-label"><span>Node CPU usage</span><span id="cpu-val">&mdash;</span></div>
+        <div class="meter-track"><div class="meter-fill" id="cpu-fill" style="width:0%"></div></div>
+      </div>
+      <div class="card">
+        <div class="meter-label"><span>Node memory usage</span><span id="mem-val">&mdash;</span></div>
+        <div class="meter-track"><div class="meter-fill" id="mem-fill" style="width:0%"></div></div>
+      </div>
+    </div>
+
+    <div class="metric-row" style="margin-bottom:var(--space-5)">
+      <div class="metric-tile"><div class="metric-tile-value" id="pod-count">&mdash;</div><div class="metric-tile-label">Running instances</div></div>
+      <div class="metric-tile"><div class="metric-tile-value" id="uptime-val" style="font-size:var(--text-md)">&mdash;</div><div class="metric-tile-label">Uptime since last deploy</div></div>
+    </div>
+
+    <div class="section-label">Services</div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Replicas</th></tr></thead>
+        <tbody id="services-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<div class="auth-loading" id="loading-root">Loading&hellip;</div>
+"""
+
+    script = """
+<script>
+  function setMeter(prefix, pct, label) {
+    const fill = document.getElementById(prefix + '-fill');
+    const val = document.getElementById(prefix + '-val');
+    if (fill) {
+      fill.style.width = Math.min(100, Math.max(0, pct)) + '%';
+      fill.className = 'meter-fill' + (pct > 85 ? ' is-danger' : pct > 65 ? ' is-warning' : '');
+    }
+    if (val) val.textContent = label;
+  }
+
+  function fmtN(n, dec) { return (n == null || isNaN(n)) ? '—' : Number(n).toFixed(dec); }
+
+  async function loadMetrics() {
+    try {
+      const d = await Api.get('/metrics-summary');
+      const cpu = Math.round(d.node_cpu_percent || 0);
+      const mu = d.node_memory_used_gb || 0;
+      const mt = d.node_memory_total_gb || 0;
+      const mp = mt > 0 ? Math.round((mu / mt) * 100) : 0;
+      setMeter('cpu', cpu, cpu + '%');
+      setMeter('mem', mp, fmtN(mu, 1) + 'GB / ' + fmtN(mt, 1) + 'GB (' + mp + '%)');
+    } catch (e) {
+      UI.toast('Could not load node metrics: ' + e.message, 'danger');
+    }
+  }
+
+  async function loadServices() {
+    const body = document.getElementById('services-body');
+    body.innerHTML = UI.skeletonRows(4, 3);
+    try {
+      const [models, deployments] = await Promise.all([Api.get('/models/status'), Api.get('/deployments')]);
+      let runningInstances = 0;
+      const rows = [];
+      models.forEach(m => {
+        rows.push({ name: m.name, type: 'Core service', status: m.status, replicas: '—' });
+        if (m.status === 'online') runningInstances += 1;
+      });
+      deployments.forEach(d => {
+        rows.push({ name: d.name, type: 'Platform deployment', status: d.status, replicas: d.ready + '/' + d.desired });
+        runningInstances += d.ready || 0;
+      });
+      document.getElementById('pod-count').textContent = runningInstances;
+      if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="4">' + UI.emptyState('No services running', 'Deployed models will appear here.') + '</td></tr>';
+        return;
+      }
+      body.innerHTML = rows.map(r =>
+        '<tr><td>' + UI.escapeHtml(r.name) + '</td><td class="text-secondary">' + r.type + '</td><td>' + UI.statusBadge(r.status) + '</td><td class="text-secondary">' + r.replicas + '</td></tr>'
+      ).join('');
+    } catch (e) {
+      body.innerHTML = '<tr><td colspan="4">' + UI.errorState(e.message, loadServices) + '</td></tr>';
+      document.getElementById('pod-count').textContent = '—';
+    }
+  }
+
+  async function loadUptime() {
+    const el = document.getElementById('uptime-val');
+    try {
+      const events = await Api.get('/timeline?window_minutes=1440');
+      const deploys = events.filter(e => e.type === 'deploy');
+      if (!deploys.length) { el.textContent = 'No deploy events'; return; }
+      const last = deploys[deploys.length - 1];
+      const seconds = Math.max(0, Date.now() / 1000 - last.timestamp);
+      const hours = Math.floor(seconds / 3600);
+      el.textContent = hours < 1 ? Math.floor(seconds / 60) + 'm' : hours < 48 ? hours + 'h' : Math.floor(hours / 24) + 'd';
+    } catch (e) {
+      el.textContent = 'Unavailable';
+    }
+  }
+</script>"""
+
+    ready = "loadMetrics(); loadServices(); loadUptime();"
+
+    html = (
+        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+        "<title>Infrastructure — Vela Admin</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        + body
+        + "\n" + _SCRIPTS + "\n" + script
+        + _boot_script("/admin/infrastructure", "Infrastructure", ready)
+        + "\n</body>\n</html>"
+    )
+    return html
+
+
+# =========================================================================
+# API Keys — /admin/api-keys
+#
+# GET /workspaces returns only workspaces the CALLING user belongs to —
+# there is no platform-wide "list every workspace" endpoint, and
+# is_admin doesn't grant broader visibility there. This shows the
+# admin's own workspace memberships (typically ones bootstrapped from
+# the Teams page), not necessarily every workspace on the platform.
+# =========================================================================
+
+@router.get("/admin/api-keys", response_class=HTMLResponse)
+def admin_api_keys_page():
+    body = """
+<div id="page-content" hidden>
+  <div class="page-max">
+    <h1 style="font-size:var(--text-lg);margin-bottom:2px">API Keys</h1>
+    <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)">
+      Workspaces you belong to and their keys. There's no platform-wide workspace list in the API &mdash;
+      this shows workspaces your admin account is a member of.
+    </p>
+    <div id="workspaces-list"></div>
+  </div>
+</div>
+<div class="auth-loading" id="loading-root">Loading&hellip;</div>
+"""
+
+    script = """
+<script>
+  async function loadWorkspaces() {
+    const list = document.getElementById('workspaces-list');
+    list.innerHTML = '<div class="card"><span class="skeleton skeleton-text" style="display:block;max-width:220px">&nbsp;</span></div>';
+    try {
+      const workspaces = await Api.get('/workspaces');
+      if (!workspaces.length) {
+        list.innerHTML = UI.emptyState('No workspaces yet', 'Create a team from the Teams page to bootstrap your first workspace.');
+        return;
+      }
+      list.innerHTML = workspaces.map(renderWorkspaceCard).join('');
+      workspaces.forEach(ws => loadKeysFor(ws.id));
+    } catch (e) {
+      list.innerHTML = UI.errorState(e.message, loadWorkspaces);
+    }
+  }
+
+  function renderWorkspaceCard(ws) {
+    return '<div class="card" style="margin-bottom:var(--space-3)">' +
+      '<div class="card-header"><div><div class="card-title">' + UI.escapeHtml(ws.name) + '</div>' +
+      (ws.description ? '<div class="card-subtitle">' + UI.escapeHtml(ws.description) + '</div>' : '') + '</div>' +
+      '<button class="btn btn-secondary btn-sm" data-new-key="' + ws.id + '" type="button">New key</button></div>' +
+      '<div id="keys-for-' + ws.id + '"><span class="skeleton skeleton-text" style="display:block;max-width:180px">&nbsp;</span></div>' +
+      '</div>';
+  }
+
+  async function loadKeysFor(wsId) {
+    const el = document.getElementById('keys-for-' + wsId);
+    try {
+      const keys = await Api.get('/workspaces/' + wsId + '/api-keys');
+      renderKeys(wsId, keys);
+    } catch (e) {
+      el.innerHTML = UI.errorState(e.message);
+    }
+    const btn = document.querySelector('[data-new-key="' + wsId + '"]');
+    if (btn) btn.addEventListener('click', () => openNewKeyModal(wsId));
+  }
+
+  function renderKeys(wsId, keys) {
+    const el = document.getElementById('keys-for-' + wsId);
+    if (!keys.length) {
+      el.innerHTML = '<div class="text-muted" style="font-size:var(--text-sm);padding:.3rem 0">No keys yet</div>';
+      return;
+    }
+    el.innerHTML = keys.map(k =>
+      '<div style="display:flex;justify-content:space-between;align-items:center;padding:.4rem 0;border-bottom:1px solid var(--color-border-subtle)">' +
+      '<div><span style="font-size:var(--text-sm)">' + UI.escapeHtml(k.name) + '</span> <span class="text-muted" style="font-size:var(--text-xs)">' +
+      UI.escapeHtml(k.prefix) + '&hellip; &middot; ' + UI.fmtDate(k.created_at) +
+      (k.last_used_at ? ' &middot; last used ' + UI.timeAgo(k.last_used_at) : ' &middot; never used') + '</span></div>' +
+      '<button class="btn btn-danger btn-sm" data-revoke-key="' + wsId + ':' + k.id + '" data-name="' + UI.escapeHtml(k.name) + '" type="button">Revoke</button>' +
+      '</div>'
+    ).join('');
+    el.querySelectorAll('[data-revoke-key]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const parts = btn.dataset.revokeKey.split(':');
+        revokeKey(parts[0], parts[1], btn.dataset.name);
+      });
+    });
+  }
+
+  async function revokeKey(wsId, keyId, name) {
+    if (!confirm('Revoke "' + name + '"? Anything using this key will stop working immediately.')) return;
+    try {
+      await Api.del('/workspaces/' + wsId + '/api-keys/' + keyId);
+      UI.toast('Key revoked', 'success');
+      loadKeysFor(wsId);
+    } catch (e) {
+      UI.toast(e.message || 'Could not revoke key', 'danger');
+    }
+  }
+
+  function openNewKeyModal(wsId) {
+    const overlay = UI.openModal({
+      title: 'New API key',
+      bodyHtml: `
+        <form id="new-key-form" novalidate>
+          <div class="field"><label class="field-label" for="nk-name">Key name</label><input class="input" id="nk-name" placeholder="e.g. production, ci-cd" required></div>
+          <div class="field-error" id="nk-error" role="alert"></div>
+        </form>`,
+      footerHtml: `<button class="btn btn-ghost" id="nk-cancel" type="button">Cancel</button>
+                   <button class="btn btn-primary" id="nk-submit" type="submit" form="new-key-form">Generate key</button>`,
+    });
+    overlay.querySelector('#nk-cancel').addEventListener('click', UI.closeModal);
+    overlay.querySelector('#new-key-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = overlay.querySelector('#nk-error');
+      const name = overlay.querySelector('#nk-name').value.trim();
+      if (!name) { errorEl.textContent = 'Give the key a name.'; return; }
+      try {
+        const result = await Api.post('/workspaces/' + wsId + '/api-keys', { name });
+        UI.closeModal();
+        showRawKey(result);
+        loadKeysFor(wsId);
+      } catch (err) {
+        errorEl.textContent = err.message || 'Could not create key.';
+      }
+    });
+  }
+
+  function showRawKey(result) {
+    const overlay = UI.openModal({
+      title: 'Copy your API key',
+      bodyHtml: `
+        <div class="alert alert-warning" style="margin-bottom:.75rem">
+          <div><div class="alert-title">Shown once</div><div class="alert-body">This key will not be shown again &mdash; copy it now.</div></div>
+        </div>
+        <div class="field">
+          <label class="field-label">${UI.escapeHtml(result.name)}</label>
+          <input class="input" id="raw-key" value="${UI.escapeHtml(result.key)}" readonly style="font-size:var(--text-xs)">
+        </div>`,
+      footerHtml: `<button class="btn btn-secondary" id="rk-copy" type="button">Copy</button>
+                   <button class="btn btn-primary" id="rk-done" type="button">Done</button>`,
+    });
+    overlay.querySelector('#rk-done').addEventListener('click', UI.closeModal);
+    overlay.querySelector('#rk-copy').addEventListener('click', async () => {
+      const input = overlay.querySelector('#raw-key');
+      try {
+        await navigator.clipboard.writeText(input.value);
+        UI.toast('Copied to clipboard', 'success');
+      } catch (e) {
+        input.select();
+        UI.toast('Could not auto-copy — key is selected, press Ctrl/Cmd+C', 'info');
+      }
+    });
+  }
+</script>"""
+
+    ready = "loadWorkspaces();"
+
+    html = (
+        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+        "<title>API Keys — Vela Admin</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        + body
+        + "\n" + _SCRIPTS + "\n" + script
+        + _boot_script("/admin/api-keys", "API Keys", ready)
+        + "\n</body>\n</html>"
+    )
+    return html
