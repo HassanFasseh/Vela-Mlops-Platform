@@ -36,11 +36,31 @@ def add_team_member(db: Session, team_id: int, user_id: int, role: str = "member
         TeamMember.user_id == user_id
     ).first()
     if existing:
-        return existing
-    member = TeamMember(team_id=team_id, user_id=user_id, role=role)
-    db.add(member)
-    db.commit()
-    db.refresh(member)
+        member = existing
+    else:
+        member = TeamMember(team_id=team_id, user_id=user_id, role=role)
+        db.add(member)
+        db.commit()
+        db.refresh(member)
+
+    # A team member needs workspace access to do anything workspace-scoped
+    # (generate API keys, etc — see /app/api-keys). Admin-created users
+    # start with zero WorkspaceMember rows, and there's no self-service
+    # path for a member to fix that themselves. If they have no workspace
+    # membership anywhere, drop them into this team's own workspace — it
+    # already exists (every Team has a workspace_id) and is the one place
+    # that's actually relevant to what they were just added to. Runs even
+    # when the TeamMember row already existed, so it also repairs anyone
+    # who got added before this existed.
+    has_workspace = db.query(WorkspaceMember).filter(
+        WorkspaceMember.user_id == user_id
+    ).first()
+    if not has_workspace:
+        team = db.query(Team).filter(Team.id == team_id).first()
+        if team:
+            db.add(WorkspaceMember(user_id=user_id, workspace_id=team.workspace_id, role="member"))
+            db.commit()
+
     return member
 
 def remove_team_member(db: Session, team_id: int, user_id: int) -> bool:

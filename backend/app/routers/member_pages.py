@@ -510,7 +510,7 @@ def member_api_keys_page():
   function noWorkspaceState() {
     document.getElementById('keys-list').innerHTML = UI.emptyState(
       'No workspace access yet',
-      'Contact your admin to get API access.'
+      'Ask your admin to provision access.'
     );
     document.getElementById('new-key-btn').hidden = true;
   }
@@ -581,7 +581,7 @@ def member_api_keys_page():
       const name = overlay.querySelector('#nk-name').value.trim();
       if (!name) { errorEl.textContent = 'Give the key a name.'; return; }
       if (!workspaceId) {
-        errorEl.textContent = 'No workspace access. Contact your admin to get API access.';
+        errorEl.textContent = 'No workspace access yet. Ask your admin to provision access.';
         return;
       }
       try {
