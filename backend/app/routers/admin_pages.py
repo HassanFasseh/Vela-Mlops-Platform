@@ -28,7 +28,8 @@ router = APIRouter()
 _ASSETS = """<link rel="stylesheet" href="/static/css/tokens.css">
 <link rel="stylesheet" href="/static/css/base.css">
 <link rel="stylesheet" href="/static/css/components.css">
-<link rel="stylesheet" href="/static/css/shell.css">"""
+<link rel="stylesheet" href="/static/css/shell.css">
+<link rel="stylesheet" href="/static/css/light-theme.css">"""
 
 _SCRIPTS = """<script src="/static/js/api.js"></script>
 <script src="/static/js/shell.js"></script>

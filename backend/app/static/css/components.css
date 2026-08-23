@@ -44,12 +44,6 @@
 .btn-primary:hover:not(:disabled) {
   background: var(--color-accent-bg-hover);
 }
-/* Dashboard light theme: --color-accent-bg and --color-accent resolve to
-   the same blue there (spec: solid #0ea5e9 fill, white text), instead of
-   the dark theme's tinted-bg + colored-text "ghost" button. */
-body.has-shell .btn-primary {
-  color: #ffffff;
-}
 
 .btn-secondary {
   background: var(--color-surface-2);
@@ -58,10 +52,6 @@ body.has-shell .btn-primary {
 }
 .btn-secondary:hover:not(:disabled) {
   border-color: var(--color-text-secondary);
-}
-body.has-shell .btn-secondary {
-  background: #ffffff;
-  border-color: #e2e8f0;
 }
 
 .btn-ghost {
@@ -81,11 +71,6 @@ body.has-shell .btn-secondary {
 }
 .btn-danger:hover:not(:disabled) {
   background: #351c1c;
-}
-/* #351c1c is a near-black hover fill tuned for the dark theme — swap for
-   a light red tint so it doesn't flash a dark box on the light dashboard. */
-body.has-shell .btn-danger:hover:not(:disabled) {
-  background: #fee2e2;
 }
 
 .btn-sm {
@@ -187,18 +172,6 @@ body.has-shell .btn-danger:hover:not(:disabled) {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
-/* Dashboard light theme: flat white cards get a real drop shadow instead
-   of the dark theme's glass/blur treatment, plus a hover lift. */
-body.has-shell .card {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow var(--duration-base) var(--ease), transform var(--duration-base) var(--ease);
-}
-body.has-shell .card:hover {
-  box-shadow: var(--shadow-md);
-  transform: translateY(-1px);
-}
 
 .card-elevated {
   background: var(--color-bg-elevated);
@@ -267,15 +240,6 @@ body.has-shell .card:hover {
 .badge-info    { background: var(--color-info-bg);    color: var(--color-info);    box-shadow: 0 0 8px rgba(126, 184, 247, 0.2); }
 .badge-neutral { background: var(--color-neutral-bg); color: var(--color-neutral); box-shadow: 0 0 6px rgba(154, 154, 168, 0.12); }
 
-/* Dashboard light theme: flat pill with a real border instead of the dark
-   theme's glow (spec — Online/Offline/Starting badges each get a
-   1px border matching their status color). */
-body.has-shell .badge-success { border: 1px solid var(--color-success-border); box-shadow: none; }
-body.has-shell .badge-warning { border: 1px solid var(--color-warning-border); box-shadow: none; }
-body.has-shell .badge-danger  { border: 1px solid var(--color-danger-border);  box-shadow: none; }
-body.has-shell .badge-info    { border: 1px solid var(--color-info-border);    box-shadow: none; }
-body.has-shell .badge-neutral { border: 1px solid var(--color-neutral-border); box-shadow: none; }
-
 /* =====================================================================
    Alerts / banners
    ===================================================================== */
@@ -336,13 +300,6 @@ body.has-shell .badge-neutral { border: 1px solid var(--color-neutral-border); b
   background: var(--color-bg-elevated);
   border-bottom: 1px solid var(--color-border);
   white-space: nowrap;
-}
-/* Dashboard light theme: --color-bg-elevated is white there (metric tiles
-   want a white background), but the spec wants a slightly tinted table
-   header — a shade the metric tiles don't share, so it needs its own
-   override rather than a shared token value. */
-body.has-shell .table thead th {
-  background: #f8fafc;
 }
 
 .table tbody td {
@@ -543,15 +500,6 @@ body.has-shell .table thead th {
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
   animation: skeleton-shimmer 1.4s infinite;
 }
-/* Dashboard light theme: the dark theme's white-on-dark shimmer is nearly
-   invisible over a light gray base — swap to a darker base + a brighter
-   sweeping highlight so the loading state still reads as animated. */
-body.has-shell .skeleton {
-  background: #e2e8f0;
-}
-body.has-shell .skeleton::after {
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent);
-}
 
 @keyframes skeleton-shimmer {
   100% {
@@ -749,27 +697,6 @@ body.has-shell .skeleton::after {
 .metric-tile-value.is-warning { color: var(--color-warning); text-shadow: 0 0 8px rgba(247, 201, 126, 0.3); }
 .metric-tile-value.is-danger  { color: var(--color-danger);  text-shadow: 0 0 8px rgba(247, 126, 126, 0.3); }
 .metric-tile-value.is-success { color: var(--color-success); text-shadow: 0 0 8px rgba(126, 247, 160, 0.3); }
-
-/* Dashboard light theme: white tile background (not the "elevated
-   surface" table header shares), plain bold number with no glow, and each
-   tile in a row cycles through a different accent for its top border
-   (spec order: blue, teal, green, amber, red, purple). */
-body.has-shell .metric-tile {
-  background: #ffffff;
-}
-body.has-shell .metric-tile-value,
-body.has-shell .metric-tile-value.is-warning,
-body.has-shell .metric-tile-value.is-danger,
-body.has-shell .metric-tile-value.is-success {
-  text-shadow: none;
-}
-body.has-shell .metric-row .metric-tile::before { background: #0ea5e9; }
-body.has-shell .metric-row .metric-tile:nth-child(6n+1)::before { background: #0ea5e9; }
-body.has-shell .metric-row .metric-tile:nth-child(6n+2)::before { background: #14b8a6; }
-body.has-shell .metric-row .metric-tile:nth-child(6n+3)::before { background: #22c55e; }
-body.has-shell .metric-row .metric-tile:nth-child(6n+4)::before { background: #f59e0b; }
-body.has-shell .metric-row .metric-tile:nth-child(6n+5)::before { background: #ef4444; }
-body.has-shell .metric-row .metric-tile:nth-child(6n+6)::before { background: #a855f7; }
 
 /* =====================================================================
    Permission-denied (spec §22) — explain without leaking protected info

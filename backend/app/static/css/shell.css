@@ -18,17 +18,17 @@ body.has-shell {
 
 /* ---- Sidebar ----------------------------------------------------------*/
 
-/* Sidebar chrome is hardcoded rather than token-driven (spec: "light
-   content area, dark sidebar only" — it must stay dark regardless of the
-   light theme body.has-shell applies to the rest of the shell in
-   tokens.css). */
+/* Sidebar background is its own dedicated token (--color-sidebar-bg,
+   tokens.css), not the shared --color-bg/--color-surface tokens light-
+   theme.css repoints for the rest of the shell — it must stay dark on
+   every page (spec: "light content area, dark sidebar only"). */
 .shell-sidebar {
   flex-shrink: 0;
   width: var(--sidebar-width);
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #0a0f1e;
+  background: var(--color-sidebar-bg);
   border-right: 1px solid rgba(148, 163, 184, 0.12);
   z-index: var(--z-sidebar);
   transition: width var(--duration-base) var(--ease);
@@ -285,14 +285,6 @@ body.has-shell {
   font-weight: 700;
   flex-shrink: 0;
 }
-/* Dashboard light theme: --color-accent-bg and --color-accent resolve to
-   the same blue, which would make the initials invisible — swap in a
-   tinted background + darker text pairing instead (same pattern used for
-   the sidebar's active nav item and the command palette's active row). */
-body.has-shell .shell-avatar {
-  background: rgba(14, 165, 233, 0.12);
-  color: #0284c7;
-}
 
 .shell-user-name {
   font-size: var(--text-sm);
@@ -344,14 +336,6 @@ body.has-shell .shell-avatar {
   padding: var(--space-2) var(--space-4);
   font-size: var(--text-sm);
   transition: top var(--duration-fast) var(--ease);
-}
-/* Same invisible-text risk as .shell-avatar above under the light theme —
-   force a solid fill + white text instead of the dark theme's tinted-bg
-   + colored-text pairing. */
-body.has-shell .shell-skip-link {
-  background: #0ea5e9;
-  color: #ffffff;
-  border-color: #0284c7;
 }
 
 .shell-skip-link:focus-visible {
@@ -428,11 +412,6 @@ body.has-shell .shell-skip-link {
 .shell-command-result.is-active {
   background: var(--color-accent-bg);
   color: var(--color-accent);
-}
-/* Same invisible-text risk as .shell-avatar above under the light theme. */
-body.has-shell .shell-command-result.is-active {
-  background: rgba(14, 165, 233, 0.12);
-  color: #0284c7;
 }
 
 .shell-command-empty {
