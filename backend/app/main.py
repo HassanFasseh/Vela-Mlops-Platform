@@ -692,18 +692,10 @@ def admin_update_ticket(ticket_id: int, req: TicketUpdate, authorization: str = 
 @app.post("/tickets")
 def file_ticket(req: TicketCreate, authorization: str = fastapi.Header(None)):
     from backend.app.database import SessionLocal
-    from backend.app.services.auth import decode_token
-    from backend.app.db.models import User, WorkspaceMember
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    payload = decode_token(authorization.split(" ")[1])
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    from backend.app.db.models import WorkspaceMember
     db = SessionLocal()
     try:
-        user = db.query(User).filter(User.id == int(payload["sub"])).first()
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
+        user, db = get_verified_user(authorization, db)
         ws = db.query(WorkspaceMember).filter(WorkspaceMember.user_id == user.id).first()
         workspace_id = ws.workspace_id if ws else None
         ticket = create_ticket(
@@ -718,18 +710,9 @@ def file_ticket(req: TicketCreate, authorization: str = fastapi.Header(None)):
 @app.get("/tickets/my")
 def my_tickets(authorization: str = fastapi.Header(None)):
     from backend.app.database import SessionLocal
-    from backend.app.services.auth import decode_token
-    from backend.app.db.models import User
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    payload = decode_token(authorization.split(" ")[1])
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
     db = SessionLocal()
     try:
-        user = db.query(User).filter(User.id == int(payload["sub"])).first()
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
+        user, db = get_verified_user(authorization, db)
         return get_user_tickets(db, user.id)
     finally:
         db.close()
