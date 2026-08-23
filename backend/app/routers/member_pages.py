@@ -75,17 +75,17 @@ def member_overview_page():
     <div class="card-grid" id="teams-grid" style="margin-bottom:var(--space-6)"></div>
 
     <div class="card-header">
+      <div class="section-label" style="margin:0">My Models</div>
+      <a href="/app/models" class="link-secondary" style="font-size:var(--text-sm)">View all &rarr;</a>
+    </div>
+    <div class="card-grid" id="models-preview" style="margin-bottom:var(--space-6)"></div>
+
+    <div class="card-header">
       <div class="section-label" style="margin:0">My tickets</div>
       <a href="/app/tickets" class="link-secondary" style="font-size:var(--text-sm)">View all &rarr;</a>
     </div>
     <div class="metric-row" id="ticket-metrics" style="margin-bottom:var(--space-5)"></div>
     <div class="card" id="recent-tickets-card" style="margin-bottom:var(--space-6)"></div>
-
-    <div class="card-header">
-      <div class="section-label" style="margin:0">Models</div>
-      <a href="/app/models" class="link-secondary" style="font-size:var(--text-sm)">View all &rarr;</a>
-    </div>
-    <div class="card-grid" id="models-preview"></div>
   </div>
 </div>
 <div class="auth-loading" id="loading-root">Loading…</div>
@@ -115,20 +115,20 @@ def member_overview_page():
     }
 
     try {
-      const tickets = await Api.get('/tickets/my');
-      renderTicketMetrics(tickets);
-      renderRecentTickets(tickets);
-    } catch (e) {
-      document.getElementById('recent-tickets-card').innerHTML = UI.errorState(e.message);
-    }
-
-    try {
       // Same teams list as renderTeams() above, reused rather than
       // re-fetched. If that first call failed, `teams` is still [], which
       // correctly falls through to the same no-access empty state below.
       await renderModelsPreview(teams);
     } catch (e) {
       document.getElementById('models-preview').innerHTML = UI.errorState(e.message);
+    }
+
+    try {
+      const tickets = await Api.get('/tickets/my');
+      renderTicketMetrics(tickets);
+      renderRecentTickets(tickets);
+    } catch (e) {
+      document.getElementById('recent-tickets-card').innerHTML = UI.errorState(e.message);
     }
   }
 
@@ -184,9 +184,13 @@ def member_overview_page():
     // Same source as /app/models: GET /teams/{id}/permissions across all
     // of the user's teams, deduped by deployment_id — not
     // /models/status + /deployments, which can't be scoped to what's
-    // actually permitted (see /app/models for why).
+    // actually permitted (see /app/models for why). team_id/team_name
+    // attached client-side since the permissions endpoint itself doesn't
+    // echo back which team it was queried for.
     const perTeam = await Promise.allSettled(
-      teams.map(t => Api.get('/teams/' + t.id + '/permissions'))
+      teams.map(t => Api.get('/teams/' + t.id + '/permissions').then(perms =>
+        perms.map(p => Object.assign({}, p, { team_id: t.id, team_name: t.name }))
+      ))
     );
     const byDeployment = new Map();
     perTeam.forEach(result => {
@@ -202,9 +206,15 @@ def member_overview_page():
       return;
     }
     el.innerHTML = rows.slice(0, 3).map(r =>
-      '<div class="card"><div class="card-title">' + UI.escapeHtml(r.model_name) + '</div>' +
-      '<div class="card-subtitle">' + UI.escapeHtml(r.task_type) + '</div>' +
-      '<div style="margin-top:.5rem">' + UI.statusBadge(r.status) + '</div></div>'
+      '<div class="card">' +
+      '<div class="card-title">' + UI.escapeHtml(r.model_name) + '</div>' +
+      '<div class="card-subtitle">' + UI.escapeHtml(r.team_name) + '</div>' +
+      '<div style="margin:.5rem 0">' + UI.statusBadge(r.status) + '</div>' +
+      (r.can_predict
+        ? '<a class="link-secondary" style="font-size:var(--text-xs)" href="/app/teams/' + r.team_id + '">Get API key &rarr;</a>'
+        : UI.badge('View only', 'neutral')
+      ) +
+      '</div>'
     ).join('');
   }
 </script>"""
