@@ -106,8 +106,9 @@ def member_overview_page():
   async function loadOverview(user) {
     document.getElementById('greeting').textContent = greetingFor(user);
 
+    let teams = [];
     try {
-      const teams = await Api.get('/users/me/teams');
+      teams = await Api.get('/users/me/teams');
       renderTeams(teams);
     } catch (e) {
       document.getElementById('teams-grid').innerHTML = UI.errorState(e.message);
@@ -122,8 +123,10 @@ def member_overview_page():
     }
 
     try {
-      const [models, deployments] = await Promise.all([Api.get('/models/status'), Api.get('/deployments')]);
-      renderModelsPreview(models, deployments);
+      // Same teams list as renderTeams() above, reused rather than
+      // re-fetched. If that first call failed, `teams` is still [], which
+      // correctly falls through to the same no-access empty state below.
+      await renderModelsPreview(teams);
     } catch (e) {
       document.getElementById('models-preview').innerHTML = UI.errorState(e.message);
     }
@@ -171,18 +174,36 @@ def member_overview_page():
     ).join('');
   }
 
-  function renderModelsPreview(models, deployments) {
+  async function renderModelsPreview(teams) {
     const el = document.getElementById('models-preview');
-    const rows = [];
-    models.forEach(m => rows.push({ name: m.name, task: m.task, status: m.status }));
-    deployments.forEach(d => rows.push({ name: d.name, task: d.task_type, status: d.status }));
+    if (!teams.length) {
+      el.innerHTML = UI.emptyState("Your team hasn't been granted model access yet.", "Contact your admin.");
+      return;
+    }
+
+    // Same source as /app/models: GET /teams/{id}/permissions across all
+    // of the user's teams, deduped by deployment_id — not
+    // /models/status + /deployments, which can't be scoped to what's
+    // actually permitted (see /app/models for why).
+    const perTeam = await Promise.allSettled(
+      teams.map(t => Api.get('/teams/' + t.id + '/permissions'))
+    );
+    const byDeployment = new Map();
+    perTeam.forEach(result => {
+      if (result.status !== 'fulfilled') return;
+      result.value.forEach(p => {
+        if (!byDeployment.has(p.deployment_id)) byDeployment.set(p.deployment_id, p);
+      });
+    });
+    const rows = Array.from(byDeployment.values());
+
     if (!rows.length) {
-      el.innerHTML = UI.emptyState('No models available', 'Deployed models will appear here once they exist.');
+      el.innerHTML = UI.emptyState("Your team hasn't been granted model access yet.", "Contact your admin.");
       return;
     }
     el.innerHTML = rows.slice(0, 3).map(r =>
-      '<div class="card"><div class="card-title">' + UI.escapeHtml(r.name) + '</div>' +
-      '<div class="card-subtitle">' + UI.escapeHtml(r.task) + '</div>' +
+      '<div class="card"><div class="card-title">' + UI.escapeHtml(r.model_name) + '</div>' +
+      '<div class="card-subtitle">' + UI.escapeHtml(r.task_type) + '</div>' +
       '<div style="margin-top:.5rem">' + UI.statusBadge(r.status) + '</div></div>'
     ).join('');
   }
