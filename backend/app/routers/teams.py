@@ -201,6 +201,27 @@ def review_request(request_id: int, req: AccessRequestReview,
         "message": f"Request {'approved' if req.approved else 'denied'}"
     }
 
+@router.get("/users/me/teams")
+def my_teams(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    memberships = db.query(TeamMember).filter(TeamMember.user_id == user.id).all()
+    team_ids = [m.team_id for m in memberships]
+    if not team_ids:
+        return []
+    teams = db.query(Team).filter(Team.id.in_(team_ids)).all()
+    result = []
+    for t in teams:
+        member_count = db.query(TeamMember).filter(TeamMember.team_id == t.id).count()
+        model_count = db.query(TeamModelPermission).filter(TeamModelPermission.team_id == t.id).count()
+        result.append({
+            "id": t.id,
+            "name": t.name,
+            "description": t.description,
+            "workspace_id": t.workspace_id,
+            "member_count": member_count,
+            "model_count": model_count,
+        })
+    return result
+
 @router.get("/users/me/access-requests")
 def my_access_requests(user=Depends(get_current_user), db: Session = Depends(get_db)):
     requests = db.query(AccessRequest).filter(AccessRequest.user_id == user.id).all()

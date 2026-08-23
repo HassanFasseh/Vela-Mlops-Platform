@@ -109,7 +109,8 @@ def get_user_workspaces(db: Session, user_id: int) -> list:
     workspace_ids = [m.workspace_id for m in members]
     return db.query(Workspace).filter(Workspace.id.in_(workspace_ids)).all()
 
-def generate_api_key(db: Session, workspace_id: int, name: str) -> tuple:
+def generate_api_key(db: Session, workspace_id: int, name: str,
+                      team_id: int = None, deployment_id: int = None) -> tuple:
     raw_key = f"aodp_{secrets.token_urlsafe(32)}"
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
     key_prefix = raw_key[:12]
@@ -117,7 +118,9 @@ def generate_api_key(db: Session, workspace_id: int, name: str) -> tuple:
         workspace_id=workspace_id,
         name=name,
         key_hash=key_hash,
-        key_prefix=key_prefix
+        key_prefix=key_prefix,
+        team_id=team_id,
+        deployment_id=deployment_id,
     )
     db.add(api_key)
     db.commit()

@@ -71,6 +71,9 @@ def member_overview_page():
   <div class="page-max">
     <h1 id="greeting" style="font-size:var(--text-lg);margin-bottom:var(--space-5)">Loading…</h1>
 
+    <div class="section-label" style="margin-top:0">My Teams</div>
+    <div class="card-grid" id="teams-grid" style="margin-bottom:var(--space-6)"></div>
+
     <div class="card-header">
       <div class="section-label" style="margin:0">My tickets</div>
       <a href="/app/tickets" class="link-secondary" style="font-size:var(--text-sm)">View all &rarr;</a>
@@ -104,6 +107,13 @@ def member_overview_page():
     document.getElementById('greeting').textContent = greetingFor(user);
 
     try {
+      const teams = await Api.get('/users/me/teams');
+      renderTeams(teams);
+    } catch (e) {
+      document.getElementById('teams-grid').innerHTML = UI.errorState(e.message);
+    }
+
+    try {
       const tickets = await Api.get('/tickets/my');
       renderTicketMetrics(tickets);
       renderRecentTickets(tickets);
@@ -117,6 +127,22 @@ def member_overview_page():
     } catch (e) {
       document.getElementById('models-preview').innerHTML = UI.errorState(e.message);
     }
+  }
+
+  function renderTeams(teams) {
+    const el = document.getElementById('teams-grid');
+    if (!teams.length) {
+      el.innerHTML = UI.emptyState('No teams yet', 'Ask your admin to add you to a team.');
+      return;
+    }
+    el.innerHTML = teams.map(t =>
+      '<a class="card" href="/app/teams/' + t.id + '" style="display:block;text-decoration:none;color:inherit">' +
+      '<div class="card-title">' + UI.escapeHtml(t.name) + '</div>' +
+      '<div class="card-subtitle">' + (t.description ? UI.escapeHtml(t.description) : '<span class="text-muted">No description</span>') + '</div>' +
+      '<div class="text-secondary" style="font-size:var(--text-xs);margin-top:.6rem">' +
+      t.model_count + ' model' + (t.model_count === 1 ? '' : 's') + ' &middot; ' + t.member_count + ' member' + (t.member_count === 1 ? '' : 's') +
+      '</div></a>'
+    ).join('');
   }
 
   function renderTicketMetrics(tickets) {
@@ -171,6 +197,149 @@ def member_overview_page():
         + body
         + "\n" + _SCRIPTS + "\n" + script
         + _boot_script("/app", "", ready)
+        + "\n</body>\n</html>"
+    )
+    return html
+
+
+# =========================================================================
+# Team detail — /app/teams/{team_id}
+#
+# One page serves every team_id — the id is read from the URL client-side
+# and used to fetch GET /teams/{id} (name/description/workspace_id) and
+# GET /teams/{id}/permissions (the model list, now enriched with
+# task_type/status in services/teams.py). "Get API key" generates a key
+# scoped to this exact team_id + deployment_id via
+# POST /workspaces/{workspace_id}/api-keys — the workspace_id comes
+# straight from GET /teams/{id}, so there's no ambiguity about which
+# workspace a member's key should land in.
+# =========================================================================
+
+@router.get("/app/teams/{team_id}", response_class=HTMLResponse)
+def member_team_detail_page(team_id: int):
+    body = """
+<div id="page-content" hidden>
+  <div class="page-max">
+    <a href="/app" class="link-secondary" style="font-size:var(--text-sm)">&larr; My Teams</a>
+    <h1 id="team-name" style="font-size:var(--text-lg);margin:.5rem 0 2px">Loading&hellip;</h1>
+    <p id="team-description" class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)"></p>
+
+    <div class="section-label" style="margin-top:0">Models</div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Model</th><th>Task</th><th>Status</th><th></th></tr></thead>
+        <tbody id="models-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<div class="auth-loading" id="loading-root">Loading&hellip;</div>
+"""
+
+    script = """
+<script>
+  const TEAM_ID = location.pathname.split('/')[3];
+  let TEAM_WORKSPACE_ID = null;
+  let TEAM_NAME = '';
+
+  async function loadTeam() {
+    try {
+      const team = await Api.get('/teams/' + TEAM_ID);
+      TEAM_NAME = team.name;
+      TEAM_WORKSPACE_ID = team.workspace_id;
+      document.getElementById('team-name').textContent = team.name;
+      document.getElementById('team-description').textContent = team.description || 'No description';
+      document.title = team.name + ' — Vela';
+      const crumb = document.querySelector('.shell-breadcrumb-current');
+      if (crumb) crumb.textContent = team.name;
+      renderModels(team.permissions || []);
+    } catch (e) {
+      document.getElementById('models-body').innerHTML = '<tr><td colspan="4">' + UI.errorState(e.message, loadTeam) + '</td></tr>';
+    }
+  }
+
+  let teamPerms = [];
+
+  function renderModels(perms) {
+    teamPerms = perms;
+    const body = document.getElementById('models-body');
+    if (!perms.length) {
+      body.innerHTML = '<tr><td colspan="4">' + UI.emptyState('No models yet', 'This team has not been granted access to any models.') + '</td></tr>';
+      return;
+    }
+    body.innerHTML = perms.map((p, idx) =>
+      '<tr>' +
+      '<td>' + UI.escapeHtml(p.model_name) + '</td>' +
+      '<td>' + UI.escapeHtml(p.task_type) + '</td>' +
+      '<td>' + UI.statusBadge(p.status) + '</td>' +
+      '<td>' + (p.can_predict
+        ? '<button class="btn btn-secondary btn-sm" data-get-key="' + idx + '" type="button">Get API key</button>'
+        : UI.badge('View only', 'neutral')
+      ) + '</td>' +
+      '</tr>'
+    ).join('');
+    body.querySelectorAll('[data-get-key]').forEach(btn => {
+      const idx = parseInt(btn.dataset.getKey, 10);
+      btn.addEventListener('click', () => getApiKey(teamPerms[idx], btn));
+    });
+  }
+
+  async function getApiKey(perm, btn) {
+    btn.disabled = true;
+    const originalLabel = btn.textContent;
+    btn.textContent = 'Generating…';
+    try {
+      const result = await Api.post('/workspaces/' + TEAM_WORKSPACE_ID + '/api-keys', {
+        name: TEAM_NAME + ': ' + perm.model_name,
+        team_id: parseInt(TEAM_ID, 10),
+        deployment_id: perm.deployment_id,
+      });
+      showRawKey(result);
+    } catch (e) {
+      UI.toast(e.message || 'Could not generate key', 'danger');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+  }
+
+  function showRawKey(result) {
+    const overlay = UI.openModal({
+      title: 'Copy your API key',
+      bodyHtml: `
+        <div class="alert alert-warning" style="margin-bottom:.75rem">
+          <div><div class="alert-title">Shown once</div><div class="alert-body">This key will not be shown again — copy it now and store it somewhere safe. It only works for this model.</div></div>
+        </div>
+        <div class="field">
+          <label class="field-label">${UI.escapeHtml(result.name)}</label>
+          <input class="input" id="raw-key" value="${UI.escapeHtml(result.key)}" readonly style="font-size:var(--text-xs)">
+        </div>`,
+      footerHtml: `<button class="btn btn-secondary" id="rk-copy" type="button">Copy</button>
+                   <button class="btn btn-primary" id="rk-done" type="button">Done</button>`,
+    });
+    overlay.querySelector('#rk-done').addEventListener('click', UI.closeModal);
+    overlay.querySelector('#rk-copy').addEventListener('click', async () => {
+      const input = overlay.querySelector('#raw-key');
+      try {
+        await navigator.clipboard.writeText(input.value);
+        UI.toast('Copied to clipboard', 'success');
+      } catch (e) {
+        input.select();
+        UI.toast('Could not auto-copy — key is selected, press Ctrl/Cmd+C', 'info');
+      }
+    });
+  }
+</script>"""
+
+    ready = "loadTeam();"
+
+    html = (
+        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+        "<title>Team — Vela</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        + body
+        + "\n" + _SCRIPTS + "\n" + script
+        + _boot_script("/app/teams/" + str(team_id), "Team", ready)
         + "\n</body>\n</html>"
     )
     return html
@@ -246,7 +415,7 @@ def member_models_page():
         '</div>' +
         '<button class="btn btn-secondary btn-sm" data-predict="' + idx + '" type="button">Run</button>' +
         '<div id="predict-result-' + idx + '" class="text-secondary" style="font-size:var(--text-xs);margin-top:.5rem;min-height:1.2em"></div>'
-      : '<a class="link-secondary" style="font-size:var(--text-xs)" href="/app/api-keys">Get an API key to test this model &rarr;</a>';
+      : '<a class="link-secondary" style="font-size:var(--text-xs)" href="/app">Get an API key from your team &rarr;</a>';
 
     return '<div class="card">' +
       '<div class="card-title">' + UI.escapeHtml(r.name) + '</div>' +
@@ -486,33 +655,33 @@ def member_api_keys_page():
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
-    <div class="card-header">
-      <h1 style="font-size:var(--text-lg)">API keys</h1>
-      <button class="btn btn-primary" id="new-key-btn" type="button" hidden>New API key</button>
-    </div>
-    <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-4)">
-      Use an API key to call the prediction API directly. Keys are shown in full only once, at creation.
+    <h1 style="font-size:var(--text-lg);margin-bottom:2px">API keys</h1>
+    <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)">
+      Keys are scoped to one model each and generated from that model's team page. Shown in full only once, at creation.
     </p>
     <div id="keys-list"></div>
   </div>
 </div>
-<div class="auth-loading" id="loading-root">Loading…</div>
+<div class="auth-loading" id="loading-root">Loading&hellip;</div>
 """
 
     script = """
 <script>
-  // Members don't self-provision a workspace here anymore — that flow
-  // (an on-demand POST /workspaces) could fail server-side and had no
-  // graceful fallback. Workspace membership is something an admin sets
-  // up; this page just reflects whether the member already has one.
-  let workspaceId = null;
+  // Members don't self-provision a workspace here — that flow (an
+  // on-demand POST /workspaces) could fail server-side with no graceful
+  // fallback. Workspace access now comes from being added to a team (see
+  // services/teams.py add_team_member); this page just reflects it.
+  //
+  // A member can in principle belong to more than one workspace, so keys
+  // are fetched per-workspace and merged; keyWorkspaceMap remembers which
+  // workspace each key came from, since DELETE needs that workspace_id.
+  let keyWorkspaceMap = {};
 
   function noWorkspaceState() {
     document.getElementById('keys-list').innerHTML = UI.emptyState(
       'No workspace access yet',
       'Ask your admin to provision access.'
     );
-    document.getElementById('new-key-btn').hidden = true;
   }
 
   async function loadKeys() {
@@ -524,10 +693,16 @@ def member_api_keys_page():
         noWorkspaceState();
         return;
       }
-      workspaceId = workspaces[0].id;
-      document.getElementById('new-key-btn').hidden = false;
-      const keys = await Api.get('/workspaces/' + workspaceId + '/api-keys');
-      renderKeys(keys);
+      keyWorkspaceMap = {};
+      const perWorkspace = await Promise.all(workspaces.map(ws => Api.get('/workspaces/' + ws.id + '/api-keys')));
+      const allKeys = [];
+      perWorkspace.forEach((keys, i) => {
+        keys.forEach(k => {
+          keyWorkspaceMap[k.id] = workspaces[i].id;
+          allKeys.push(k);
+        });
+      });
+      renderKeys(allKeys);
     } catch (e) {
       list.innerHTML = UI.errorState(e.message, loadKeys);
     }
@@ -536,98 +711,60 @@ def member_api_keys_page():
   function renderKeys(keys) {
     const list = document.getElementById('keys-list');
     if (!keys.length) {
-      list.innerHTML = UI.emptyState('No API keys yet', 'Create your first key to start calling the prediction API.');
+      list.innerHTML = UI.emptyState("No API keys yet", "Generate one from a team's page — see My Teams on the Overview page.");
       return;
     }
-    list.innerHTML = keys.map(k =>
-      '<div class="card" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">' +
-      '<div><div style="font-size:var(--text-sm);font-weight:600">' + UI.escapeHtml(k.name) + '</div>' +
-      '<div class="text-muted" style="font-size:var(--text-xs)">' + UI.escapeHtml(k.prefix) + '&hellip; &middot; created ' + UI.fmtDate(k.created_at) +
-      (k.last_used_at ? ' &middot; last used ' + UI.timeAgo(k.last_used_at) : ' &middot; never used') + '</div></div>' +
-      '<button class="btn btn-danger btn-sm" data-revoke="' + k.id + '" data-name="' + UI.escapeHtml(k.name) + '" type="button">Revoke</button>' +
-      '</div>'
-    ).join('');
+
+    const groups = {};
+    const ungrouped = [];
+    keys.forEach(k => {
+      if (k.team_id) {
+        const label = k.team_name || ('Team #' + k.team_id);
+        (groups[label] = groups[label] || []).push(k);
+      } else {
+        ungrouped.push(k);
+      }
+    });
+
+    let html = '';
+    Object.keys(groups).sort().forEach(label => {
+      html += '<div class="section-label" style="margin-top:var(--space-5)">' + UI.escapeHtml(label) + '</div>';
+      html += '<div class="card">' + groups[label].map(renderKeyRow).join('') + '</div>';
+    });
+    if (ungrouped.length) {
+      html += '<div class="section-label" style="margin-top:var(--space-5)">Other keys</div>';
+      html += '<div class="card">' + ungrouped.map(renderKeyRow).join('') + '</div>';
+    }
+    list.innerHTML = html;
+
     list.querySelectorAll('[data-revoke]').forEach(btn => {
       btn.addEventListener('click', () => revokeKey(btn.dataset.revoke, btn.dataset.name));
     });
   }
 
+  function renderKeyRow(k) {
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;border-bottom:1px solid var(--color-border-subtle)">' +
+      '<div style="min-width:0">' +
+      '<div style="font-size:var(--text-sm);font-weight:600">' + UI.escapeHtml(k.model_name || k.name || 'Unnamed key') + '</div>' +
+      '<div class="text-muted" style="font-size:var(--text-xs)">' +
+      UI.escapeHtml(k.prefix) + '&hellip; &middot; created ' + UI.fmtDate(k.created_at) +
+      (k.last_used_at ? ' &middot; last used ' + UI.timeAgo(k.last_used_at) : ' &middot; never used') +
+      '</div></div>' +
+      '<button class="btn btn-danger btn-sm" data-revoke="' + k.id + '" data-name="' + UI.escapeHtml(k.name || k.model_name || '') + '" type="button">Revoke</button>' +
+      '</div>';
+  }
+
   async function revokeKey(id, name) {
     if (!confirm('Revoke "' + name + '"? Anything using this key will stop working immediately.')) return;
+    const wsId = keyWorkspaceMap[id];
     try {
-      await Api.del('/workspaces/' + workspaceId + '/api-keys/' + id);
+      await Api.del('/workspaces/' + wsId + '/api-keys/' + id);
       UI.toast('Key revoked', 'success');
       loadKeys();
     } catch (e) {
       UI.toast(e.message || 'Could not revoke key', 'danger');
     }
   }
-
-  function openNewKeyModal() {
-    const overlay = UI.openModal({
-      title: 'New API key',
-      bodyHtml: `
-        <form id="new-key-form" novalidate>
-          <div class="field"><label class="field-label" for="nk-name">Key name</label><input class="input" id="nk-name" placeholder="e.g. production, ci-cd" required></div>
-          <div class="field-error" id="nk-error" role="alert"></div>
-        </form>`,
-      footerHtml: `<button class="btn btn-ghost" id="nk-cancel" type="button">Cancel</button>
-                   <button class="btn btn-primary" id="nk-submit" type="submit" form="new-key-form">Generate key</button>`,
-    });
-    overlay.querySelector('#nk-cancel').addEventListener('click', UI.closeModal);
-    overlay.querySelector('#new-key-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const errorEl = overlay.querySelector('#nk-error');
-      const name = overlay.querySelector('#nk-name').value.trim();
-      if (!name) { errorEl.textContent = 'Give the key a name.'; return; }
-      if (!workspaceId) {
-        errorEl.textContent = 'No workspace access yet. Ask your admin to provision access.';
-        return;
-      }
-      try {
-        const result = await Api.post('/workspaces/' + workspaceId + '/api-keys', { name });
-        showRawKey(result);
-        loadKeys();
-      } catch (err) {
-        errorEl.textContent = err.message || 'Could not create key.';
-      }
-    });
-  }
-
-  function showRawKey(result) {
-    // Remembered for this browser tab so the "Run" testers on the Models
-    // page can call the prediction API without asking again.
-    try {
-      sessionStorage.setItem('vela_member_api_key', result.key);
-    } catch (e) {}
-
-    const overlay = UI.openModal({
-      title: 'Copy your API key',
-      bodyHtml: `
-        <div class="alert alert-warning" style="margin-bottom:.75rem">
-          <div><div class="alert-title">Shown once</div><div class="alert-body">This key will not be shown again — copy it now and store it somewhere safe. It's also been remembered for this browser tab so the model testers on the Models page can use it.</div></div>
-        </div>
-        <div class="field">
-          <label class="field-label">${UI.escapeHtml(result.name)}</label>
-          <input class="input" id="raw-key" value="${UI.escapeHtml(result.key)}" readonly style="font-size:var(--text-xs)">
-        </div>`,
-      footerHtml: `<button class="btn btn-secondary" id="rk-copy" type="button">Copy</button>
-                   <button class="btn btn-primary" id="rk-done" type="button">Done</button>`,
-    });
-    overlay.querySelector('#rk-done').addEventListener('click', UI.closeModal);
-    overlay.querySelector('#rk-copy').addEventListener('click', async () => {
-      const input = overlay.querySelector('#raw-key');
-      try {
-        await navigator.clipboard.writeText(input.value);
-        UI.toast('Copied to clipboard', 'success');
-      } catch (e) {
-        input.select();
-        UI.toast('Could not auto-copy — key is selected, press Ctrl/Cmd+C', 'info');
-      }
-    });
-  }
-
-  document.getElementById('new-key-btn').addEventListener('click', openNewKeyModal);
 </script>"""
 
     ready = "loadKeys();"

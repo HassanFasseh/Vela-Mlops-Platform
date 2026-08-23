@@ -95,6 +95,7 @@ class PredictRequest(BaseModel):
     text: str
     model_id: int = 0
     service_name: str = ""
+    deployment_id: int = None
     labels: list[str] = ["technology", "sports", "politics", "entertainment", "business"]
 
 class DeployModelRequest(BaseModel):
@@ -393,15 +394,36 @@ def api_predict(req: PredictRequest, x_api_key: str = fastapi.Header(None, alias
         if not api_key:
             raise HTTPException(status_code=401, detail="Invalid or revoked API key")
         
-        # Check team-level model permission if key is team-scoped
+        # Check team-level model permission if key is scoped. Previously this
+        # compared req.model_id (the hardcoded 1/2 core-service selector)
+        # against TeamModelPermission.deployment_id (a real DB Deployment
+        # primary key) as if they were the same id space — they aren't, so
+        # the check either matched by coincidence or, for any service_name
+        # (k8s deployment) call, was silently skipped entirely (model_id
+        # defaults to 0, which is falsy, so `target_deployment_id and ...`
+        # short-circuited before check_team_model_permission ever ran).
+        # A scoped key now requires the caller to state which real
+        # deployment_id it's using, and that's what gets checked.
         if api_key.team_id or api_key.deployment_id:
             from backend.app.services.teams import check_team_model_permission
-            target_deployment_id = req.model_id if req.model_id else None
-            if target_deployment_id and not check_team_model_permission(db, api_key, target_deployment_id):
+            if not req.deployment_id:
+                raise HTTPException(status_code=400, detail="This API key is scoped to a specific model — pass deployment_id")
+            if not check_team_model_permission(db, api_key, req.deployment_id):
                 raise HTTPException(status_code=403, detail="Your API key does not have permission to use this model")
 
-        # Route to model based on model_id or service_name
-        if req.model_id == 1:
+        # Route to the model. deployment_id (a real DB Deployment id) takes
+        # priority when provided — it resolves to that deployment's own k8s
+        # service name. Falls back to the legacy model_id/service_name
+        # selectors for the two hardcoded core services and ad hoc
+        # service_name calls (neither of which carries a real deployment_id
+        # to begin with, so scoped keys can't use this path — see above).
+        if req.deployment_id:
+            from backend.app.db.models import Deployment
+            deployment = db.query(Deployment).filter(Deployment.id == req.deployment_id).first()
+            if not deployment:
+                raise HTTPException(status_code=404, detail="Deployment not found")
+            url = f"http://{deployment.name}.default.svc.cluster.local"
+        elif req.model_id == 1:
             url = MODEL_SERVICE_URL
         elif req.model_id == 2:
             url = MODEL_SERVICE_2_URL
@@ -409,18 +431,19 @@ def api_predict(req: PredictRequest, x_api_key: str = fastapi.Header(None, alias
             url = f"http://{req.service_name}.default.svc.cluster.local"
         else:
             url = MODEL_SERVICE_URL  # default to model 1
-        
+
         try:
             payload = {"text": req.text}
             if req.model_id == 2:
                 payload["labels"] = req.labels
             r = http_requests.post(f"{url}/predict", json=payload, timeout=30)
             result = r.json()
-            
+
             # Return with workspace context
             return {
                 "workspace_id": api_key.workspace_id,
                 "model_id": req.model_id or 1,
+                "deployment_id": req.deployment_id,
                 "result": result
             }
         except Exception as e:

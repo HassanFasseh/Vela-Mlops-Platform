@@ -136,6 +136,11 @@ def get_team_permissions(db: Session, team_id: int) -> list:
             "deployment_id": p.deployment_id,
             "deployment_name": dep.name if dep else "unknown",
             "model_name": dep.model_name if dep else "unknown",
+            "task_type": dep.task_type if dep else "unknown",
+            # Deployment.status is set once at deploy/upload time
+            # ("pending"/"uploaded"/"deployed"/...) — it does not track
+            # live pod health the way GET /deployments does.
+            "status": dep.status if dep else "unknown",
             "can_predict": p.can_predict,
             "can_view_metrics": p.can_view_metrics,
             "granted_at": p.granted_at

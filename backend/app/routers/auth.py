@@ -10,7 +10,7 @@ from backend.app.services.auth import (
     decode_token, create_workspace, get_user_workspaces,
     generate_api_key, verify_api_key, get_user_by_email
 )
-from backend.app.db.models import WorkspaceMember, WorkspaceApiKey, ModelCard, Deployment, User, Workspace
+from backend.app.db.models import WorkspaceMember, WorkspaceApiKey, ModelCard, Deployment, User, Workspace, Team
 
 router = APIRouter()
 
@@ -48,6 +48,8 @@ class WorkspaceCreate(BaseModel):
 
 class ApiKeyCreate(BaseModel):
     name: str
+    team_id: Optional[int] = None
+    deployment_id: Optional[int] = None
 
 class ModelCardCreate(BaseModel):
     deployment_id: int
@@ -125,11 +127,13 @@ def create_api_key(workspace_id: int, req: ApiKeyCreate, user=Depends(get_curren
         if not member_check or member_check.role not in ["admin", "member"]:
             raise HTTPException(status_code=403, detail="Not authorized")
 
-        raw_key, api_key = generate_api_key(db, workspace_id, req.name)
+        raw_key, api_key = generate_api_key(db, workspace_id, req.name, req.team_id, req.deployment_id)
         return {
             "key": raw_key,
             "prefix": api_key.key_prefix,
             "name": api_key.name,
+            "team_id": api_key.team_id,
+            "deployment_id": api_key.deployment_id,
             "warning": "Copy this key now — it will not be shown again"
         }
     except HTTPException:
@@ -145,7 +149,23 @@ def list_api_keys(workspace_id: int, user=Depends(get_current_user), db: Session
         WorkspaceApiKey.workspace_id == workspace_id,
         WorkspaceApiKey.is_active == True
     ).all()
-    return [{"id": k.id, "name": k.name, "prefix": k.key_prefix, "created_at": k.created_at, "last_used_at": k.last_used_at} for k in keys]
+    result = []
+    for k in keys:
+        team = db.query(Team).filter(Team.id == k.team_id).first() if k.team_id else None
+        dep = db.query(Deployment).filter(Deployment.id == k.deployment_id).first() if k.deployment_id else None
+        result.append({
+            "id": k.id,
+            "name": k.name,
+            "prefix": k.key_prefix,
+            "created_at": k.created_at,
+            "last_used_at": k.last_used_at,
+            "team_id": k.team_id,
+            "team_name": team.name if team else None,
+            "deployment_id": k.deployment_id,
+            "model_name": dep.model_name if dep else None,
+            "deployment_name": dep.name if dep else None,
+        })
+    return result
 
 @router.delete("/workspaces/{workspace_id}/api-keys/{key_id}")
 def revoke_api_key(workspace_id: int, key_id: int, user=Depends(get_current_user), db: Session = Depends(get_db)):
