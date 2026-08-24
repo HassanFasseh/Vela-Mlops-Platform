@@ -115,17 +115,19 @@ def admin_overview_page():
       Api.get('/models/status'),
       Api.get('/deployments'),
       Api.get('/metrics-summary'),
+      Api.get('/admin/deployment-registry'),
     ]);
-    const [usersR, ticketsR, modelsR, depsR, metricsR] = results;
+    const [usersR, ticketsR, modelsR, depsR, metricsR, registryR] = results;
     const users = usersR.status === 'fulfilled' ? usersR.value : [];
     const tickets = ticketsR.status === 'fulfilled' ? ticketsR.value : [];
     const models = modelsR.status === 'fulfilled' ? modelsR.value : [];
     const deployments = depsR.status === 'fulfilled' ? depsR.value : [];
     const metrics = metricsR.status === 'fulfilled' ? metricsR.value : {};
+    const registry = registryR.status === 'fulfilled' ? registryR.value : [];
 
     renderStatus(models);
     renderMetrics(users, tickets, models, deployments, metrics);
-    renderModelHealth(models, deployments);
+    renderModelHealth(models, deployments, registry);
     renderRecentTickets(tickets);
   }
 
@@ -168,17 +170,32 @@ def admin_overview_page():
       tile(activeUsers, 'Active users');
   }
 
-  function renderModelHealth(models, deployments) {
+  function renderModelHealth(models, deployments, registry) {
     const body = document.getElementById('model-health-body');
+    // Same fix as /admin/models and /admin/deployments: GET /deployments
+    // reads model_name/task_type off the k8s Deployment's MODEL_NAME/
+    // TASK_TYPE env vars, which custom-runner pods never set (only
+    // INPUT_TYPE/INPUT_SCHEMA are) — both come back "unknown" there for
+    // every custom model. The registry (DB Deployment row) has the real
+    // values and wins whenever a match exists. Core services are never
+    // DB rows, so they never match and fall through to their existing
+    // /models/status values unchanged.
+    const registryByName = new Map((registry || []).map(r => [r.name, r]));
     const rows = [];
-    models.forEach(m => rows.push({
-      name: m.name, task: m.task, source: 'Core service',
-      status: m.status, detail: 'backing model: ' + (m.model || 'unknown'),
-    }));
-    deployments.forEach(d => rows.push({
-      name: d.name, task: d.task_type, source: 'Deployment',
-      status: d.status, detail: d.ready + '/' + d.desired + ' replicas ready',
-    }));
+    models.forEach(m => {
+      const reg = registryByName.get(m.name) || null;
+      rows.push({
+        name: m.name, task: (reg && reg.task_type) || m.task, source: 'Core service',
+        status: m.status, detail: 'backing model: ' + (m.model || 'unknown'),
+      });
+    });
+    deployments.forEach(d => {
+      const reg = registryByName.get(d.name) || null;
+      rows.push({
+        name: (reg && reg.model_name) || d.model_name, task: (reg && reg.task_type) || d.task_type, source: 'Deployment',
+        status: d.status, detail: d.ready + '/' + d.desired + ' replicas ready',
+      });
+    });
     if (!rows.length) {
       body.innerHTML = '<tr><td colspan="5">' + UI.emptyState('No models deployed yet', 'Deployed models and core services will show up here once available.') + '</td></tr>';
       return;
