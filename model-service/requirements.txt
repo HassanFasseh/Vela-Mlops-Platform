@@ -1,7 +1,0 @@
-fastapi
-uvicorn
-transformers
-prometheus-client
-evidently==0.7.21
-pandas
-redis
