@@ -41,7 +41,11 @@ on:
 env:
   REGISTRY: lej.ocir.io
   OCIR_NAMESPACE: axi6dz7sdr1m
-  IMAGE: lej.ocir.io/axi6dz7sdr1m/custom-runner
+  # OCIR's free tier won't create new repositories — reuses the existing
+  # model-runner repo instead of a dedicated custom-runner one, keeping
+  # custom images distinguishable via a "custom-" tag prefix (see the two
+  # ${{ env.IMAGE }}:custom-${{ ... }} usages below).
+  IMAGE: lej.ocir.io/axi6dz7sdr1m/model-runner
   NAMESPACE: default
   MINIO_ALIAS: velaminio
 
@@ -142,7 +146,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.IMAGE }}:${{ github.event.inputs.deployment_name }}
+            ${{ env.IMAGE }}:custom-${{ github.event.inputs.deployment_name }}
 
       - name: Deploy to Kubernetes
         run: |
@@ -172,7 +176,7 @@ jobs:
                   - name: ocir-secret
                 containers:
                   - name: custom-runner
-                    image: ${{ env.IMAGE }}:${{ github.event.inputs.deployment_name }}
+                    image: ${{ env.IMAGE }}:custom-${{ github.event.inputs.deployment_name }}
                     ports:
                       - name: http
                         containerPort: 8000
