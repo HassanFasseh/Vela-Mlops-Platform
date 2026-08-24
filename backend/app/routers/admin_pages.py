@@ -1213,9 +1213,23 @@ def admin_models_page():
       ]);
       const registryByName = new Map(registry.map(r => [r.name, r]));
 
+      // The registry's task_type (Deployment.task_type — DB, editable via
+      // the pencil below) wins over /models/status'/deployments' own task
+      // field whenever a registry match exists. /deployments derives its
+      // task_type from the k8s Deployment's TASK_TYPE env var, which
+      // custom-runner containers never set (only INPUT_TYPE/INPUT_SCHEMA
+      // are) — without this, every custom row would show "unknown" here,
+      // and any edit made via the pencil would appear to revert on the
+      // next page load even though the DB write succeeded.
       const rows = [];
-      models.forEach(m => rows.push({ name: m.name, task: m.task, status: m.status, reg: registryByName.get(m.name) || null }));
-      deployments.forEach(d => rows.push({ name: d.name, task: d.task_type, status: d.status, reg: registryByName.get(d.name) || null }));
+      models.forEach(m => {
+        const reg = registryByName.get(m.name) || null;
+        rows.push({ name: m.name, task: (reg && reg.task_type) || m.task, status: m.status, reg });
+      });
+      deployments.forEach(d => {
+        const reg = registryByName.get(d.name) || null;
+        rows.push({ name: d.name, task: (reg && reg.task_type) || d.task_type, status: d.status, reg });
+      });
       registryRows = rows;
 
       if (!rows.length) {
@@ -1291,6 +1305,7 @@ def admin_models_page():
       try {
         await Api.patch('/api/v1/deployment/' + row.reg.id + '/task-type', { task_type: newTask });
         row.task = newTask;
+        row.reg.task_type = newTask;
         renderTaskCell(row, idx);
         UI.toast('Task type updated', 'success');
       } catch (e) {
