@@ -67,14 +67,20 @@ class Deployment(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
-    # Custom-runner (custom-runner/, custom-deploy.yml) fields — a
-    # "huggingface" deployment (the default) leaves all four at their
-    # defaults/null; a "custom" one sets model_type, input_type and
-    # minio_path, and input_schema if it declared one at upload time.
+    # Custom-runner (custom-runner/base/, backend/app/services/
+    # k8s_custom.py) fields — a "huggingface" deployment (the default)
+    # leaves all five at their defaults/null; a "custom" one sets
+    # model_type, input_type and minio_path, input_schema if it declared
+    # one at upload time, and pvc_name once its PersistentVolumeClaim is
+    # created (needed to delete it later — cleanup can't safely
+    # re-derive the name from scratch if the naming convention ever
+    # changes, unlike the ConfigMap/Job/Deployment/Service names, which
+    # stay purely a function of Deployment.name).
     input_type: Mapped[str] = mapped_column(String(20), default="text")  # text, json, file
     model_type: Mapped[str] = mapped_column(String(20), default="huggingface")  # huggingface, custom
     minio_path: Mapped[str] = mapped_column(String(500), nullable=True)
     input_schema: Mapped[str] = mapped_column(Text, nullable=True)  # JSON string describing expected input fields for input_type="json"
+    pvc_name: Mapped[str] = mapped_column(String(255), nullable=True)
 
 class RemediationConfig(Base):
     __tablename__ = "remediation_configs"

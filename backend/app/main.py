@@ -659,8 +659,8 @@ def api_predict(req: PredictRequest, x_api_key: str = fastapi.Header(None, alias
 
         try:
             if deployment.model_type == "custom":
-                # custom-runner (custom-runner/main.py) shapes its own
-                # /predict request by INPUT_TYPE — match it exactly rather
+                # custom-runner (custom-runner/base/main.py) shapes its
+                # own /predict request by INPUT_TYPE — match it exactly rather
                 # than always sending {"text": ...} the way the built-in
                 # HuggingFace runners do.
                 if input_type == "text":
@@ -778,10 +778,14 @@ def list_workspace_models(
 
 
 # =========================================================================
-# Custom models — user-supplied predict.py + weights, served by
-# custom-runner/ (built and deployed by .github/workflows/custom-deploy.yml)
-# instead of the built-in HuggingFace runners. See custom-runner/
-# predict_template.py for the load_model()/predict() interface contract.
+# Custom models — user-supplied predict.py + weights, served by one
+# fixed image (custom-runner/base/, ghcr.io/hassanfasseh/vela/
+# custom-runner:base) shared across every custom deployment instead of a
+# per-deployment build. predict.py/model_files are mounted at runtime
+# (ConfigMap + PVC) rather than baked in — see
+# backend/app/services/k8s_custom.py for the actual Kubernetes
+# operations, and custom-runner/predict_template.py for the
+# load_model()/predict() interface contract.
 # =========================================================================
 
 # Not GITHUB_TOKEN-gated like the endpoints below — this is a static
@@ -805,35 +809,6 @@ def custom_model_template():
         filename="predict_template.py"
     )
 
-def _trigger_custom_deploy(deployment_name: str, minio_path: str, input_type: str, deployment_id: int):
-    """Dispatch custom-deploy.yml — shared by the upload and redeploy
-    endpoints below. Mirrors deploy_model_endpoint()'s dispatch of
-    model-deploy.yml above."""
-    if not GITHUB_TOKEN or not GITHUB_REPO:
-        raise HTTPException(status_code=500, detail="GitHub credentials not configured")
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/custom-deploy.yml/dispatches"
-    resp = http_requests.post(
-        url,
-        headers={
-            "Authorization": f"Bearer {GITHUB_TOKEN}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28"
-        },
-        json={
-            "ref": "main",
-            "inputs": {
-                "deployment_name": deployment_name,
-                "minio_path": minio_path,
-                "input_type": input_type,
-                # workflow_dispatch inputs are always strings over the API,
-                # regardless of the declared input type in the workflow file.
-                "deployment_id": str(deployment_id)
-            }
-        }
-    )
-    if resp.status_code != 204:
-        raise HTTPException(status_code=resp.status_code, detail=resp.text)
-
 @app.post("/api/v1/upload-custom-model")
 async def upload_custom_model(
     predict_file: UploadFile = File(...),
@@ -843,14 +818,17 @@ async def upload_custom_model(
     workspace_id: int = Form(...),
     input_schema: str = Form(None),
     requirements_file: UploadFile = File(None),
+    pvc_size_gb: int = Form(1),
     x_api_key: str = fastapi.Header(None, alias="X-API-Key")
 ):
     from backend.app.database import SessionLocal
     from backend.app.services.auth import verify_api_key
     from backend.app.services.storage import get_client, ensure_bucket, BUCKET_NAME
+    from backend.app.services import k8s_custom
     from backend.app.db.models import Deployment as DeploymentModel
     from datetime import datetime
     import io
+    import re
 
     if not x_api_key:
         raise HTTPException(status_code=401, detail="API key required")
@@ -860,6 +838,13 @@ async def upload_custom_model(
         raise HTTPException(status_code=400, detail="predict_file must be a .py file")
     if not model_files:
         raise HTTPException(status_code=400, detail="At least one model file is required")
+    # deployment_name becomes a Kubernetes resource name (Deployment,
+    # Service, ConfigMap, Job, PVC — see k8s_custom.py) in several
+    # places now, not just a display label, so it has to be a valid
+    # DNS-1123 label — the admin form already enforces this client-side,
+    # this is the server-side backstop.
+    if not re.match(r"^[a-z0-9-]+$", deployment_name):
+        raise HTTPException(status_code=400, detail="deployment_name must be lowercase letters, numbers, and hyphens only")
 
     db = SessionLocal()
     try:
@@ -898,12 +883,12 @@ async def upload_custom_model(
                 content_type="application/octet-stream"
             )
 
-        # Optional — custom-runner's base image only ships fastapi,
-        # uvicorn, joblib, numpy, pandas and scikit-learn; a predict.py
-        # that needs anything beyond that lists it here.
-        # custom-deploy.yml's `mc mirror` picks this up automatically
-        # (same MinIO prefix as predict.py/model_files/) since it's a
-        # plain recursive copy, no separate download logic needed there.
+        # Stored, but not actually used by anything in the cloud-native
+        # flow below — custom-runner:base is one fixed image (fastapi,
+        # uvicorn, scikit-learn, joblib, pandas, numpy only) shared by
+        # every custom deployment, with no per-deployment build step left
+        # to install this into. Kept so nothing breaks for callers still
+        # sending it; see the PR/commit this shipped in for the tradeoff.
         if requirements_file is not None and requirements_file.filename:
             requirements_bytes = await requirements_file.read()
             client.put_object(
@@ -924,29 +909,52 @@ async def upload_custom_model(
             input_type=input_type,
             minio_path=minio_path,
             input_schema=input_schema,
-            status="pending",
+            pvc_name=k8s_custom.pvc_name_for(deployment_name),
+            status="provisioning",
             created_at=datetime.utcnow()
         )
         db.add(record)
         db.commit()
         db.refresh(record)
         deployment_id = record.id
+
+        # ConfigMap + PVC + download Job only — the Deployment/Service
+        # themselves are created lazily by GET /api/v1/custom-model-
+        # status/{id} the first time it's polled after the Job succeeds
+        # (see k8s_custom.get_status()'s docstring for why: creating them
+        # here would mean blocking this request on however long the
+        # model-weights download takes).
+        try:
+            predict_text = predict_bytes.decode("utf-8")
+            cm_name = k8s_custom.create_predict_configmap(deployment_name, predict_text)
+            pvc = k8s_custom.create_model_pvc(deployment_name, pvc_size_gb)
+            k8s_custom.create_download_job(deployment_name, minio_path, pvc)
+        except Exception as e:
+            record.status = "failed"
+            db.commit()
+            raise HTTPException(status_code=500, detail=f"Kubernetes provisioning failed: {e}")
     finally:
         db.close()
-
-    _trigger_custom_deploy(deployment_name, minio_path, input_type, deployment_id)
 
     return {
         "deployment_id": deployment_id,
         "minio_path": minio_path,
-        "status": "pending"
+        "status": "provisioning"
     }
 
 @app.post("/api/v1/deploy-custom/{deployment_id}")
 def redeploy_custom_model(deployment_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key")):
+    """Redeploy without re-uploading: re-runs the download Job (in case
+    MinIO's contents changed since the last deploy) and rolling-restarts
+    the running pod so it re-mounts model_files/ fresh — a ConfigMap
+    volume's file content updates on its own after a short kubelet
+    propagation delay, but the already-running Python process never
+    re-imports predict.py without a restart either way."""
     from backend.app.database import SessionLocal
     from backend.app.services.auth import verify_api_key
+    from backend.app.services import k8s_custom
     from backend.app.db.models import Deployment as DeploymentModel
+    from kubernetes.client.rest import ApiException
 
     if not x_api_key:
         raise HTTPException(status_code=401, detail="API key required")
@@ -967,21 +975,126 @@ def redeploy_custom_model(deployment_id: int, x_api_key: str = fastapi.Header(No
         if deployment.model_type != "custom" or not deployment.minio_path:
             raise HTTPException(status_code=400, detail="This deployment has no custom-model files in MinIO to redeploy")
 
-        deployment.status = "pending"
+        deployment.status = "provisioning"
         db.commit()
         deployment_name = deployment.name
         minio_path = deployment.minio_path
-        input_type = deployment.input_type
+        pvc = deployment.pvc_name or k8s_custom.pvc_name_for(deployment_name)
     finally:
         db.close()
 
-    _trigger_custom_deploy(deployment_name, minio_path, input_type, deployment_id)
+    try:
+        k8s_custom.create_download_job(deployment_name, minio_path, pvc)
+        try:
+            k8s_custom.restart_deployment(deployment_name)
+        except ApiException as e:
+            # No Deployment yet (the original upload's Job never
+            # succeeded, so it was never lazily created) — the status
+            # endpoint will create it once this new Job run succeeds,
+            # same as a first-time upload.
+            if e.status != 404:
+                raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Redeploy failed: {e}")
 
     return {
         "deployment_id": deployment_id,
         "minio_path": minio_path,
-        "status": "pending"
+        "status": "provisioning"
     }
+
+@app.get("/api/v1/custom-model-status/{deployment_id}")
+def custom_model_status(deployment_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key")):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import verify_api_key
+    from backend.app.services import k8s_custom
+    from backend.app.db.models import Deployment as DeploymentModel
+
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="API key required")
+
+    db = SessionLocal()
+    try:
+        api_key = verify_api_key(db, x_api_key)
+        if not api_key:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+
+        deployment = db.query(DeploymentModel).filter(DeploymentModel.id == deployment_id).first()
+        if not deployment:
+            raise HTTPException(status_code=404, detail="Deployment not found")
+        if deployment.workspace_id != api_key.workspace_id:
+            raise HTTPException(status_code=401, detail="Invalid API key for this workspace")
+        if deployment.model_type != "custom":
+            raise HTTPException(status_code=400, detail="Not a custom model deployment")
+
+        pvc = deployment.pvc_name or k8s_custom.pvc_name_for(deployment.name)
+        cm_name = k8s_custom.configmap_name(deployment.name)
+
+        try:
+            result = k8s_custom.get_status(deployment.name, cm_name, pvc, deployment.input_type, deployment.input_schema)
+        except Exception as e:
+            return {"deployment_id": deployment_id, "phase": "unknown", "detail": str(e)}
+
+        # Keep the DB row in sync — /admin/deployments' table reads
+        # Deployment.status directly, not this endpoint, so without this
+        # it would stay stuck on whatever upload/redeploy last set
+        # ("provisioning") even once the model is actually running.
+        new_status = {"running": "running", "failed": "failed"}.get(result["phase"], "provisioning")
+        if deployment.status != new_status:
+            deployment.status = new_status
+            db.commit()
+
+        return {"deployment_id": deployment_id, **result}
+    finally:
+        db.close()
+
+@app.delete("/api/v1/custom-model/{deployment_id}")
+def delete_custom_model(deployment_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key")):
+    """No equivalent existed for any deployment type before this — added
+    specifically so a custom deployment's Kubernetes resources (and
+    MinIO files are NOT deleted here; they're the durable copy) have
+    somewhere to actually get torn down instead of leaking forever."""
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import verify_api_key
+    from backend.app.services import k8s_custom
+    from backend.app.db.models import Deployment as DeploymentModel, TeamModelPermission
+
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="API key required")
+
+    db = SessionLocal()
+    try:
+        api_key = verify_api_key(db, x_api_key)
+        if not api_key:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+
+        deployment = db.query(DeploymentModel).filter(DeploymentModel.id == deployment_id).first()
+        if not deployment:
+            raise HTTPException(status_code=404, detail="Deployment not found")
+        if deployment.workspace_id != api_key.workspace_id:
+            raise HTTPException(status_code=401, detail="Invalid API key for this workspace")
+        if api_key.team_id or api_key.deployment_id:
+            raise HTTPException(status_code=403, detail="This endpoint requires an unscoped workspace API key")
+
+        if deployment.model_type == "custom":
+            try:
+                k8s_custom.delete_all(deployment.name, deployment.pvc_name)
+            except Exception as e:
+                # A k8s hiccup here shouldn't block removing the DB row
+                # below — log it and proceed rather than leaving the
+                # admin stuck with a deployment they can't remove from
+                # the UI at all.
+                print(f"[custom-model-delete] k8s cleanup failed for {deployment.name}: {e}", flush=True)
+
+        # deployments.id is a real FK target for TeamModelPermission —
+        # Postgres would reject deleting the row out from under it
+        # otherwise.
+        db.query(TeamModelPermission).filter(TeamModelPermission.deployment_id == deployment_id).delete()
+        db.delete(deployment)
+        db.commit()
+        return {"message": "Deployment deleted"}
+    finally:
+        db.close()
 
 
 from backend.app.db.models import RemediationConfig, RemediationLog

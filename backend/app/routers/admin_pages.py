@@ -1447,11 +1447,12 @@ def admin_deployments_page():
       submitBtn.textContent = 'Deployment queued!';
       successEl.style.display = 'block';
       successEl.innerHTML = UI.badge('Queued', 'success', true) +
-        ' <span class="text-secondary" style="font-size:var(--text-sm)">Deployment #' + data.deployment_id + ' queued &mdash; it will appear in the table above in ~5&ndash;10 min.</span>';
+        ' <span class="text-secondary" style="font-size:var(--text-sm)">Deployment #' + data.deployment_id + ' queued&hellip;</span>';
       UI.toast('Custom model deployment triggered', 'success');
       document.getElementById('custom-deploy-form').reset();
       document.getElementById('cm-schema-field').style.display = 'none';
       setTimeout(() => { submitBtn.textContent = 'Upload and deploy'; }, 2000);
+      pollCustomModelStatus(data.deployment_id, apiKey, successEl);
     } catch (err) {
       clearTimeout(stageTimer);
       submitBtn.textContent = 'Upload and deploy';
@@ -1460,6 +1461,57 @@ def admin_deployments_page():
       submitBtn.disabled = false;
     }
   });
+
+  // Real-time status after upload: GET /api/v1/custom-model-status/{id}
+  // checks the Kubernetes download Job and Deployment directly (see
+  // backend/app/services/k8s_custom.py get_status()) rather than
+  // tracking anything server-side, so it's safe to just poll on a
+  // timer — no session/queue state to lose on a page reload.
+  function customStatusLabel(phase) {
+    return {
+      downloading: 'Downloading model files…',
+      provisioning: 'Starting…',
+      running: 'Running',
+      failed: 'Failed',
+      unknown: 'Unknown',
+    }[phase] || phase;
+  }
+
+  function customStatusVariant(phase) {
+    if (phase === 'running') return 'success';
+    if (phase === 'failed') return 'danger';
+    return 'warning';
+  }
+
+  function pollCustomModelStatus(deploymentId, apiKey, statusEl) {
+    const maxAttempts = 60; // ~5 minutes at 5s intervals — then just stop; the table above still reflects whatever the last known status was.
+    let attempts = 0;
+
+    async function tick() {
+      attempts += 1;
+      try {
+        const res = await fetch('/api/v1/custom-model-status/' + deploymentId, {
+          headers: { 'X-API-Key': apiKey },
+        });
+        const data = await res.json().catch(() => null);
+        const phase = (data && data.phase) || 'unknown';
+        const detail = data && data.detail ? ' (' + UI.escapeHtml(data.detail) + ')' : '';
+        statusEl.innerHTML = UI.badge(customStatusLabel(phase), customStatusVariant(phase), true) +
+          ' <span class="text-secondary" style="font-size:var(--text-sm)">Deployment #' + deploymentId +
+          (phase === 'running' ? ' is running.' : phase === 'failed' ? ' failed to deploy.' + detail : ' is being provisioned&hellip;') +
+          '</span>';
+        if (phase === 'running' || phase === 'failed') {
+          loadDeployments();
+          return;
+        }
+      } catch (e) {
+        // Network hiccup mid-poll — keep trying rather than giving up on one blip.
+      }
+      if (attempts < maxAttempts) setTimeout(tick, 5000);
+    }
+
+    tick();
+  }
 </script>"""
 
     ready = "loadDeployments();"

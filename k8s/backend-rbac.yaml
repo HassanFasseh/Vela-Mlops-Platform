@@ -3,12 +3,37 @@ kind: ClusterRole
 metadata:
   name: backend-app-reader
 rules:
-  - apiGroups: ["apps"]
-    resources: ["deployments"]
-    verbs: ["get", "list"]
+  # Existing: GET /deployments (main.py) — live pod/replica status.
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list"]
+
+  # Custom model deployments (backend/app/services/k8s_custom.py) —
+  # create/update/delete on top of the read access every resource type
+  # here already needed for GET /deployments and
+  # GET /api/v1/custom-model-status/{id}.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "create", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "create", "delete"]
+  # No "secrets" rule needed for the download Job's minio-secret
+  # secretKeyRef (backend/app/services/k8s_custom.py) — referencing a
+  # Secret in a pod spec is resolved by the kubelet on the node at pod
+  # start, not by the identity that created the Pod/Job, so creating a
+  # Job whose spec points at minio-secret needs no RBAC on Secrets at
+  # all. Same reason the backend's own pod (k8s/backend-deployment.yaml)
+  # has never needed one for its own secretKeyRef env vars.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

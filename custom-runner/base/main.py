@@ -1,12 +1,17 @@
 """
-Vela custom-model runner.
+Vela custom-model runner — cloud-native variant.
 
-Generic FastAPI wrapper around a user-supplied /app/predict.py (see
-predict_template.py for the interface contract: load_model() and
-predict(model, input_data)). Everything about how a request is shaped
-and how the response is normalized is generic — the model-specific logic
-lives entirely in predict.py, which is baked into the image at build
-time by custom-deploy.yml alongside /app/model_files/.
+Same interface contract as the original per-deployment-build custom-
+runner it replaces (see ../predict_template.py), but predict.py and
+model_files/ are no longer baked into the image at build time — this
+image is generic and shared by every custom deployment. Per-deployment
+content is mounted at runtime instead:
+
+    /app/predict.py       <- ConfigMap volume (sub_path)
+    /app/model_files/     <- PersistentVolumeClaim volume
+
+See backend/app/services/k8s_custom.py for exactly how those get
+created and mounted.
 """
 
 import base64

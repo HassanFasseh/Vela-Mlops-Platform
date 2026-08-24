@@ -1,17 +1,13 @@
-# Sample requirements.txt — a SEPARATE file, uploaded alongside this one
-# (optional field on the upload form). The base custom-runner image only
-# ships fastapi, uvicorn, joblib, numpy, pandas and scikit-learn — list
-# anything else your predict.py imports, one package per line, same
-# syntax pip normally uses:
-#
-#     xgboost==2.0.3
-#     lightgbm==4.3.0
-#     onnxruntime==1.17.1
-#     scipy==1.13.0
-#     pillow==10.3.0
-#
-# Leave it out entirely if load_model()/predict() only need what's
-# already in the base image (e.g. Option A below).
+# A note on requirements.txt: the upload form still accepts one
+# alongside this file, but as of the cloud-native rewrite (one fixed
+# custom-runner:base image, shared by every custom deployment, with
+# no per-deployment build step) nothing installs it anymore — it's
+# stored in MinIO and otherwise unused. load_model()/predict() below
+# can only rely on what's already in the base image: fastapi, uvicorn,
+# scikit-learn, joblib, pandas, numpy. Anything else (xgboost, torch,
+# onnxruntime, pillow, ...) currently has no supported way to reach a
+# running deployment — see Options B and C further down for exactly
+# where that bites.
 
 """
 Vela custom-runner interface contract
@@ -20,8 +16,8 @@ Vela custom-runner interface contract
 Fill in load_model() and predict() below, then upload this file (as
 predict.py) together with your model weights through the "Upload custom
 model" flow. Vela packages both into a container image and serves them
-behind POST /predict — see custom-runner/main.py for exactly how these
-two functions get called.
+behind POST /predict — see custom-runner/base/main.py for exactly how
+these two functions get called.
 
     load_model(model_dir)
         Called once, at container startup, with model_dir set to
@@ -63,10 +59,12 @@ two functions get called.
         get — anything else is shown as-is. Raise on failure; Vela turns
         that into a 400 response ({"error": str(e)}) rather than a crash.
 
-Pick ONE of the three worked examples below (sklearn / xgboost /
-pytorch) that matches your model, delete the other two, and adjust the
-model_files/ filenames and predict() body to match what you actually
-uploaded and how your model expects its input shaped.
+Option A (scikit-learn) below is the only one that actually runs against
+the current base image as-is. Options B (XGBoost) and C (PyTorch) are
+kept as reference for the shape of load_model()/predict() you'd write
+for those libraries, but neither has a supported path to actually get
+the library installed into a running deployment right now — see each
+option's own note.
 """
 
 import os
@@ -110,8 +108,9 @@ def predict(model, input_data):
 # loaded. This example instead shows the native Booster API, which is
 # what you get from xgboost.train() or a raw .json/.ubj model file.
 #
-# xgboost isn't in the base image — upload a requirements.txt alongside
-# this file with a line for it (see the sample at the top of this file).
+# xgboost isn't in the base image, and there's currently no supported
+# way to add it for a running deployment (see the requirements.txt note
+# at the top of this file) — this option won't actually run yet.
 # =============================================================================
 #
 # def load_model(model_dir):
@@ -135,18 +134,14 @@ def predict(model, input_data):
 # field. input_data arrives base64-encoded — decode it back to raw bytes
 # before handing it to your usual preprocessing.
 #
-# NOTE: the default custom-runner image (Dockerfile) does not include
-# torch/torchvision/pillow. Two ways to get them:
-#   1. custom-runner/Dockerfile.torch already has all three — pass
-#      use_torch=true when (re-)dispatching custom-deploy.yml. The admin
-#      upload form doesn't expose that toggle yet, so ask whoever's
-#      running the GitHub Actions workflow to re-dispatch it by hand
-#      with use_torch=true for this deployment_name.
-#   2. Or list torch/torchvision/pillow in a requirements.txt uploaded
-#      alongside this file and stay on the slim image — works, but
-#      re-downloads the same multi-gigabyte wheels Dockerfile.torch
-#      already has baked in, so (1) is usually the better call for a
-#      PyTorch model specifically.
+# NOTE: custom-runner:base (custom-runner/base/) does not include
+# torch/torchvision/pillow, and — unlike the earlier per-deployment-
+# build architecture this replaced — there's currently no per-model
+# way to add them at all: one fixed image is shared by every custom
+# deployment, with no build or install step of its own left to hook
+# into. This option won't actually run until that gap is closed (a
+# torch-enabled variant image, most likely, the same idea as the old
+# Dockerfile.torch but for this shared-image model).
 # =============================================================================
 #
 # def load_model(model_dir):
