@@ -23,12 +23,13 @@ model" flow. Vela packages both into a container image and serves them
 behind POST /predict — see custom-runner/main.py for exactly how these
 two functions get called.
 
-    load_model()
-        Called once, at container startup. Load whatever you need from
-        /app/model_files/ (that directory holds every file you uploaded
-        alongside this script) and return it — whatever you return is
-        passed as `model` to every predict() call for the life of the
-        container. Do all your expensive setup here, not in predict().
+    load_model(model_dir)
+        Called once, at container startup, with model_dir set to
+        "/app/model_files" — that directory holds every file you
+        uploaded alongside this script. Load whatever you need from
+        there and return it — whatever you return is passed as `model`
+        to every predict() call for the life of the container. Do all
+        your expensive setup here, not in predict().
 
     predict(model, input_data)
         Called once per POST /predict request. `model` is exactly what
@@ -70,8 +71,6 @@ uploaded and how your model expects its input shaped.
 
 import os
 
-MODEL_DIR = "/app/model_files"
-
 
 # =============================================================================
 # Option A — scikit-learn, input_type="json"   [ACTIVE — this is the one
@@ -85,10 +84,10 @@ MODEL_DIR = "/app/model_files"
 FEATURE_ORDER = ["age", "income", "region"]  # must match your training data's column order
 
 
-def load_model():
+def load_model(model_dir):
     import joblib
 
-    return joblib.load(os.path.join(MODEL_DIR, "model.joblib"))
+    return joblib.load(os.path.join(model_dir, "model.joblib"))
 
 
 def predict(model, input_data):
@@ -115,10 +114,10 @@ def predict(model, input_data):
 # this file with a line for it (see the sample at the top of this file).
 # =============================================================================
 #
-# def load_model():
+# def load_model(model_dir):
 #     import xgboost as xgb
 #     booster = xgb.Booster()
-#     booster.load_model(os.path.join(MODEL_DIR, "model.json"))
+#     booster.load_model(os.path.join(model_dir, "model.json"))
 #     return booster
 #
 # def predict(model, input_data):
@@ -150,9 +149,9 @@ def predict(model, input_data):
 #      PyTorch model specifically.
 # =============================================================================
 #
-# def load_model():
+# def load_model(model_dir):
 #     import torch
-#     model = torch.load(os.path.join(MODEL_DIR, "model.pt"), map_location="cpu")
+#     model = torch.load(os.path.join(model_dir, "model.pt"), map_location="cpu")
 #     model.eval()
 #     return model
 #

@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
     from predict import load_model
 
     print(f"[custom-runner] loading model (input_type={INPUT_TYPE})...", flush=True)
-    MODEL = load_model()
+    MODEL = load_model("/app/model_files")
     print("[custom-runner] model loaded", flush=True)
     yield
 
