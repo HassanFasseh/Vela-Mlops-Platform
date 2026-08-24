@@ -162,8 +162,14 @@ jobs:
           # schedule an amd64 image onto, so building it is pure waste.
           platforms: linux/arm64
           push: true
+          # Includes the commit SHA, not just deployment_name — a bare
+          # custom-{deployment_name} tag never changes between runs, so
+          # `kubectl apply` sees the same image reference every time and
+          # never actually pulls the rebuilt image (this is exactly what
+          # broke the previous redeploy: the manifest looked identical to
+          # Kubernetes even though the image content had changed).
           tags: |
-            ${{ env.IMAGE }}:custom-${{ github.event.inputs.deployment_name }}
+            ${{ env.IMAGE }}:custom-${{ github.event.inputs.deployment_name }}-${{ github.sha }}
 
       - name: Deploy to Kubernetes
         run: |
@@ -193,7 +199,12 @@ jobs:
                   - name: ghcr-secret
                 containers:
                   - name: custom-runner
-                    image: ${{ env.IMAGE }}:custom-${{ github.event.inputs.deployment_name }}
+                    image: ${{ env.IMAGE }}:custom-${{ github.event.inputs.deployment_name }}-${{ github.sha }}
+                    # Belt-and-suspenders alongside the SHA-suffixed tag
+                    # above — if a tag ever did get reused (e.g. someone
+                    # re-runs an old workflow run), this still forces a
+                    # fresh pull instead of trusting a cached local image.
+                    imagePullPolicy: Always
                     ports:
                       - name: http
                         containerPort: 8000
