@@ -552,7 +552,7 @@ def admin_teams_page():
   }
 
   async function revokeAccess(teamId, deploymentId) {
-    if (!confirm('Revoke this team\'s access to this model?')) return;
+    if (!confirm("Revoke this team's access to this model?")) return;
     try {
       await Api.del('/teams/' + teamId + '/permissions/' + deploymentId);
       UI.toast('Access revoked', 'success');
