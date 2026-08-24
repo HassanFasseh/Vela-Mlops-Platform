@@ -294,6 +294,11 @@ def member_team_detail_page(team_id: int):
   let teamPerms = [];
 
   function renderModels(perms) {
+    // Admin "Disable" (/admin/models) hides a model from members
+    // entirely rather than showing it greyed out — the admin teams-page
+    // (/admin/teams-page) shows these same permission rows unfiltered,
+    // since an admin still needs to see/manage a disabled model's grants.
+    perms = perms.filter(p => p.is_active !== false);
     teamPerms = perms;
     const body = document.getElementById('models-body');
     if (!perms.length) {
@@ -444,6 +449,9 @@ def member_models_page():
       perTeam.forEach(result => {
         if (result.status !== 'fulfilled') return;
         result.value.forEach(p => {
+          // Admin "Disable" (/admin/models) hides a model from members
+          // entirely — see the matching filter on /app/teams/{id}.
+          if (p.is_active === false) return;
           if (!byDeployment.has(p.deployment_id)) byDeployment.set(p.deployment_id, p);
         });
       });

@@ -1160,14 +1160,14 @@ def admin_settings_page():
 #
 # Every row here comes from either /models/status (the two hardcoded core
 # services, both HuggingFace-hosted) or /deployments (k8s Deployments
-# labeled managed-by=platform). Only /deploy-model ever creates one of
-# those k8s objects — /api/v1/upload-model stores a DB record and never
-# touches the Kubernetes API — so "source" is honestly "huggingface" for
-# every row this page can show; uploaded models have no way to surface
-# here at all. There's also no endpoint mapping a k8s deployment name to
-# its DB Deployment.id, so a per-row "model card exists?" check isn't
-# possible — the doc link goes to the lookup page instead of a specific
-# card. See Docs/Teams/Remediation pages for the same underlying gap.
+# labeled managed-by=platform) — that's still what decides which rows
+# exist and their live status. GET /admin/deployment-registry is merged
+# in by name to attach each row's real DB Deployment.id, model_type, and
+# is_active where one exists, which is what lets a row carry Disable/
+# Enable and Delete controls. The two hardcoded core services were never
+# DB rows and never will be, so they never get those buttons — same
+# pre-existing gap as before, just no longer blocking management actions
+# for everything else.
 # =========================================================================
 
 @router.get("/admin/models", response_class=HTMLResponse)
@@ -1192,26 +1192,178 @@ def admin_models_page():
 
     script = """
 <script>
+  // GET /deployments (k8s-live) and GET /models/status (the two
+  // hardcoded core services) don't carry a real Deployment.id — see
+  // GET /admin/deployment-registry's own comment in main.py. Rows here
+  // are built from the first two (for display: every model actually
+  // reachable, core services included) then matched by name against the
+  // registry (for the real id/model_type/is_active that management
+  // actions need) — a row with no registry match (the two core
+  // services, or an orphaned k8s Deployment with no DB row) just gets
+  // no management buttons, same as before this feature existed.
+  let registryRows = [];
+  let managementApiKey = '';
+
   async function loadRegistry() {
     const body = document.getElementById('registry-body');
-    body.innerHTML = UI.skeletonRows(5, 4);
+    body.innerHTML = UI.skeletonRows(5, 5);
     try {
-      const [models, deployments] = await Promise.all([Api.get('/models/status'), Api.get('/deployments')]);
+      const [models, deployments, registry] = await Promise.all([
+        Api.get('/models/status'), Api.get('/deployments'), Api.get('/admin/deployment-registry')
+      ]);
+      const registryByName = new Map(registry.map(r => [r.name, r]));
+
       const rows = [];
-      models.forEach(m => rows.push({ name: m.name, task: m.task, status: m.status }));
-      deployments.forEach(d => rows.push({ name: d.name, task: d.task_type, status: d.status }));
+      models.forEach(m => rows.push({ name: m.name, task: m.task, status: m.status, reg: registryByName.get(m.name) || null }));
+      deployments.forEach(d => rows.push({ name: d.name, task: d.task_type, status: d.status, reg: registryByName.get(d.name) || null }));
+      registryRows = rows;
+
       if (!rows.length) {
         body.innerHTML = '<tr><td colspan="5">' + UI.emptyState('No models registered yet', 'Deploy a model from the Deployments page to see it here.') + '</td></tr>';
         return;
       }
-      body.innerHTML = rows.map(r =>
-        '<tr><td>' + UI.escapeHtml(r.name) + '</td><td>' + UI.escapeHtml(r.task) + '</td>' +
-        '<td>' + UI.badge('huggingface', 'neutral') + '</td><td>' + UI.statusBadge(r.status) + '</td>' +
-        '<td><a class="link-secondary" style="font-size:var(--text-xs)" href="/admin/docs">Look up documentation &rarr;</a></td></tr>'
-      ).join('');
+      body.innerHTML = rows.map(renderRegistryRow).join('');
+      wireRegistryRows();
     } catch (e) {
       body.innerHTML = '<tr><td colspan="5">' + UI.errorState(e.message, loadRegistry) + '</td></tr>';
     }
+  }
+
+  function renderRegistryRow(r, idx) {
+    const modelType = r.reg ? r.reg.model_type : 'huggingface';
+    const isActive = r.reg ? r.reg.is_active !== false : true;
+
+    const actions = ['<a class="link-secondary" style="font-size:var(--text-xs)" href="/admin/docs">Look up documentation &rarr;</a>'];
+    if (r.reg) {
+      actions.push('<button class="btn btn-ghost btn-sm" data-toggle-active="' + idx + '" type="button">' + (isActive ? 'Disable' : 'Enable') + '</button>');
+      actions.push('<button class="btn btn-danger btn-sm" data-delete-model="' + idx + '" type="button">Delete</button>');
+    }
+
+    return '<tr>' +
+      '<td>' + UI.escapeHtml(r.name) + '</td>' +
+      '<td>' + UI.escapeHtml(r.task) + '</td>' +
+      '<td>' + UI.badge(modelType, 'neutral') + '</td>' +
+      '<td>' + UI.statusBadge(r.status) + (isActive ? '' : ' ' + UI.badge('Disabled', 'warning')) + '</td>' +
+      '<td style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">' + actions.join('') + '</td>' +
+      '</tr>';
+  }
+
+  function wireRegistryRows() {
+    document.querySelectorAll('[data-toggle-active]').forEach(btn => {
+      const idx = parseInt(btn.dataset.toggleActive, 10);
+      btn.addEventListener('click', () => toggleActive(registryRows[idx], btn));
+    });
+    document.querySelectorAll('[data-delete-model]').forEach(btn => {
+      const idx = parseInt(btn.dataset.deleteModel, 10);
+      btn.addEventListener('click', () => confirmDeleteModel(registryRows[idx]));
+    });
+  }
+
+  // Disable/Enable and Delete all need an unscoped workspace API key
+  // (same X-API-Key auth every /api/v1/* write endpoint in this app
+  // uses) — prompted for once, lazily, and cached for the rest of the
+  // page's lifetime rather than shown as a permanent field.
+  function ensureApiKey() {
+    if (managementApiKey) return Promise.resolve(managementApiKey);
+    return new Promise((resolve) => {
+      const overlay = UI.openModal({
+        title: 'API key required',
+        bodyHtml: `
+          <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:.75rem">An unscoped workspace API key is needed to manage models — see API Keys.</p>
+          <div class="field"><label class="field-label" for="reg-api-key">API key</label><input class="input" type="password" id="reg-api-key" placeholder="aodp_your_admin_key"></div>
+        `,
+        footerHtml: `<button class="btn btn-ghost" id="reg-key-cancel" type="button">Cancel</button>
+                     <button class="btn btn-primary" id="reg-key-save" type="button">Continue</button>`,
+      });
+      const finish = (value) => { UI.closeModal(); resolve(value); };
+      overlay.querySelector('#reg-key-cancel').addEventListener('click', () => finish(null));
+      const input = overlay.querySelector('#reg-api-key');
+      const save = () => {
+        const value = input.value.trim();
+        if (!value) return;
+        managementApiKey = value;
+        finish(value);
+      };
+      overlay.querySelector('#reg-key-save').addEventListener('click', save);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
+    });
+  }
+
+  async function toggleActive(row, btn) {
+    if (!row.reg) return;
+    const key = await ensureApiKey();
+    if (!key) return;
+    const newActive = !(row.reg.is_active !== false);
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/v1/deployment/' + row.reg.id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+        body: JSON.stringify({ is_active: newActive }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error((data && data.detail) || 'Could not update model');
+      UI.toast(newActive ? 'Model enabled' : 'Model disabled', 'success');
+      loadRegistry();
+    } catch (e) {
+      UI.toast(e.message || 'Could not update model', 'danger');
+      btn.disabled = false;
+    }
+  }
+
+  // Fetch the key BEFORE opening the type-to-confirm dialog, not from
+  // inside its button handler — UI.openModal() closes whatever modal is
+  // currently open before showing a new one, so nesting them here would
+  // close the confirm dialog out from under itself.
+  async function confirmDeleteModel(row) {
+    if (!row.reg) return;
+    const key = await ensureApiKey();
+    if (!key) return;
+
+    const overlay = UI.openModal({
+      title: 'Delete ' + row.name,
+      bodyHtml: `
+        <div class="alert alert-danger" style="margin-bottom:.75rem">
+          <div><div class="alert-title">This cannot be undone</div><div class="alert-body">This will remove the model and revoke all team access. Type the model name to confirm.</div></div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="del-confirm-name">Model name</label>
+          <input class="input" id="del-confirm-name" placeholder="${UI.escapeHtml(row.name)}">
+        </div>
+        <div class="field-error" id="del-confirm-error" role="alert"></div>
+      `,
+      footerHtml: `<button class="btn btn-ghost" id="del-cancel" type="button">Cancel</button>
+                   <button class="btn btn-danger" id="del-confirm" type="button" disabled>Delete</button>`,
+    });
+    const input = overlay.querySelector('#del-confirm-name');
+    const confirmBtn = overlay.querySelector('#del-confirm');
+    const errorEl = overlay.querySelector('#del-confirm-error');
+
+    input.addEventListener('input', () => {
+      confirmBtn.disabled = input.value !== row.name;
+    });
+    overlay.querySelector('#del-cancel').addEventListener('click', UI.closeModal);
+
+    confirmBtn.addEventListener('click', async () => {
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Deleting…';
+      errorEl.textContent = '';
+      try {
+        const path = row.reg.model_type === 'custom'
+          ? '/api/v1/custom-model/' + row.reg.id
+          : '/api/v1/deployment/' + row.reg.id;
+        const res = await fetch(path, { method: 'DELETE', headers: { 'X-API-Key': key } });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error((data && data.detail) || 'Could not delete model');
+        UI.closeModal();
+        UI.toast('Model deleted', 'success');
+        loadRegistry();
+      } catch (e) {
+        errorEl.textContent = e.message || 'Could not delete model.';
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Delete';
+      }
+    });
   }
 </script>"""
 

@@ -67,6 +67,11 @@ class Deployment(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    # Admin "Disable" (/admin/models) — False blocks POST /api/v1/predict
+    # (main.py) and hides the model from member-facing team/model
+    # listings (member_pages.py), without touching anything running in
+    # the cluster or deleting the row. Reversible via the same toggle.
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     # Custom-runner (custom-runner/base/, backend/app/services/
     # k8s_custom.py) fields — a "huggingface" deployment (the default)
     # leaves all five at their defaults/null; a "custom" one sets

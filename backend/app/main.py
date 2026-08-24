@@ -637,6 +637,8 @@ def api_predict(req: PredictRequest, x_api_key: str = fastapi.Header(None, alias
         deployment = db.query(Deployment).filter(Deployment.id == req.deployment_id).first()
         if not deployment:
             raise HTTPException(status_code=404, detail="Deployment not found")
+        if not deployment.is_active:
+            raise HTTPException(status_code=403, detail="This model has been disabled")
 
         # Which field is required depends on what this specific
         # deployment actually expects — not a global assumption of
@@ -1089,6 +1091,96 @@ def delete_custom_model(deployment_id: int, x_api_key: str = fastapi.Header(None
         # deployments.id is a real FK target for TeamModelPermission —
         # Postgres would reject deleting the row out from under it
         # otherwise.
+        db.query(TeamModelPermission).filter(TeamModelPermission.deployment_id == deployment_id).delete()
+        db.delete(deployment)
+        db.commit()
+        return {"message": "Deployment deleted"}
+    finally:
+        db.close()
+
+# HuggingFace deployments (model-deploy.yml) predate workspace-scoping —
+# deploy_model_endpoint() below never sets workspace_id, so it's always
+# NULL on these rows. The ownership check every other /api/v1/*
+# endpoint here does (deployment.workspace_id != api_key.workspace_id)
+# would reject every unscoped key on every one of them if applied
+# unconditionally; skipped specifically when workspace_id IS NULL
+# instead of requiring a match that can never exist. Shared by both
+# endpoints below.
+def _check_deployment_key_ownership(deployment, api_key):
+    if deployment.workspace_id is not None and deployment.workspace_id != api_key.workspace_id:
+        raise HTTPException(status_code=401, detail="Invalid API key for this workspace")
+    if api_key.team_id or api_key.deployment_id:
+        raise HTTPException(status_code=403, detail="This endpoint requires an unscoped workspace API key")
+
+class DeploymentUpdate(BaseModel):
+    is_active: bool
+
+@app.patch("/api/v1/deployment/{deployment_id}")
+def update_deployment(deployment_id: int, req: DeploymentUpdate, x_api_key: str = fastapi.Header(None, alias="X-API-Key")):
+    """"Disable"/"Enable" on /admin/models — reversible, doesn't touch
+    anything running. See Deployment.is_active's own comment for what
+    disabling actually does (blocks /api/v1/predict, hides from member
+    dashboards)."""
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import verify_api_key
+    from backend.app.db.models import Deployment as DeploymentModel
+
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="API key required")
+
+    db = SessionLocal()
+    try:
+        api_key = verify_api_key(db, x_api_key)
+        if not api_key:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+
+        deployment = db.query(DeploymentModel).filter(DeploymentModel.id == deployment_id).first()
+        if not deployment:
+            raise HTTPException(status_code=404, detail="Deployment not found")
+        _check_deployment_key_ownership(deployment, api_key)
+
+        deployment.is_active = req.is_active
+        db.commit()
+        return {"deployment_id": deployment_id, "is_active": deployment.is_active}
+    finally:
+        db.close()
+
+@app.delete("/api/v1/deployment/{deployment_id}")
+def delete_deployment(deployment_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key")):
+    """Delete for HuggingFace deployments — model-deploy.yml's inline
+    manifest is just a Deployment + Service, no ConfigMap/PVC/Job, so
+    this is deliberately separate from DELETE /api/v1/custom-model/{id}
+    rather than one endpoint branching on model_type: calling this on a
+    custom deployment would tear down its Deployment+Service but leave
+    the ConfigMap/PVC/Job behind as orphans, so it's rejected instead."""
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import verify_api_key
+    from backend.app.services import k8s_custom
+    from backend.app.db.models import Deployment as DeploymentModel, TeamModelPermission
+
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="API key required")
+
+    db = SessionLocal()
+    try:
+        api_key = verify_api_key(db, x_api_key)
+        if not api_key:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+
+        deployment = db.query(DeploymentModel).filter(DeploymentModel.id == deployment_id).first()
+        if not deployment:
+            raise HTTPException(status_code=404, detail="Deployment not found")
+        if deployment.model_type == "custom":
+            raise HTTPException(status_code=400, detail="This is a custom model deployment — use DELETE /api/v1/custom-model/{id} instead")
+        _check_deployment_key_ownership(deployment, api_key)
+
+        try:
+            k8s_custom.delete_deployment_and_service(deployment.name)
+        except Exception as e:
+            # Same reasoning as delete_custom_model — don't let a k8s
+            # hiccup block removing the DB row.
+            print(f"[deployment-delete] k8s cleanup failed for {deployment.name}: {e}", flush=True)
+
         db.query(TeamModelPermission).filter(TeamModelPermission.deployment_id == deployment_id).delete()
         db.delete(deployment)
         db.commit()
@@ -1569,6 +1661,7 @@ def admin_deployment_registry(authorization: str = fastapi.Header(None)):
             "task_type": d.task_type,
             "model_type": d.model_type,
             "status": d.status,
+            "is_active": d.is_active,
         } for d in deployments]
     finally:
         db.close()

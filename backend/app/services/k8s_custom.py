@@ -385,3 +385,13 @@ def delete_all(name: str, pvc: str = None):
     _ignore_404(core_v1.delete_namespaced_config_map, configmap_name(name), NAMESPACE)
     if pvc:
         _ignore_404(core_v1.delete_namespaced_persistent_volume_claim, pvc, NAMESPACE)
+
+
+def delete_deployment_and_service(name: str):
+    """Teardown for a HuggingFace deployment (model-deploy.yml's inline
+    manifest: just a Deployment + Service, no ConfigMap/PVC/Job — using
+    delete_all() here would be harmless (it's all _ignore_404'd) but
+    misleading about what these deployments actually have."""
+    core_v1, apps_v1, _ = _clients()
+    _ignore_404(apps_v1.delete_namespaced_deployment, name, NAMESPACE)
+    _ignore_404(core_v1.delete_namespaced_service, name, NAMESPACE)

@@ -148,6 +148,12 @@ def get_team_permissions(db: Session, team_id: int) -> list:
             "input_type": dep.input_type if dep else "text",
             "model_type": dep.model_type if dep else "huggingface",
             "input_schema": dep.input_schema if dep else None,
+            # /admin/models' "Disable" toggle — member_pages.py filters
+            # these out of what members actually see (not done here,
+            # since /admin/teams-page's grant/revoke UI reuses this same
+            # helper and admins still need to see a disabled model's
+            # existing grants to manage them).
+            "is_active": dep.is_active if dep else True,
             "can_predict": p.can_predict,
             "can_view_metrics": p.can_view_metrics,
             "granted_at": p.granted_at
