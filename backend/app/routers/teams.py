@@ -125,7 +125,15 @@ def grant_team_permission(team_id: int, req: PermissionGrant,
     team = db.query(Team).filter(Team.id == team_id).first()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
-    require_workspace_admin(team.workspace_id, user, db)
+    # Platform admin, not workspace-role admin (require_workspace_admin) —
+    # this is called from /admin/teams-page, which is gated on User.is_admin
+    # like every other /admin/* page. require_workspace_admin checks a
+    # WorkspaceMember row's role instead, which a platform admin has no
+    # guarantee of holding for every workspace a team happens to live in
+    # (nothing creates one automatically), so it would 403 admins who are
+    # legitimately allowed to be here.
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin required")
     perm = grant_model_access(db, team_id, req.deployment_id,
                                req.can_predict, req.can_view_metrics, user.id)
     return {"team_id": team_id, "deployment_id": req.deployment_id,
@@ -137,7 +145,11 @@ def revoke_team_permission(team_id: int, deployment_id: int,
     team = db.query(Team).filter(Team.id == team_id).first()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
-    require_workspace_admin(team.workspace_id, user, db)
+    # Same reasoning as grant_team_permission above — must match it, or an
+    # admin could grant but not revoke (or vice versa) depending on their
+    # incidental WorkspaceMember role in this team's workspace.
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin required")
     success = revoke_model_access(db, team_id, deployment_id)
     if not success:
         raise HTTPException(status_code=404, detail="Permission not found")

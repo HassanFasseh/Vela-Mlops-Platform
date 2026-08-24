@@ -397,6 +397,7 @@ def admin_teams_page():
 <script>
   let cachedUsers = [];
   let cachedTeams = [];
+  let cachedDeployments = [];
   let workspaceId = null;
 
   async function ensureWorkspace() {
@@ -415,9 +416,12 @@ def admin_teams_page():
     const list = document.getElementById('teams-list');
     list.innerHTML = '<div class="card"><span class="skeleton skeleton-text" style="display:block;max-width:220px">&nbsp;</span></div>';
     try {
-      const [teams, users] = await Promise.all([Api.get('/admin/teams'), Api.get('/admin/users')]);
+      const [teams, users, deployments] = await Promise.all([
+        Api.get('/admin/teams'), Api.get('/admin/users'), Api.get('/admin/deployment-registry')
+      ]);
       cachedTeams = teams;
       cachedUsers = users;
+      cachedDeployments = deployments;
       renderTeams();
     } catch (e) {
       list.innerHTML = UI.errorState(e.message, loadTeams);
@@ -451,12 +455,41 @@ def admin_teams_page():
     const perms = t.permissions || [];
     const permRows = perms.length
       ? perms.map(p =>
-          '<div class="text-secondary" style="font-size:var(--text-xs);padding:.25rem 0">' +
+          '<div class="row" style="display:flex;justify-content:space-between;align-items:center;padding:.25rem 0">' +
+          '<span class="text-secondary" style="font-size:var(--text-xs)">' +
           UI.escapeHtml(p.model_name || p.deployment_name || ('Deployment #' + p.deployment_id)) +
           (p.can_predict ? ' &middot; predict' : '') + (p.can_view_metrics ? ' &middot; view metrics' : '') +
+          '</span>' +
+          '<button class="btn btn-ghost btn-sm" data-revoke-perm="' + t.id + ':' + p.deployment_id + '" type="button">Revoke</button>' +
           '</div>'
         ).join('')
       : '<div class="text-muted" style="font-size:var(--text-xs)">No model access granted yet</div>';
+
+    // deployment_id is a real FK into the deployments table — GET
+    // /deployments (k8s-live) and GET /models/status (the two hardcoded
+    // core services) don't carry that id at all, so the "add model"
+    // dropdown is sourced from /admin/deployment-registry instead (real
+    // Deployment rows only). Already-granted ones are filtered out.
+    const grantedIds = new Set(perms.map(p => p.deployment_id));
+    const availableDeployments = cachedDeployments.filter(d => !grantedIds.has(d.id));
+    const deploymentOptions = availableDeployments.map(d =>
+      '<option value="' + d.id + '">' + UI.escapeHtml(d.model_name || d.name) + ' (' + UI.escapeHtml(d.task_type) + ')</option>'
+    ).join('');
+
+    let addModelRow;
+    if (availableDeployments.length) {
+      addModelRow =
+        '<div class="row" style="display:flex;gap:.5rem;margin-top:.5rem;flex-wrap:wrap;align-items:center">' +
+        '<select class="select" data-add-deployment="' + t.id + '" style="flex:2">' + deploymentOptions + '</select>' +
+        '<label class="checkbox-row"><input type="checkbox" data-can-predict="' + t.id + '" checked> Can predict</label>' +
+        '<label class="checkbox-row"><input type="checkbox" data-can-view-metrics="' + t.id + '"> Can view metrics</label>' +
+        '<button class="btn btn-secondary btn-sm" data-grant-access="' + t.id + '" type="button">Grant access</button>' +
+        '</div>';
+    } else if (cachedDeployments.length) {
+      addModelRow = '<div class="text-muted" style="font-size:var(--text-xs);margin-top:.35rem">All available models already granted</div>';
+    } else {
+      addModelRow = '<div class="text-muted" style="font-size:var(--text-xs);margin-top:.35rem">No models deployed yet</div>';
+    }
 
     return '<div class="card" style="margin-bottom:var(--space-3)" data-team-card="' + t.id + '">' +
       '<div class="card-header"><div><div class="card-title">' + UI.escapeHtml(t.name) + '</div>' +
@@ -470,7 +503,7 @@ def admin_teams_page():
         '<button class="btn btn-secondary btn-sm" data-add-member="' + t.id + '" type="button">Add</button>' +
         '</div>'
       ) : '') +
-      '<div class="section-label">Model access</div>' + permRows +
+      '<div class="section-label">Model access</div>' + permRows + addModelRow +
       '</div>';
   }
 
@@ -489,6 +522,44 @@ def admin_teams_page():
       const roleSel = card.querySelector('[data-add-role="' + t.id + '"]');
       if (userSel && userSel.value) addMember(t.id, userSel.value, roleSel.value);
     });
+    card.querySelectorAll('[data-revoke-perm]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const [teamId, deploymentId] = btn.dataset.revokePerm.split(':');
+        revokeAccess(teamId, deploymentId);
+      });
+    });
+    const grantBtn = card.querySelector('[data-grant-access="' + t.id + '"]');
+    if (grantBtn) grantBtn.addEventListener('click', () => {
+      const depSel = card.querySelector('[data-add-deployment="' + t.id + '"]');
+      const predictChk = card.querySelector('[data-can-predict="' + t.id + '"]');
+      const metricsChk = card.querySelector('[data-can-view-metrics="' + t.id + '"]');
+      if (depSel && depSel.value) grantAccess(t.id, depSel.value, predictChk.checked, metricsChk.checked);
+    });
+  }
+
+  async function grantAccess(teamId, deploymentId, canPredict, canViewMetrics) {
+    try {
+      await Api.post('/teams/' + teamId + '/permissions', {
+        deployment_id: parseInt(deploymentId, 10),
+        can_predict: canPredict,
+        can_view_metrics: canViewMetrics,
+      });
+      UI.toast('Model access granted', 'success');
+      loadTeams();
+    } catch (e) {
+      UI.toast(e.message || 'Could not grant access', 'danger');
+    }
+  }
+
+  async function revokeAccess(teamId, deploymentId) {
+    if (!confirm('Revoke this team\'s access to this model?')) return;
+    try {
+      await Api.del('/teams/' + teamId + '/permissions/' + deploymentId);
+      UI.toast('Access revoked', 'success');
+      loadTeams();
+    } catch (e) {
+      UI.toast(e.message || 'Could not revoke access', 'danger');
+    }
   }
 
   async function addMember(teamId, userId, role) {

@@ -1425,6 +1425,41 @@ def admin_create_team(name: str, description: str = "", workspace_id: int = 1, a
     finally:
         db.close()
 
+# GET /deployments is k8s-live and never carries a Deployment row's real
+# id (it reads straight off the Kubernetes API, keyed by name); the two
+# hardcoded core services in GET /models/status were never Deployment
+# rows to begin with. Neither can be granted a TeamModelPermission
+# (deployment_id is a real FK into the deployments table), so /admin/
+# teams-page's "add model access" dropdown needs an endpoint that
+# actually returns that id — this is that endpoint, not a duplicate of
+# either of the two above.
+@app.get("/admin/deployment-registry")
+def admin_deployment_registry(authorization: str = fastapi.Header(None)):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token
+    from backend.app.db.models import User, Deployment
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not admin or not admin.is_admin:
+            raise HTTPException(status_code=403, detail="Admin required")
+        deployments = db.query(Deployment).all()
+        return [{
+            "id": d.id,
+            "name": d.name,
+            "model_name": d.model_name,
+            "task_type": d.task_type,
+            "model_type": d.model_type,
+            "status": d.status,
+        } for d in deployments]
+    finally:
+        db.close()
+
 @app.get("/auth/login-page")
 def login_page_legacy_redirect():
     # Legacy route — the email/password login form this used to serve
