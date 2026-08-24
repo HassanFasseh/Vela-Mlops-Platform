@@ -1200,6 +1200,48 @@ def admin_deployments_page():
         <button class="btn btn-primary" type="submit" id="dp-submit">Deploy via GitHub Actions</button>
       </form>
     </div>
+
+    <div class="section-label">Deploy a custom model</div>
+    <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-3)">Upload your own trained model with a prediction script</p>
+    <div class="card">
+      <a class="link-secondary" style="font-size:var(--text-xs);display:inline-block;margin-bottom:1rem" href="/api/v1/custom-model-template" download>Download template &rarr;</a>
+      <form id="custom-deploy-form" novalidate>
+        <div class="field">
+          <label class="field-label" for="cm-name">Deployment name</label>
+          <input class="input" id="cm-name" placeholder="lowercase-with-hyphens" required>
+          <div class="field-hint">Lowercase letters, numbers, and hyphens only.</div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="cm-input-type">Input type</label>
+          <select class="select" id="cm-input-type">
+            <option value="text">Text</option>
+            <option value="json">JSON / Structured data</option>
+            <option value="file">File / Image</option>
+          </select>
+        </div>
+        <div class="field" id="cm-schema-field" style="display:none">
+          <label class="field-label" for="cm-input-schema">Input schema</label>
+          <textarea class="textarea" id="cm-input-schema" placeholder='{"age": "number", "income": "number", "risk_score": "number"}'></textarea>
+          <div class="field-hint">Describes the JSON fields callers should send &mdash; shown to them, not enforced.</div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="cm-predict-file">predict.py</label>
+          <input class="input" type="file" id="cm-predict-file" accept=".py" required>
+        </div>
+        <div class="field">
+          <label class="field-label" for="cm-model-files">Model files</label>
+          <input class="input" type="file" id="cm-model-files" accept=".pkl,.joblib,.pt,.bin,.onnx,.h5,.safetensors" multiple required>
+        </div>
+        <div class="field">
+          <label class="field-label" for="cm-api-key">API key</label>
+          <input class="input" id="cm-api-key" placeholder="aodp_your_admin_key" required>
+          <div class="field-hint">An unscoped workspace API key &mdash; see API Keys.</div>
+        </div>
+        <div class="field-error" id="cm-error" role="alert"></div>
+        <div id="cm-success" style="display:none;margin-bottom:1rem"></div>
+        <button class="btn btn-primary" type="submit" id="cm-submit">Upload and deploy</button>
+      </form>
+    </div>
   </div>
 </div>
 <div class="auth-loading" id="loading-root">Loading&hellip;</div>
@@ -1256,6 +1298,88 @@ def admin_deployments_page():
     } finally {
       submitBtn.disabled = false;
       submitBtn.textContent = 'Deploy via GitHub Actions';
+    }
+  });
+
+  document.getElementById('cm-input-type').addEventListener('change', (e) => {
+    document.getElementById('cm-schema-field').style.display = e.target.value === 'json' ? 'block' : 'none';
+  });
+
+  document.getElementById('custom-deploy-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById('cm-error');
+    const successEl = document.getElementById('cm-success');
+    const submitBtn = document.getElementById('cm-submit');
+    errorEl.textContent = '';
+    successEl.style.display = 'none';
+
+    const deployment_name = document.getElementById('cm-name').value.trim();
+    const input_type = document.getElementById('cm-input-type').value;
+    const input_schema = document.getElementById('cm-input-schema').value.trim();
+    const predictFile = document.getElementById('cm-predict-file').files[0];
+    const modelFiles = document.getElementById('cm-model-files').files;
+    const apiKey = document.getElementById('cm-api-key').value.trim();
+
+    if (!deployment_name || !predictFile || !modelFiles.length || !apiKey) {
+      errorEl.textContent = 'Fill in all required fields.';
+      return;
+    }
+    if (!/^[a-z0-9-]+$/.test(deployment_name)) {
+      errorEl.textContent = 'Deployment name: lowercase letters, numbers, hyphens only.';
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Uploading files…';
+    // The upload + MinIO write + workflow dispatch all happen inside one
+    // request/response — there's no real "upload finished, now
+    // triggering" boundary to observe. This timer approximates it so the
+    // button doesn't just sit on "Uploading files…" for however long the
+    // whole thing takes.
+    const stageTimer = setTimeout(() => { submitBtn.textContent = 'Triggering deployment…'; }, 1200);
+
+    try {
+      // /workspaces is JWT-authed (Api.get is correct here) — the upload
+      // itself just below is X-API-Key-authed and deliberately bypasses
+      // Api.request: it treats any 401 as "session expired" and would
+      // clear the admin's own JWT + redirect to /login over a bad model
+      // API key, which is wrong (see predictor.js for the same issue).
+      const workspaces = await Api.get('/workspaces');
+      if (!workspaces.length) throw new Error('No workspace found — create a team first.');
+
+      const form = new FormData();
+      form.append('deployment_name', deployment_name);
+      form.append('input_type', input_type);
+      form.append('workspace_id', workspaces[0].id);
+      if (input_type === 'json' && input_schema) form.append('input_schema', input_schema);
+      form.append('predict_file', predictFile);
+      Array.from(modelFiles).forEach(f => form.append('model_files', f));
+
+      const res = await fetch('/api/v1/upload-custom-model', {
+        method: 'POST',
+        headers: { 'X-API-Key': apiKey },
+        body: form,
+      });
+      const text = await res.text();
+      let data = null;
+      if (text) { try { data = JSON.parse(text); } catch (parseErr) { data = null; } }
+      if (!res.ok) throw new Error((data && data.detail) || res.statusText || 'Upload failed');
+
+      clearTimeout(stageTimer);
+      submitBtn.textContent = 'Deployment queued!';
+      successEl.style.display = 'block';
+      successEl.innerHTML = UI.badge('Queued', 'success', true) +
+        ' <span class="text-secondary" style="font-size:var(--text-sm)">Deployment #' + data.deployment_id + ' queued &mdash; it will appear in the table above in ~5&ndash;10 min.</span>';
+      UI.toast('Custom model deployment triggered', 'success');
+      document.getElementById('custom-deploy-form').reset();
+      document.getElementById('cm-schema-field').style.display = 'none';
+      setTimeout(() => { submitBtn.textContent = 'Upload and deploy'; }, 2000);
+    } catch (err) {
+      clearTimeout(stageTimer);
+      submitBtn.textContent = 'Upload and deploy';
+      errorEl.textContent = err.message || 'Could not upload and deploy.';
+    } finally {
+      submitBtn.disabled = false;
     }
   });
 </script>"""

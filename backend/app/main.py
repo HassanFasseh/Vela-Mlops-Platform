@@ -1,6 +1,6 @@
 import fastapi
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from backend.app.schemas import Model
 from backend.app.db.models import Base
@@ -746,6 +746,27 @@ def list_workspace_models(
 # instead of the built-in HuggingFace runners. See custom-runner/
 # predict_template.py for the load_model()/predict() interface contract.
 # =========================================================================
+
+# Not GITHUB_TOKEN-gated like the endpoints below — this is a static
+# template file, no more sensitive than the docs. No auth required, same
+# posture as GET /model-cards/{id} (see admin_pages.py's comment on it).
+@app.get("/api/v1/custom-model-template")
+def custom_model_template():
+    # Resolves the same way in both local dev (cwd = repo root) and the
+    # deployed image (Dockerfile.backend copies custom-runner/predict_
+    # template.py to the same path, relative to WORKDIR, as backend/) —
+    # two directories up from this file is the repo root / image WORKDIR
+    # either way.
+    template_path = os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "custom-runner", "predict_template.py")
+    )
+    if not os.path.exists(template_path):
+        raise HTTPException(status_code=404, detail="Template not found")
+    return FileResponse(
+        template_path,
+        media_type="text/x-python",
+        filename="predict_template.py"
+    )
 
 def _trigger_custom_deploy(deployment_name: str, minio_path: str, input_type: str, deployment_id: int):
     """Dispatch custom-deploy.yml — shared by the upload and redeploy
