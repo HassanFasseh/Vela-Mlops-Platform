@@ -1241,11 +1241,71 @@ def admin_models_page():
 
     return '<tr>' +
       '<td>' + UI.escapeHtml(r.name) + '</td>' +
-      '<td>' + UI.escapeHtml(r.task) + '</td>' +
+      '<td id="task-cell-' + idx + '">' + taskCellHtml(r, idx) + '</td>' +
       '<td>' + UI.badge(modelType, 'neutral') + '</td>' +
       '<td>' + UI.statusBadge(r.status) + (isActive ? '' : ' ' + UI.badge('Disabled', 'warning')) + '</td>' +
       '<td style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">' + actions.join('') + '</td>' +
       '</tr>';
+  }
+
+  // Only custom models get the inline pencil — task_type on a
+  // HuggingFace deployment mirrors deploy-model.yml's own "task" input
+  // and editing it here wouldn't change anything about the running
+  // deployment, just make the label lie about what dispatched it.
+  function taskCellHtml(row, idx) {
+    const isCustom = (row.reg ? row.reg.model_type : 'huggingface') === 'custom';
+    if (!isCustom) return UI.escapeHtml(row.task);
+    return UI.escapeHtml(row.task) +
+      '<button class="btn btn-ghost btn-sm" data-edit-task="' + idx + '" type="button" style="margin-left:.4rem;padding:0 .3rem" title="Edit task type" aria-label="Edit task type">&#9998;</button>';
+  }
+
+  function renderTaskCell(row, idx) {
+    const cell = document.getElementById('task-cell-' + idx);
+    if (!cell) return;
+    cell.innerHTML = taskCellHtml(row, idx);
+    const btn = cell.querySelector('[data-edit-task]');
+    if (btn) btn.addEventListener('click', () => startEditTask(row, idx));
+  }
+
+  function startEditTask(row, idx) {
+    if (!row.reg) return;
+    const cell = document.getElementById('task-cell-' + idx);
+    if (!cell) return;
+    cell.innerHTML =
+      '<input class="input" id="task-edit-' + idx + '" style="font-size:var(--text-sm);padding:2px 6px;width:11rem;display:inline-block" value="' + UI.escapeHtml(row.task) + '">' +
+      '<button class="btn btn-primary btn-sm" id="task-save-' + idx + '" type="button" style="margin-left:.3rem">Save</button>' +
+      '<button class="btn btn-ghost btn-sm" id="task-cancel-' + idx + '" type="button">Cancel</button>';
+
+    const input = document.getElementById('task-edit-' + idx);
+    const saveBtn = document.getElementById('task-save-' + idx);
+    const cancelBtn = document.getElementById('task-cancel-' + idx);
+    input.focus();
+    input.select();
+
+    const cancel = () => renderTaskCell(row, idx);
+    const save = async () => {
+      const newTask = input.value.trim();
+      if (!newTask) { input.focus(); return; }
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+      try {
+        await Api.patch('/api/v1/deployment/' + row.reg.id + '/task-type', { task_type: newTask });
+        row.task = newTask;
+        renderTaskCell(row, idx);
+        UI.toast('Task type updated', 'success');
+      } catch (e) {
+        UI.toast(e.message || 'Could not update task type', 'danger');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+      }
+    };
+
+    cancelBtn.addEventListener('click', cancel);
+    saveBtn.addEventListener('click', save);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') cancel();
+      if (e.key === 'Enter') save();
+    });
   }
 
   function wireRegistryRows() {
@@ -1256,6 +1316,10 @@ def admin_models_page():
     document.querySelectorAll('[data-delete-model]').forEach(btn => {
       const idx = parseInt(btn.dataset.deleteModel, 10);
       btn.addEventListener('click', () => confirmDeleteModel(registryRows[idx]));
+    });
+    document.querySelectorAll('[data-edit-task]').forEach(btn => {
+      const idx = parseInt(btn.dataset.editTask, 10);
+      btn.addEventListener('click', () => startEditTask(registryRows[idx], idx));
     });
   }
 
@@ -1435,6 +1499,11 @@ def admin_deployments_page():
           <div class="field-hint">Lowercase letters, numbers, and hyphens only.</div>
         </div>
         <div class="field">
+          <label class="field-label" for="cm-task-type">Task type <span class="text-muted">(optional)</span></label>
+          <input class="input" id="cm-task-type" placeholder="e.g. fraud-detection, clinical-risk, tabular-classification">
+          <div class="field-hint">Free-text label for what the model does &mdash; shown on the Model Registry.</div>
+        </div>
+        <div class="field">
           <label class="field-label" for="cm-input-type">Input type</label>
           <select class="select" id="cm-input-type">
             <option value="text">Text</option>
@@ -1542,6 +1611,7 @@ def admin_deployments_page():
     successEl.style.display = 'none';
 
     const deployment_name = document.getElementById('cm-name').value.trim();
+    const task_type = document.getElementById('cm-task-type').value.trim();
     const input_type = document.getElementById('cm-input-type').value;
     const input_schema = document.getElementById('cm-input-schema').value.trim();
     const predictFile = document.getElementById('cm-predict-file').files[0];
@@ -1580,6 +1650,7 @@ def admin_deployments_page():
       form.append('deployment_name', deployment_name);
       form.append('input_type', input_type);
       form.append('workspace_id', workspaces[0].id);
+      if (task_type) form.append('task_type', task_type);
       if (input_type === 'json' && input_schema) form.append('input_schema', input_schema);
       form.append('predict_file', predictFile);
       Array.from(modelFiles).forEach(f => form.append('model_files', f));

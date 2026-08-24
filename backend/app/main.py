@@ -819,6 +819,7 @@ async def upload_custom_model(
     input_type: str = Form(...),
     workspace_id: int = Form(...),
     input_schema: str = Form(None),
+    task_type: str = Form(None),
     requirements_file: UploadFile = File(None),
     pvc_size_gb: int = Form(1),
     x_api_key: str = fastapi.Header(None, alias="X-API-Key")
@@ -905,7 +906,13 @@ async def upload_custom_model(
             workspace_id=workspace_id,
             name=deployment_name,
             model_name=deployment_name,
-            task_type="custom",
+            # Free-text label for what the model actually does (e.g.
+            # "fraud-detection") — admin-supplied, optional, purely
+            # descriptive. Falls back to "custom" (the old fixed value,
+            # before this field existed) rather than an empty string so
+            # every listing that renders task_type still has something
+            # to show.
+            task_type=task_type.strip() if task_type and task_type.strip() else "custom",
             source="upload",
             model_type="custom",
             input_type=input_type,
@@ -1185,6 +1192,44 @@ def delete_deployment(deployment_id: int, x_api_key: str = fastapi.Header(None, 
         db.delete(deployment)
         db.commit()
         return {"message": "Deployment deleted"}
+    finally:
+        db.close()
+
+class TaskTypeUpdate(BaseModel):
+    task_type: str
+
+@app.patch("/api/v1/deployment/{deployment_id}/task-type")
+def update_deployment_task_type(deployment_id: int, req: TaskTypeUpdate, authorization: str = fastapi.Header(None)):
+    """Inline edit target for /admin/models' task_type cell. JWT + admin
+    auth (like GET /admin/deployment-registry) rather than X-API-Key like
+    this deployment's sibling endpoints above — this is reached directly
+    from the admin's own session with no per-workspace key involved."""
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token
+    from backend.app.db.models import User, Deployment as DeploymentModel
+
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not admin or not admin.is_admin:
+            raise HTTPException(status_code=403, detail="Admin required")
+
+        deployment = db.query(DeploymentModel).filter(DeploymentModel.id == deployment_id).first()
+        if not deployment:
+            raise HTTPException(status_code=404, detail="Deployment not found")
+
+        task_type = req.task_type.strip()
+        if not task_type:
+            raise HTTPException(status_code=400, detail="task_type cannot be empty")
+        deployment.task_type = task_type
+        db.commit()
+        return {"deployment_id": deployment_id, "task_type": deployment.task_type}
     finally:
         db.close()
 
