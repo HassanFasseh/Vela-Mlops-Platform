@@ -740,6 +740,174 @@ def list_workspace_models(
         db.close()
 
 
+# =========================================================================
+# Custom models — user-supplied predict.py + weights, served by
+# custom-runner/ (built and deployed by .github/workflows/custom-deploy.yml)
+# instead of the built-in HuggingFace runners. See custom-runner/
+# predict_template.py for the load_model()/predict() interface contract.
+# =========================================================================
+
+def _trigger_custom_deploy(deployment_name: str, minio_path: str, input_type: str, deployment_id: int):
+    """Dispatch custom-deploy.yml — shared by the upload and redeploy
+    endpoints below. Mirrors deploy_model_endpoint()'s dispatch of
+    model-deploy.yml above."""
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        raise HTTPException(status_code=500, detail="GitHub credentials not configured")
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/custom-deploy.yml/dispatches"
+    resp = http_requests.post(
+        url,
+        headers={
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28"
+        },
+        json={
+            "ref": "main",
+            "inputs": {
+                "deployment_name": deployment_name,
+                "minio_path": minio_path,
+                "input_type": input_type,
+                # workflow_dispatch inputs are always strings over the API,
+                # regardless of the declared input type in the workflow file.
+                "deployment_id": str(deployment_id)
+            }
+        }
+    )
+    if resp.status_code != 204:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+
+@app.post("/api/v1/upload-custom-model")
+async def upload_custom_model(
+    predict_file: UploadFile = File(...),
+    model_files: list[UploadFile] = File(...),
+    deployment_name: str = Form(...),
+    input_type: str = Form(...),
+    workspace_id: int = Form(...),
+    input_schema: str = Form(None),
+    x_api_key: str = fastapi.Header(None, alias="X-API-Key")
+):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import verify_api_key
+    from backend.app.services.storage import get_client, ensure_bucket, BUCKET_NAME
+    from backend.app.db.models import Deployment as DeploymentModel
+    from datetime import datetime
+    import io
+
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="API key required")
+    if input_type not in ("text", "json", "file"):
+        raise HTTPException(status_code=400, detail="input_type must be one of: text, json, file")
+    if not predict_file.filename or not predict_file.filename.endswith(".py"):
+        raise HTTPException(status_code=400, detail="predict_file must be a .py file")
+    if not model_files:
+        raise HTTPException(status_code=400, detail="At least one model file is required")
+
+    db = SessionLocal()
+    try:
+        api_key = verify_api_key(db, x_api_key)
+        if not api_key or api_key.workspace_id != workspace_id:
+            raise HTTPException(status_code=401, detail="Invalid API key for this workspace")
+        # "admin key": an unscoped workspace key, not one issued to a team
+        # for calling one specific model. Publishing a new custom model
+        # is a workspace-admin action — same trust level /api/v1/upload-
+        # model already assumes implicitly by only checking workspace_id.
+        if api_key.team_id or api_key.deployment_id:
+            raise HTTPException(status_code=403, detail="This endpoint requires an unscoped workspace API key")
+
+        object_prefix = f"workspace-{workspace_id}/custom/{deployment_name}"
+        minio_path = f"{BUCKET_NAME}/{object_prefix}"
+
+        ensure_bucket()
+        client = get_client()
+
+        predict_bytes = await predict_file.read()
+        client.put_object(
+            BUCKET_NAME,
+            f"{object_prefix}/predict.py",
+            io.BytesIO(predict_bytes),
+            length=len(predict_bytes),
+            content_type="text/x-python"
+        )
+
+        for f in model_files:
+            file_bytes = await f.read()
+            client.put_object(
+                BUCKET_NAME,
+                f"{object_prefix}/model_files/{f.filename}",
+                io.BytesIO(file_bytes),
+                length=len(file_bytes),
+                content_type="application/octet-stream"
+            )
+
+        record = DeploymentModel(
+            workspace_id=workspace_id,
+            name=deployment_name,
+            model_name=deployment_name,
+            task_type="custom",
+            source="upload",
+            model_type="custom",
+            input_type=input_type,
+            minio_path=minio_path,
+            input_schema=input_schema,
+            status="pending",
+            created_at=datetime.utcnow()
+        )
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        deployment_id = record.id
+    finally:
+        db.close()
+
+    _trigger_custom_deploy(deployment_name, minio_path, input_type, deployment_id)
+
+    return {
+        "deployment_id": deployment_id,
+        "minio_path": minio_path,
+        "status": "pending"
+    }
+
+@app.post("/api/v1/deploy-custom/{deployment_id}")
+def redeploy_custom_model(deployment_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key")):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import verify_api_key
+    from backend.app.db.models import Deployment as DeploymentModel
+
+    if not x_api_key:
+        raise HTTPException(status_code=401, detail="API key required")
+
+    db = SessionLocal()
+    try:
+        api_key = verify_api_key(db, x_api_key)
+        if not api_key:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+
+        deployment = db.query(DeploymentModel).filter(DeploymentModel.id == deployment_id).first()
+        if not deployment:
+            raise HTTPException(status_code=404, detail="Deployment not found")
+        if deployment.workspace_id != api_key.workspace_id:
+            raise HTTPException(status_code=401, detail="Invalid API key for this workspace")
+        if api_key.team_id or api_key.deployment_id:
+            raise HTTPException(status_code=403, detail="This endpoint requires an unscoped workspace API key")
+        if deployment.model_type != "custom" or not deployment.minio_path:
+            raise HTTPException(status_code=400, detail="This deployment has no custom-model files in MinIO to redeploy")
+
+        deployment.status = "pending"
+        db.commit()
+        deployment_name = deployment.name
+        minio_path = deployment.minio_path
+        input_type = deployment.input_type
+    finally:
+        db.close()
+
+    _trigger_custom_deploy(deployment_name, minio_path, input_type, deployment_id)
+
+    return {
+        "deployment_id": deployment_id,
+        "minio_path": minio_path,
+        "status": "pending"
+    }
+
 
 from backend.app.db.models import RemediationConfig, RemediationLog
 

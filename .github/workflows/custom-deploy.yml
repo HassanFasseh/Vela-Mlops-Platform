@@ -1,0 +1,193 @@
+name: Deploy Custom Model
+
+# Builds and deploys a member-uploaded custom model (predict.py +
+# model_files/, already sitting in MinIO — see POST
+# /api/v1/upload-custom-model and POST /api/v1/deploy-custom/{id} in
+# backend/app/main.py, both of which dispatch this workflow) into the
+# custom-runner image (see custom-runner/).
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_name:
+        description: 'Kubernetes deployment name (lowercase, no spaces, e.g. my-custom-model)'
+        required: true
+        type: string
+      minio_path:
+        description: 'MinIO prefix holding predict.py + model_files/ (e.g. models/workspace-3/custom/my-custom-model)'
+        required: true
+        type: string
+      input_type:
+        description: 'Input shape POST /predict expects'
+        required: true
+        type: choice
+        options:
+          - text
+          - json
+          - file
+      deployment_id:
+        description: 'Vela Deployment row id (for traceability — stamped on as a label, no DB callback)'
+        required: true
+        type: string
+
+env:
+  REGISTRY: lej.ocir.io
+  OCIR_NAMESPACE: axi6dz7sdr1m
+  IMAGE: lej.ocir.io/axi6dz7sdr1m/custom-runner
+  NAMESPACE: default
+  MINIO_ALIAS: velaminio
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Install OCI CLI
+        run: pip install oci-cli
+
+      - name: Configure OCI CLI
+        run: |
+          mkdir -p ~/.oci
+          printf '%s' "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+          cat > ~/.oci/config << CFG
+          [DEFAULT]
+          user=${{ secrets.OCI_USER_OCID }}
+          fingerprint=${{ secrets.OCI_FINGERPRINT }}
+          tenancy=${{ secrets.OCI_TENANCY_OCID }}
+          region=${{ secrets.OCI_REGION }}
+          key_file=~/.oci/oci_api_key.pem
+          CFG
+
+      - name: Get kubeconfig
+        run: |
+          oci ce cluster create-kubeconfig \
+            --cluster-id ${{ secrets.CLUSTER_OCID }} \
+            --file "$HOME/.kube/config" \
+            --region ${{ secrets.OCI_REGION }} \
+            --token-version 2.0.0
+
+      # MinIO (k8s/minio.yaml) is ClusterIP-only — not reachable from the
+      # GitHub-hosted runner directly. The cluster access we just got via
+      # kubeconfig lets us tunnel to it instead: `kubectl port-forward`
+      # in the background, then point the MinIO client at localhost.
+      - name: Port-forward MinIO
+        run: |
+          kubectl port-forward svc/minio 9000:9000 --namespace ${{ env.NAMESPACE }} &
+          echo $! > /tmp/port-forward.pid
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:9000/minio/health/live && break
+            sleep 1
+          done
+
+      - name: Install MinIO client
+        run: |
+          curl -sSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc
+          chmod +x /usr/local/bin/mc
+
+      - name: Configure MinIO alias
+        run: |
+          MINIO_CREDS_SECRET=$(kubectl get secret minio-secret --namespace ${{ env.NAMESPACE }} -o json)
+          MINIO_ACCESS_KEY=$(echo "$MINIO_CREDS_SECRET" | jq -r '.data.MINIO_ROOT_USER' | base64 -d)
+          MINIO_SECRET_KEY=$(echo "$MINIO_CREDS_SECRET" | jq -r '.data.MINIO_ROOT_PASSWORD' | base64 -d)
+          mc alias set ${{ env.MINIO_ALIAS }} http://localhost:9000 "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
+
+      - name: Download predict.py and model_files/ from MinIO
+        run: |
+          mc mirror --overwrite "${{ env.MINIO_ALIAS }}/${{ github.event.inputs.minio_path }}" ./custom-runner/
+          test -f ./custom-runner/predict.py || { echo "::error::predict.py not found under ${{ github.event.inputs.minio_path }}"; exit 1; }
+          test -d ./custom-runner/model_files || { echo "::error::model_files/ not found under ${{ github.event.inputs.minio_path }}"; exit 1; }
+
+      - name: Stop MinIO port-forward
+        if: always()
+        run: kill "$(cat /tmp/port-forward.pid)" 2>/dev/null || true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to OCIR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.OCIR_USERNAME }}
+          password: ${{ secrets.OCIR_AUTH_TOKEN }}
+
+      - name: Build and push custom-runner image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./custom-runner
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.event.inputs.deployment_name }}
+
+      - name: Deploy to Kubernetes
+        run: |
+          cat <<MANIFEST | kubectl apply -f -
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: ${{ github.event.inputs.deployment_name }}
+            namespace: ${{ env.NAMESPACE }}
+            labels:
+              app: ${{ github.event.inputs.deployment_name }}
+              managed-by: platform
+              deployment-id: "${{ github.event.inputs.deployment_id }}"
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: ${{ github.event.inputs.deployment_name }}
+            template:
+              metadata:
+                labels:
+                  app: ${{ github.event.inputs.deployment_name }}
+                  managed-by: platform
+                  deployment-id: "${{ github.event.inputs.deployment_id }}"
+              spec:
+                imagePullSecrets:
+                  - name: ocir-secret
+                containers:
+                  - name: custom-runner
+                    image: ${{ env.IMAGE }}:${{ github.event.inputs.deployment_name }}
+                    ports:
+                      - name: http
+                        containerPort: 8000
+                    env:
+                      - name: INPUT_TYPE
+                        value: "${{ github.event.inputs.input_type }}"
+                    resources:
+                      requests:
+                        memory: "512Mi"
+                        cpu: "80m"
+                      limits:
+                        memory: "2Gi"
+                        cpu: "500m"
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: ${{ github.event.inputs.deployment_name }}
+            namespace: ${{ env.NAMESPACE }}
+            labels:
+              app: ${{ github.event.inputs.deployment_name }}
+              managed-by: platform
+          spec:
+            type: ClusterIP
+            selector:
+              app: ${{ github.event.inputs.deployment_name }}
+            ports:
+              - name: http
+                port: 80
+                targetPort: 8000
+          MANIFEST
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/${{ github.event.inputs.deployment_name }} \
+            --namespace ${{ env.NAMESPACE }} --timeout=300s

@@ -67,6 +67,14 @@ class Deployment(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    # Custom-runner (custom-runner/, custom-deploy.yml) fields — a
+    # "huggingface" deployment (the default) leaves all four at their
+    # defaults/null; a "custom" one sets model_type, input_type and
+    # minio_path, and input_schema if it declared one at upload time.
+    input_type: Mapped[str] = mapped_column(String(20), default="text")  # text, json, file
+    model_type: Mapped[str] = mapped_column(String(20), default="huggingface")  # huggingface, custom
+    minio_path: Mapped[str] = mapped_column(String(500), nullable=True)
+    input_schema: Mapped[str] = mapped_column(Text, nullable=True)  # JSON string describing expected input fields for input_type="json"
 
 class RemediationConfig(Base):
     __tablename__ = "remediation_configs"
