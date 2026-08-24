@@ -117,6 +117,15 @@ def predict(model, input_data):
 # Typical for image/audio models: the caller POSTs a multipart file
 # field. input_data arrives base64-encoded — decode it back to raw bytes
 # before handing it to your usual preprocessing.
+#
+# NOTE: the default custom-runner image (Dockerfile) does not include
+# torch/torchvision — it's built from custom-runner/Dockerfile.torch
+# instead, via custom-deploy.yml's use_torch=true input. The admin
+# upload form doesn't expose that toggle yet, so a PyTorch model
+# uploaded through it will build with the slim (torch-less) image and
+# fail at startup on `import torch` — ask whoever's running the
+# GitHub Actions workflow to re-dispatch custom-deploy.yml by hand with
+# use_torch=true for this deployment_name until that's wired up.
 # =============================================================================
 #
 # def load_model():

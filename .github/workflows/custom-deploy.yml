@@ -4,7 +4,10 @@ name: Deploy Custom Model
 # model_files/, already sitting in MinIO — see POST
 # /api/v1/upload-custom-model and POST /api/v1/deploy-custom/{id} in
 # backend/app/main.py, both of which dispatch this workflow) into the
-# custom-runner image (see custom-runner/).
+# custom-runner image (see custom-runner/). Builds from custom-runner/
+# Dockerfile (slim: no torch/torchvision/librosa) by default; pass
+# use_torch=true to build from custom-runner/Dockerfile.torch instead
+# for models that actually need PyTorch.
 
 on:
   workflow_dispatch:
@@ -29,6 +32,11 @@ on:
         description: 'Vela Deployment row id (for traceability — stamped on as a label, no DB callback)'
         required: true
         type: string
+      use_torch:
+        description: 'Build with the full PyTorch image (Dockerfile.torch) instead of the slim default (Dockerfile) — needed for torch/torchvision/librosa models'
+        required: false
+        type: boolean
+        default: false
 
 env:
   REGISTRY: lej.ocir.io
@@ -117,10 +125,20 @@ jobs:
           username: ${{ secrets.OCIR_USERNAME }}
           password: ${{ secrets.OCIR_AUTH_TOKEN }}
 
+      - name: Pick Dockerfile
+        id: dockerfile
+        run: |
+          if [ "${{ github.event.inputs.use_torch }}" = "true" ]; then
+            echo "path=custom-runner/Dockerfile.torch" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=custom-runner/Dockerfile" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and push custom-runner image
         uses: docker/build-push-action@v5
         with:
           context: ./custom-runner
+          file: ${{ steps.dockerfile.outputs.path }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |

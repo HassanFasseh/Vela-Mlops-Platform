@@ -2,17 +2,17 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Slim variant — no torch/torchvision (and no librosa, which pulls in a
-# heavy native audio-decoding stack). Covers sklearn/xgboost/lightgbm/
-# onnxruntime models, which is most of what gets uploaded, without the
-# multi-gigabyte PyTorch wheels. Deployments that actually need PyTorch
-# should build from Dockerfile.torch instead (see custom-deploy.yml's
-# use_torch=true input).
-RUN pip install --no-cache-dir \
+# Full PyTorch variant — same as Dockerfile but adds CPU-only torch/
+# torchvision (and librosa, for audio models) on top of the slim
+# stack. Multi-gigabyte wheels, so this is opt-in via custom-deploy.yml's
+# use_torch=true input rather than the default: most uploaded models are
+# sklearn/xgboost/lightgbm/onnxruntime and don't need it.
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch torchvision && \
+    pip install --no-cache-dir \
         fastapi uvicorn \
         scikit-learn xgboost lightgbm \
         onnxruntime \
-        joblib pandas numpy pillow scipy
+        joblib pandas numpy pillow librosa scipy
 
 COPY main.py /app/main.py
 
