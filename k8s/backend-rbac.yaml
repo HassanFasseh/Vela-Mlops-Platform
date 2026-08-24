@@ -1,49 +1,117 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"rbac.authorization.k8s.io/v1","kind":"ClusterRole","metadata":{"annotations":{},"name":"backend-app-reader"},"rules":[{"apiGroups":[""],"resources":["pods"],"verbs":["get","list"]},{"apiGroups":["apps"],"resources":["deployments"],"verbs":["get","list","create","update","patch","delete"]},{"apiGroups":[""],"resources":["services"],"verbs":["get","list","create","update","delete"]},{"apiGroups":[""],"resources":["configmaps"],"verbs":["get","list","create","update","delete"]},{"apiGroups":[""],"resources":["persistentvolumeclaims"],"verbs":["get","list","create","delete"]},{"apiGroups":["batch"],"resources":["jobs"],"verbs":["get","list","create","delete"]}]}
+  creationTimestamp: "2026-08-17T15:44:24Z"
   name: backend-app-reader
+  resourceVersion: "12226088"
+  uid: 557f0946-83fb-4cb7-85ed-bc34da959bf2
 rules:
-  # Existing: GET /deployments (main.py) — live pod/replica status.
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list"]
-
-  # Custom model deployments (backend/app/services/k8s_custom.py) —
-  # create/update/delete on top of the read access every resource type
-  # here already needed for GET /deployments and
-  # GET /api/v1/custom-model-status/{id}.
-  - apiGroups: ["apps"]
-    resources: ["deployments"]
-    verbs: ["get", "list", "create", "update", "patch", "delete"]
-  - apiGroups: [""]
-    resources: ["services"]
-    verbs: ["get", "list", "create", "update", "delete"]
-  - apiGroups: [""]
-    resources: ["configmaps"]
-    verbs: ["get", "list", "create", "update", "delete"]
-  - apiGroups: [""]
-    resources: ["persistentvolumeclaims"]
-    verbs: ["get", "list", "create", "delete"]
-  - apiGroups: ["batch"]
-    resources: ["jobs"]
-    verbs: ["get", "list", "create", "delete"]
-  # No "secrets" rule needed for the download Job's minio-secret
-  # secretKeyRef (backend/app/services/k8s_custom.py) — referencing a
-  # Secret in a pod spec is resolved by the kubelet on the node at pod
-  # start, not by the identity that created the Pod/Job, so creating a
-  # Job whose spec points at minio-secret needs no RBAC on Secrets at
-  # all. Same reason the backend's own pod (k8s/backend-deployment.yaml)
-  # has never needed one for its own secretKeyRef env vars.
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: backend-app-reader
-subjects:
-  - kind: ServiceAccount
-    name: default
-    namespace: default
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: backend-app-reader
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - list
+  - create
+  - delete
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - get
+  - list
+  - create
+  - delete
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  - jobs/status
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  - configmaps
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+  - patch
+  - update
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+  - patch
+  - update
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - deployments/status
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+  - patch
+  - update
