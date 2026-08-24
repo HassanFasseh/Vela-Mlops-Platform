@@ -67,11 +67,20 @@ jobs:
           oci ce cluster create-kubeconfig --cluster-id ${{ secrets.CLUSTER_OCID }} --file "$HOME/.kube/config" --region ${{ secrets.OCI_REGION }} --token-version 2.0.0
 
       - name: Create/update ghcr-secret
+        # GITHUB_TOKEN (used for the GHCR login/push steps above) expires
+        # when this job finishes, or after 24h at the absolute latest —
+        # fine for pushing an image within the same run, but baked into
+        # a long-lived Secret for pods to pull with *later* (custom
+        # model Jobs/Deployments are created on-demand, whenever someone
+        # uploads a model, with no relationship to CI run timing) it
+        # goes stale almost immediately. GHCR_PAT is a durable PAT for
+        # exactly this purpose — same one CLAUDE.md's Registry section
+        # documents for recreating this secret by hand.
         run: |
           kubectl create secret docker-registry ghcr-secret \
             --docker-server=ghcr.io \
-            --docker-username=${{ github.actor }} \
-            --docker-password=${{ secrets.GITHUB_TOKEN }} \
+            --docker-username=HassanFasseh \
+            --docker-password=${{ secrets.GHCR_PAT }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Deploy
