@@ -10,12 +10,15 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: lej.ocir.io
-  IMAGE: lej.ocir.io/axi6dz7sdr1m/backend-app
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/hassanfasseh/vela/backend-app
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,12 +26,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to OCIR
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.OCIR_USERNAME }}
-          password: ${{ secrets.OCIR_AUTH_TOKEN }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push (multi-arch)
         uses: docker/build-push-action@v5
@@ -64,6 +67,14 @@ jobs:
       - name: Get kubeconfig
         run: |
           oci ce cluster create-kubeconfig --cluster-id ${{ secrets.CLUSTER_OCID }} --file "$HOME/.kube/config" --region ${{ secrets.OCI_REGION }} --token-version 2.0.0
+
+      - name: Create/update ghcr-secret
+        run: |
+          kubectl create secret docker-registry ghcr-secret \
+            --docker-server=ghcr.io \
+            --docker-username=${{ github.actor }} \
+            --docker-password=${{ secrets.GITHUB_TOKEN }} \
+            --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Deploy
         run: |

@@ -13,10 +13,10 @@ spec:
         app: model-service-2
     spec:
       imagePullSecrets:
-        - name: ocir-secret
+        - name: ghcr-secret
       containers:
         - name: model-service-2
-          image: lej.ocir.io/axi6dz7sdr1m/model-service-2:v2
+          image: ghcr.io/hassanfasseh/vela/model-service-2:v2
           ports:
             - name: http
               containerPort: 8000

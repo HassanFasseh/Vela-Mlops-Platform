@@ -13,10 +13,10 @@ spec:
         app: backend-app
     spec:
       imagePullSecrets:
-        - name: ocir-secret
+        - name: ghcr-secret
       containers:
         - name: backend-app
-          image: lej.ocir.io/axi6dz7sdr1m/backend-app:latest-fix
+          image: ghcr.io/hassanfasseh/vela/backend-app:latest-fix
           ports:
             - name: http
               containerPort: 8000

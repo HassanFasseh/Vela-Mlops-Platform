@@ -39,19 +39,23 @@ on:
         default: false
 
 env:
-  REGISTRY: lej.ocir.io
-  OCIR_NAMESPACE: axi6dz7sdr1m
-  # OCIR's free tier won't create new repositories — reuses the existing
-  # model-runner repo instead of a dedicated custom-runner one, keeping
-  # custom images distinguishable via a "custom-" tag prefix (see the two
-  # ${{ env.IMAGE }}:custom-${{ ... }} usages below).
-  IMAGE: lej.ocir.io/axi6dz7sdr1m/model-runner
+  REGISTRY: ghcr.io
+  # Reuses the model-runner package instead of a dedicated custom-runner
+  # one, keeping custom images distinguishable via a "custom-" tag prefix
+  # (see the two ${{ env.IMAGE }}:custom-${{ ... }} usages below) — a
+  # holdover from when this pushed to OCIR's free tier, which wouldn't
+  # create new repositories; GHCR doesn't have that restriction, but
+  # there's no reason to split it out now.
+  IMAGE: ghcr.io/hassanfasseh/vela/model-runner
   NAMESPACE: default
   MINIO_ALIAS: velaminio
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -122,12 +126,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to OCIR
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.OCIR_USERNAME }}
-          password: ${{ secrets.OCIR_AUTH_TOKEN }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pick Dockerfile
         id: dockerfile
@@ -175,7 +179,7 @@ jobs:
                   deployment-id: "${{ github.event.inputs.deployment_id }}"
               spec:
                 imagePullSecrets:
-                  - name: ocir-secret
+                  - name: ghcr-secret
                 containers:
                   - name: custom-runner
                     image: ${{ env.IMAGE }}:custom-${{ github.event.inputs.deployment_name }}
