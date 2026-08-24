@@ -120,27 +120,65 @@ def create_model_pvc(name: str, size_gb: int = 1) -> str:
     return name_
 
 
+# Runs inside the download Job below via `python3 -c` — no shell, so no
+# quoting to get wrong the way the old `mc alias set ... && mc mirror
+# ...` one-liner did. MINIO_PATH is already bucket-prefixed (e.g.
+# "models/workspace-1/custom/my-model/model_files" — see
+# create_download_job) and split into bucket + prefix the same way `mc`
+# addressing does.
+_DOWNLOAD_SCRIPT = """
+from minio import Minio
+import os, pathlib
+
+client = Minio(os.environ['MINIO_ENDPOINT'].replace('http://', ''),
+               access_key=os.environ['MINIO_ACCESS_KEY'],
+               secret_key=os.environ['MINIO_SECRET_KEY'],
+               secure=False)
+
+minio_path = os.environ['MINIO_PATH']
+bucket = minio_path.split('/')[0]
+prefix = '/'.join(minio_path.split('/')[1:])
+
+pathlib.Path('/model_files').mkdir(exist_ok=True)
+for obj in client.list_objects(bucket, prefix=prefix, recursive=True):
+    dest = '/model_files/' + obj.object_name.split('/')[-1]
+    client.fget_object(bucket, obj.object_name, dest)
+    print(f'Downloaded {obj.object_name} to {dest}')
+"""
+
+
 def create_download_job(name: str, minio_path: str, pvc: str) -> str:
-    """(Re-)run the Job that mirrors {minio_path}/model_files/ (MinIO,
+    """(Re-)run the Job that copies {minio_path}/model_files/ (MinIO,
     already bucket-prefixed — see main.py's upload endpoint) into the
-    PVC. Jobs are run-once, not meant to be reused in place, so any
-    previous run of this exact Job (an earlier upload/redeploy of the
-    same deployment_name) is deleted first — Background propagation so
-    this doesn't block waiting for the old Job's pod to finish
-    terminating."""
+    PVC. Runs custom-runner:base itself (already pulled onto any node
+    that's run a custom deployment, and ships the minio Python client —
+    see custom-runner/base/Dockerfile) rather than minio/mc:latest,
+    which was hitting Docker Hub's anonymous pull-rate limit in
+    practice; GHCR doesn't have that problem, and reusing the one image
+    every custom deployment already needs means one fewer image for the
+    node to have to pull at all in the common case where it's cached.
+
+    Jobs are run-once, not meant to be reused in place, so any previous
+    run of this exact Job (an earlier upload/redeploy of the same
+    deployment_name) is deleted first — Background propagation so this
+    doesn't block waiting for the old Job's pod to finish terminating.
+    """
     _, _, batch_v1 = _clients()
     jname = job_name(name)
     _ignore_404(batch_v1.delete_namespaced_job, jname, NAMESPACE, propagation_policy="Background")
 
     container = client.V1Container(
         name="download",
-        image="minio/mc:latest",
-        command=["/bin/sh", "-c"],
-        args=[
-            f'mc alias set src http://{MINIO_ENDPOINT} "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY" && '
-            f'mc mirror --overwrite "src/{minio_path}/model_files/" /data/'
-        ],
+        image=RUNTIME_IMAGE,
+        # IfNotPresent, not Always (unlike create_runtime_deployment) —
+        # this image rarely changes between runs of this Job, and
+        # preferring whatever's already cached on the node is the whole
+        # point of reusing it here over a separate always-pulled image.
+        image_pull_policy="IfNotPresent",
+        command=["python3", "-c", _DOWNLOAD_SCRIPT],
         env=[
+            client.V1EnvVar(name="MINIO_ENDPOINT", value=MINIO_ENDPOINT),
+            client.V1EnvVar(name="MINIO_PATH", value=f"{minio_path}/model_files"),
             client.V1EnvVar(
                 name="MINIO_ACCESS_KEY",
                 value_from=client.V1EnvVarSource(
@@ -154,9 +192,13 @@ def create_download_job(name: str, minio_path: str, pvc: str) -> str:
                 ),
             ),
         ],
-        volume_mounts=[client.V1VolumeMount(name="model-files", mount_path="/data")],
+        volume_mounts=[client.V1VolumeMount(name="model-files", mount_path="/model_files")],
     )
     pod_spec = client.V1PodSpec(
+        # custom-runner:base lives on GHCR, unlike the Docker Hub public
+        # minio/mc image it replaces — needs the same pull secret the
+        # runtime Deployment uses.
+        image_pull_secrets=[client.V1LocalObjectReference(name="ghcr-secret")],
         containers=[container],
         restart_policy="Never",
         volumes=[

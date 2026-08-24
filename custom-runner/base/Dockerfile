@@ -8,9 +8,16 @@ WORKDIR /app
 # entirely). predict.py and model_files/ are mounted at runtime from a
 # ConfigMap and a PVC respectively (see backend/app/services/
 # k8s_custom.py), not baked in here.
+#
+# minio isn't used by main.py at all — it's here because
+# k8s_custom.create_download_job() runs this same image as the download
+# Job's container, using the minio Python client to pull model_files/
+# out of MinIO into the PVC (replacing minio/mc:latest, which was
+# hitting Docker Hub's anonymous pull-rate limit).
 RUN pip install --no-cache-dir \
     fastapi uvicorn \
-    scikit-learn joblib pandas numpy
+    scikit-learn joblib pandas numpy \
+    minio
 
 COPY main.py /app/main.py
 

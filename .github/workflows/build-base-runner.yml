@@ -8,12 +8,12 @@ name: Build Base Custom Runner
 # no per-upload trigger anymore since uploads no longer build anything.
 
 on:
+  # Deliberately workflow_dispatch-only, no push trigger — a base-image
+  # change should be reviewed and rebuilt on purpose, not fired
+  # automatically the moment something under custom-runner/base/ merges
+  # to main (an earlier version of this file had a push+paths trigger
+  # doing exactly that, which defeated the point).
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'custom-runner/base/**'
-      - '.github/workflows/build-base-runner.yml'
 
 env:
   REGISTRY: ghcr.io
