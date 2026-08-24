@@ -1565,10 +1565,26 @@ def admin_deployments_page():
     const body = document.getElementById('deployments-body');
     body.innerHTML = UI.skeletonRows(6, 3);
     try {
-      const [models, deployments] = await Promise.all([Api.get('/models/status'), Api.get('/deployments')]);
+      const [models, deployments, registry] = await Promise.all([
+        Api.get('/models/status'), Api.get('/deployments'), Api.get('/admin/deployment-registry')
+      ]);
+      const registryByName = new Map(registry.map(r => [r.name, r]));
+
+      // GET /deployments reads model/task straight off the k8s Deployment
+      // (MODEL_NAME/TASK_TYPE env vars) — custom-runner pods only ever set
+      // INPUT_TYPE/INPUT_SCHEMA, so both come back "unknown" for every
+      // custom model there. The registry (DB Deployment row) has the real
+      // values, so it wins whenever a match exists — same fix as the
+      // task_type column on /admin/models, for the same underlying reason.
       const rows = [];
-      models.forEach(m => rows.push({ name: m.name, model: m.model, task: m.task, status: m.status, replicas: '—', managed: 'core service' }));
-      deployments.forEach(d => rows.push({ name: d.name, model: d.model_name, task: d.task_type, status: d.status, replicas: d.ready + '/' + d.desired, managed: 'platform' }));
+      models.forEach(m => {
+        const reg = registryByName.get(m.name) || null;
+        rows.push({ name: m.name, model: (reg && reg.model_name) || m.model, task: (reg && reg.task_type) || m.task, status: m.status, replicas: '—', managed: 'core service' });
+      });
+      deployments.forEach(d => {
+        const reg = registryByName.get(d.name) || null;
+        rows.push({ name: d.name, model: (reg && reg.model_name) || d.model_name, task: (reg && reg.task_type) || d.task_type, status: d.status, replicas: d.ready + '/' + d.desired, managed: 'platform' });
+      });
       if (!rows.length) {
         body.innerHTML = '<tr><td colspan="6">' + UI.emptyState('No deployments yet', 'Use the form below to deploy your first model.') + '</td></tr>';
         return;
