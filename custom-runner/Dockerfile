@@ -2,28 +2,31 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Slim variant — no torch/torchvision (and no librosa, which pulls in a
-# heavy native audio-decoding stack). Covers sklearn/xgboost/lightgbm/
-# onnxruntime models, which is most of what gets uploaded, without the
-# multi-gigabyte PyTorch wheels. Deployments that actually need PyTorch
-# should build from Dockerfile.torch instead (see custom-deploy.yml's
-# use_torch=true input).
+# Bare minimum for the runner itself plus the most common model
+# libraries. Anything more specific to a particular model (onnxruntime,
+# xgboost, lightgbm, scipy, pillow, torch, ...) belongs in that model's
+# own requirements.txt below, not baked into every image regardless of
+# whether it's actually used — that's what made this image 1.35GB.
 RUN pip install --no-cache-dir \
         fastapi uvicorn \
-        scikit-learn xgboost lightgbm \
-        onnxruntime \
-        joblib pandas numpy pillow scipy
+        joblib numpy pandas scikit-learn
 
 COPY main.py /app/main.py
 
-# predict.py and model_files/ are NOT part of this repo — custom-
-# deploy.yml downloads them from MinIO into this build context
-# (custom-runner/) before `docker build` runs (see
-# .github/workflows/custom-deploy.yml, step "Download model files from
-# MinIO"). Both are required for the container to start: predict.py
-# supplies load_model()/predict() (see predict_template.py for the
-# interface contract), model_files/ is whatever load_model() reads
-# from disk.
+# predict.py, model_files/ and requirements.txt are NOT part of this
+# repo — custom-deploy.yml downloads them from MinIO into this build
+# context (custom-runner/) before `docker build` runs (see
+# .github/workflows/custom-deploy.yml, step "Download predict.py,
+# model_files/ and requirements.txt from MinIO"). requirements.txt is
+# optional at upload time; the workflow writes an empty one when there
+# isn't one, so this COPY always has something to copy and the RUN
+# below is always a (possibly no-op) valid pip install.
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# predict.py supplies load_model()/predict() (see predict_template.py
+# for the interface contract), model_files/ is whatever load_model()
+# reads from disk. Both required for the container to start.
 COPY predict.py /app/predict.py
 COPY model_files/ /app/model_files/
 

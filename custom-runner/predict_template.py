@@ -1,3 +1,18 @@
+# Sample requirements.txt — a SEPARATE file, uploaded alongside this one
+# (optional field on the upload form). The base custom-runner image only
+# ships fastapi, uvicorn, joblib, numpy, pandas and scikit-learn — list
+# anything else your predict.py imports, one package per line, same
+# syntax pip normally uses:
+#
+#     xgboost==2.0.3
+#     lightgbm==4.3.0
+#     onnxruntime==1.17.1
+#     scipy==1.13.0
+#     pillow==10.3.0
+#
+# Leave it out entirely if load_model()/predict() only need what's
+# already in the base image (e.g. Option A below).
+
 """
 Vela custom-runner interface contract
 ======================================
@@ -95,6 +110,9 @@ def predict(model, input_data):
 # (XGBClassifier/XGBRegressor) works identically to Option A once
 # loaded. This example instead shows the native Booster API, which is
 # what you get from xgboost.train() or a raw .json/.ubj model file.
+#
+# xgboost isn't in the base image — upload a requirements.txt alongside
+# this file with a line for it (see the sample at the top of this file).
 # =============================================================================
 #
 # def load_model():
@@ -119,13 +137,17 @@ def predict(model, input_data):
 # before handing it to your usual preprocessing.
 #
 # NOTE: the default custom-runner image (Dockerfile) does not include
-# torch/torchvision — it's built from custom-runner/Dockerfile.torch
-# instead, via custom-deploy.yml's use_torch=true input. The admin
-# upload form doesn't expose that toggle yet, so a PyTorch model
-# uploaded through it will build with the slim (torch-less) image and
-# fail at startup on `import torch` — ask whoever's running the
-# GitHub Actions workflow to re-dispatch custom-deploy.yml by hand with
-# use_torch=true for this deployment_name until that's wired up.
+# torch/torchvision/pillow. Two ways to get them:
+#   1. custom-runner/Dockerfile.torch already has all three — pass
+#      use_torch=true when (re-)dispatching custom-deploy.yml. The admin
+#      upload form doesn't expose that toggle yet, so ask whoever's
+#      running the GitHub Actions workflow to re-dispatch it by hand
+#      with use_torch=true for this deployment_name.
+#   2. Or list torch/torchvision/pillow in a requirements.txt uploaded
+#      alongside this file and stay on the slim image — works, but
+#      re-downloads the same multi-gigabyte wheels Dockerfile.torch
+#      already has baked in, so (1) is usually the better call for a
+#      PyTorch model specifically.
 # =============================================================================
 #
 # def load_model():

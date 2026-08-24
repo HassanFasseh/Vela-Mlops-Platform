@@ -113,11 +113,22 @@ jobs:
           MINIO_SECRET_KEY=$(echo "$MINIO_CREDS_SECRET" | jq -r '.data.MINIO_ROOT_PASSWORD' | base64 -d)
           mc alias set ${{ env.MINIO_ALIAS }} http://localhost:9000 "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
 
-      - name: Download predict.py and model_files/ from MinIO
+      - name: Download predict.py, model_files/ and requirements.txt from MinIO
         run: |
           mc mirror --overwrite "${{ env.MINIO_ALIAS }}/${{ github.event.inputs.minio_path }}" ./custom-runner/
           test -f ./custom-runner/predict.py || { echo "::error::predict.py not found under ${{ github.event.inputs.minio_path }}"; exit 1; }
           test -d ./custom-runner/model_files || { echo "::error::model_files/ not found under ${{ github.event.inputs.minio_path }}"; exit 1; }
+          # requirements.txt is optional — mc mirror above already pulled
+          # it down if the model uploaded one (same MinIO prefix as
+          # predict.py/model_files/), no separate download needed. The
+          # Dockerfile always COPYs + pip installs it though, so fall
+          # back to an empty file when there isn't one.
+          if [ -f ./custom-runner/requirements.txt ]; then
+            echo "requirements.txt found ($(wc -l < ./custom-runner/requirements.txt) line(s))"
+          else
+            echo "no requirements.txt uploaded — using an empty one"
+            touch ./custom-runner/requirements.txt
+          fi
 
       - name: Stop MinIO port-forward
         if: always()

@@ -805,6 +805,7 @@ async def upload_custom_model(
     input_type: str = Form(...),
     workspace_id: int = Form(...),
     input_schema: str = Form(None),
+    requirements_file: UploadFile = File(None),
     x_api_key: str = fastapi.Header(None, alias="X-API-Key")
 ):
     from backend.app.database import SessionLocal
@@ -858,6 +859,22 @@ async def upload_custom_model(
                 io.BytesIO(file_bytes),
                 length=len(file_bytes),
                 content_type="application/octet-stream"
+            )
+
+        # Optional — custom-runner's base image only ships fastapi,
+        # uvicorn, joblib, numpy, pandas and scikit-learn; a predict.py
+        # that needs anything beyond that lists it here.
+        # custom-deploy.yml's `mc mirror` picks this up automatically
+        # (same MinIO prefix as predict.py/model_files/) since it's a
+        # plain recursive copy, no separate download logic needed there.
+        if requirements_file is not None and requirements_file.filename:
+            requirements_bytes = await requirements_file.read()
+            client.put_object(
+                BUCKET_NAME,
+                f"{object_prefix}/requirements.txt",
+                io.BytesIO(requirements_bytes),
+                length=len(requirements_bytes),
+                content_type="text/plain"
             )
 
         record = DeploymentModel(

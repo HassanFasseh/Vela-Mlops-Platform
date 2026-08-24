@@ -1233,6 +1233,11 @@ def admin_deployments_page():
           <input class="input" type="file" id="cm-model-files" accept=".pkl,.joblib,.pt,.bin,.onnx,.h5,.safetensors" multiple required>
         </div>
         <div class="field">
+          <label class="field-label" for="cm-requirements-file">requirements.txt <span class="text-muted">(optional)</span></label>
+          <input class="input" type="file" id="cm-requirements-file" accept=".txt">
+          <div class="field-hint">List any Python packages your predict.py needs beyond scikit-learn, joblib, pandas, numpy.</div>
+        </div>
+        <div class="field">
           <label class="field-label" for="cm-api-key">API key</label>
           <input class="input" id="cm-api-key" placeholder="aodp_your_admin_key" required>
           <div class="field-hint">An unscoped workspace API key &mdash; see API Keys.</div>
@@ -1318,6 +1323,7 @@ def admin_deployments_page():
     const input_schema = document.getElementById('cm-input-schema').value.trim();
     const predictFile = document.getElementById('cm-predict-file').files[0];
     const modelFiles = document.getElementById('cm-model-files').files;
+    const requirementsFile = document.getElementById('cm-requirements-file').files[0];
     const apiKey = document.getElementById('cm-api-key').value.trim();
 
     if (!deployment_name || !predictFile || !modelFiles.length || !apiKey) {
@@ -1354,6 +1360,7 @@ def admin_deployments_page():
       if (input_type === 'json' && input_schema) form.append('input_schema', input_schema);
       form.append('predict_file', predictFile);
       Array.from(modelFiles).forEach(f => form.append('model_files', f));
+      if (requirementsFile) form.append('requirements_file', requirementsFile);
 
       const res = await fetch('/api/v1/upload-custom-model', {
         method: 'POST',
