@@ -9,6 +9,7 @@ from backend.app.services.deployment import deploy_model
 from backend.app.services.timeline import build_timeline, build_metrics_summary
 from backend.app.services.summary import generate_summary
 from pydantic import BaseModel
+from typing import Optional
 import requests as http_requests
 import os
 
@@ -92,7 +93,16 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO  = os.environ.get("GITHUB_REPO", "")
 
 class PredictRequest(BaseModel):
-    text: str
+    # Shared by /predict-proxy (model_id/service_name routing, no
+    # deployment_id concept) and /api/v1/predict (deployment_id-routed,
+    # input shaped by the deployment's own input_type) — a superset of
+    # both rather than two models, so /predict-proxy keeps working
+    # unchanged. text/data/file are all optional here at the schema
+    # level; /api/v1/predict enforces which one is actually required
+    # per-request based on the target deployment's input_type.
+    text: Optional[str] = None
+    data: Optional[dict] = None
+    file: Optional[str] = None  # base64-encoded
     model_id: int = 0
     service_name: str = ""
     deployment_id: int = None
@@ -589,76 +599,103 @@ def deployments():
 def api_predict(req: PredictRequest, x_api_key: str = fastapi.Header(None, alias="X-API-Key"), authorization: str = fastapi.Header(None)):
     from backend.app.database import SessionLocal
     from backend.app.services.auth import verify_api_key
-    
+
     # Accept key from X-API-Key header or Authorization: Bearer aodp_...
     raw_key = x_api_key
     if not raw_key and authorization and authorization.startswith("Bearer aodp_"):
         raw_key = authorization.split(" ")[1]
-    
+
     if not raw_key:
         raise HTTPException(status_code=401, detail="API key required. Pass X-API-Key header or Authorization: Bearer <key>")
-    
+
     if not raw_key.startswith("aodp_"):
         raise HTTPException(status_code=401, detail="Invalid API key format. Keys must start with aodp_")
-    
+
+    # deployment_id is the only routing key this endpoint accepts now —
+    # every prediction goes through a real Deployment row so its
+    # input_type/model_type can actually be looked up (see below). The
+    # old model_id==1/2/service_name fallback (still used by the
+    # separate /predict-proxy, unaffected) is gone here: the two
+    # hardcoded core services were never Deployment rows to begin with,
+    # so they were never reachable through a real permission check
+    # anyway (see the comment that used to be here about that).
+    if not req.deployment_id:
+        raise HTTPException(status_code=400, detail="deployment_id is required")
+
     db = SessionLocal()
     try:
         api_key = verify_api_key(db, raw_key)
         if not api_key:
             raise HTTPException(status_code=401, detail="Invalid or revoked API key")
-        
-        # Check team-level model permission if key is scoped. Previously this
-        # compared req.model_id (the hardcoded 1/2 core-service selector)
-        # against TeamModelPermission.deployment_id (a real DB Deployment
-        # primary key) as if they were the same id space — they aren't, so
-        # the check either matched by coincidence or, for any service_name
-        # (k8s deployment) call, was silently skipped entirely (model_id
-        # defaults to 0, which is falsy, so `target_deployment_id and ...`
-        # short-circuited before check_team_model_permission ever ran).
-        # A scoped key now requires the caller to state which real
-        # deployment_id it's using, and that's what gets checked.
+
         if api_key.team_id or api_key.deployment_id:
             from backend.app.services.teams import check_team_model_permission
-            if not req.deployment_id:
-                raise HTTPException(status_code=400, detail="This API key is scoped to a specific model — pass deployment_id")
             if not check_team_model_permission(db, api_key, req.deployment_id):
                 raise HTTPException(status_code=403, detail="Your API key does not have permission to use this model")
 
-        # Route to the model. deployment_id (a real DB Deployment id) takes
-        # priority when provided — it resolves to that deployment's own k8s
-        # service name. Falls back to the legacy model_id/service_name
-        # selectors for the two hardcoded core services and ad hoc
-        # service_name calls (neither of which carries a real deployment_id
-        # to begin with, so scoped keys can't use this path — see above).
-        if req.deployment_id:
-            from backend.app.db.models import Deployment
-            deployment = db.query(Deployment).filter(Deployment.id == req.deployment_id).first()
-            if not deployment:
-                raise HTTPException(status_code=404, detail="Deployment not found")
-            url = f"http://{deployment.name}.default.svc.cluster.local"
-        elif req.model_id == 1:
-            url = MODEL_SERVICE_URL
-        elif req.model_id == 2:
-            url = MODEL_SERVICE_2_URL
-        elif req.service_name:
-            url = f"http://{req.service_name}.default.svc.cluster.local"
+        from backend.app.db.models import Deployment
+        deployment = db.query(Deployment).filter(Deployment.id == req.deployment_id).first()
+        if not deployment:
+            raise HTTPException(status_code=404, detail="Deployment not found")
+
+        # Which field is required depends on what this specific
+        # deployment actually expects — not a global assumption of
+        # "text", which is what broke json/file-typed custom models
+        # before this endpoint knew to look the deployment up first.
+        input_type = deployment.input_type or "text"
+        if input_type == "text":
+            if not req.text:
+                raise HTTPException(status_code=400, detail="This model expects input_type=text — pass the 'text' field")
+        elif input_type == "json":
+            if req.data is None:
+                raise HTTPException(status_code=400, detail="This model expects input_type=json — pass the 'data' field")
+        elif input_type == "file":
+            if not req.file:
+                raise HTTPException(status_code=400, detail="This model expects input_type=file — pass the 'file' field (base64-encoded)")
         else:
-            url = MODEL_SERVICE_URL  # default to model 1
+            raise HTTPException(status_code=500, detail=f"Deployment has an unrecognized input_type: {input_type!r}")
+
+        url = f"http://{deployment.name}.default.svc.cluster.local"
 
         try:
-            payload = {"text": req.text}
-            if req.model_id == 2:
-                payload["labels"] = req.labels
-            r = http_requests.post(f"{url}/predict", json=payload, timeout=30)
+            if deployment.model_type == "custom":
+                # custom-runner (custom-runner/main.py) shapes its own
+                # /predict request by INPUT_TYPE — match it exactly rather
+                # than always sending {"text": ...} the way the built-in
+                # HuggingFace runners do.
+                if input_type == "text":
+                    r = http_requests.post(f"{url}/predict", json={"text": req.text}, timeout=30)
+                elif input_type == "json":
+                    r = http_requests.post(f"{url}/predict", json={"data": req.data}, timeout=30)
+                else:  # file
+                    try:
+                        import base64
+                        file_bytes = base64.b64decode(req.file)
+                    except Exception:
+                        raise HTTPException(status_code=400, detail="'file' must be valid base64")
+                    # Longer timeout than the other two branches — file
+                    # payloads (images, audio) are typically bigger and
+                    # slower to preprocess than a short text/json body.
+                    r = http_requests.post(f"{url}/predict", files={"file": ("upload", file_bytes)}, timeout=60)
+            else:
+                # Built-in HuggingFace runners (model-runner) always speak
+                # {"text": ..., ["labels": ...]} — input_type on these
+                # deployments is always "text" (see the input_type check
+                # above), so req.text is guaranteed present here.
+                payload = {"text": req.text}
+                if deployment.task_type == "zero-shot-classification":
+                    payload["labels"] = req.labels
+                r = http_requests.post(f"{url}/predict", json=payload, timeout=30)
+
             result = r.json()
 
-            # Return with workspace context
             return {
                 "workspace_id": api_key.workspace_id,
-                "model_id": req.model_id or 1,
                 "deployment_id": req.deployment_id,
                 "result": result
             }
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=503, detail=f"Model service error: {str(e)}")
     finally:
