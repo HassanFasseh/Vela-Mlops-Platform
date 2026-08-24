@@ -33,6 +33,25 @@ http://51.170.140.102
 - GET /summary
 - GET /timeline
 
+## Registry
+All images now on ghcr.io/hassanfasseh/vela/
+- backend-app
+- model-service
+- model-runner (HuggingFace user models)
+- model-runner:custom-{name} (custom models)
+
+ghcr-secret expires with the PAT. Recreate when expired:
+
+    kubectl create secret docker-registry ghcr-secret \
+      --docker-server=ghcr.io \
+      --docker-username=HassanFasseh \
+      --docker-password='<PAT — see .env, NOT checked in>' \
+      --dry-run=client -o yaml | kubectl apply -f -
+
+The actual PAT lives in `.env` (gitignored) as `GHCR_PAT=...`, not here —
+this file is committed to git, so anything in it is permanent and public
+the moment it's pushed. Current PAT expires ~90 days from 2026-08-24.
+
 ## Architecture
 - All HTML pages served from FastAPI as raw HTML strings
 - JS is vanilla, no frameworks
