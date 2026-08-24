@@ -141,6 +141,13 @@ def get_team_permissions(db: Session, team_id: int) -> list:
             # ("pending"/"uploaded"/"deployed"/...) — it does not track
             # live pod health the way GET /deployments does.
             "status": dep.status if dep else "unknown",
+            # Custom-runner routing/rendering info (predictor.js needs
+            # these to know what /predict actually expects for this
+            # deployment — see main.py's /api/v1/predict) — fall back to
+            # the same defaults Deployment's own columns use.
+            "input_type": dep.input_type if dep else "text",
+            "model_type": dep.model_type if dep else "huggingface",
+            "input_schema": dep.input_schema if dep else None,
             "can_predict": p.can_predict,
             "can_view_metrics": p.can_view_metrics,
             "granted_at": p.granted_at

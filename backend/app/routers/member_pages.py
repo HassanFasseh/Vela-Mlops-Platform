@@ -304,7 +304,7 @@ def member_team_detail_page(team_id: int):
       const uid = 'd' + p.deployment_id;
       const lastCell = p.can_predict
         ? '<button class="btn btn-secondary btn-sm" data-get-key="' + idx + '" type="button">Get API key</button>' +
-          '<div style="margin-top:.6rem;max-width:280px">' + Predictor.render(uid, TEAM_ID, p.deployment_id) + '</div>'
+          '<div style="margin-top:.6rem;max-width:280px">' + Predictor.render(uid, TEAM_ID, p.deployment_id, p.input_type, p.input_schema) + '</div>'
         : UI.badge('View only', 'neutral');
       return '<tr>' +
         '<td>' + UI.escapeHtml(p.model_name) + '</td>' +
@@ -319,7 +319,7 @@ def member_team_detail_page(team_id: int):
     });
     perms.forEach(p => {
       if (!p.can_predict) return;
-      Predictor.wire('d' + p.deployment_id, TEAM_ID, p.deployment_id);
+      Predictor.wire('d' + p.deployment_id, TEAM_ID, p.deployment_id, p.input_type, p.input_schema);
     });
   }
 
@@ -457,7 +457,7 @@ def member_models_page():
       grid.innerHTML = modelRows.map(renderCard).join('');
       modelRows.forEach(r => {
         if (!r.can_predict) return;
-        Predictor.wire('d' + r.deployment_id, r.team_id, r.deployment_id);
+        Predictor.wire('d' + r.deployment_id, r.team_id, r.deployment_id, r.input_type, r.input_schema);
       });
     } catch (e) {
       grid.innerHTML = UI.errorState(e.message, loadModels);
@@ -473,7 +473,7 @@ def member_models_page():
 
   function renderCard(r) {
     const testerHtml = r.can_predict
-      ? Predictor.render('d' + r.deployment_id, r.team_id, r.deployment_id)
+      ? Predictor.render('d' + r.deployment_id, r.team_id, r.deployment_id, r.input_type, r.input_schema)
       : UI.badge('View only', 'neutral');
 
     return '<div class="card">' +
