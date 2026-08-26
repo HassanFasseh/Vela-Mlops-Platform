@@ -1,0 +1,31 @@
+# GitLab CI equivalent of .github/workflows/build-base-runner.yml
+#
+# Builds custom-runner/base/ into the ONE fixed image every custom model
+# deployment runs — predict.py and model_files/ are mounted in at runtime
+# (ConfigMap + PVC), not baked into per-deployment images. Deliberately
+# manual-only, same as the GitHub Actions version: a base-image change
+# should be reviewed and rebuilt on purpose, not fired automatically the
+# moment something under custom-runner/base/ merges to main.
+
+stages:
+  - build
+  - deploy
+
+variables:
+  CUSTOM_RUNNER_IMAGE_NAME: custom-runner
+  CUSTOM_RUNNER_CONTEXT: ./custom-runner/base
+  GHCR_NAMESPACE: hassanfasseh/vela
+
+build-base-runner:
+  extends: .docker_build_template
+  stage: build
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api" || $CI_PIPELINE_SOURCE == "trigger"'
+      when: manual
+  script:
+    - |
+      docker buildx build \
+        --platform linux/arm64 \
+        --push \
+        -t "$IMAGE_REPO/$CUSTOM_RUNNER_IMAGE_NAME:base" \
+        "$CUSTOM_RUNNER_CONTEXT"

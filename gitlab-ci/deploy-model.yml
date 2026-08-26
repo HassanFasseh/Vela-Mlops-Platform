@@ -1,0 +1,132 @@
+# GitLab CI equivalent of .github/workflows/model-deploy.yml
+#
+# Manually triggered ("Run pipeline" in the UI, or the pipeline trigger
+# API) with three pipeline variables — model_name, task_type,
+# deployment_name — matching the GitHub Actions workflow_dispatch inputs.
+# Builds a model-runner image for that HuggingFace model + task type and
+# deploys it as its own Deployment/Service.
+#
+# The variable `options:`/`description:` below populate the dropdown/field
+# shown on GitLab's "Run pipeline" page — the closest equivalent to GitHub's
+# workflow_dispatch `type: choice` inputs.
+
+stages:
+  - build
+  - deploy
+
+variables:
+  MODEL_RUNNER_IMAGE_NAME: model-runner
+  MODEL_RUNNER_CONTEXT: ./model-runner
+  GHCR_NAMESPACE: hassanfasseh/vela
+  K8S_NAMESPACE: default
+  model_name:
+    description: "HuggingFace model name (e.g. distilbert-base-uncased-finetuned-sst-2-english)"
+  task_type:
+    value: "sentiment-analysis"
+    options:
+      - "sentiment-analysis"
+      - "zero-shot-classification"
+    description: "Task type"
+  deployment_name:
+    description: "Kubernetes deployment name (lowercase, no spaces, e.g. my-model)"
+
+build-model-runner:
+  extends: .docker_build_template
+  stage: build
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api" || $CI_PIPELINE_SOURCE == "trigger"'
+      when: manual
+  script:
+    - |
+      if [ -z "$model_name" ] || [ -z "$task_type" ] || [ -z "$deployment_name" ]; then
+        echo "model_name, task_type and deployment_name are all required (set them on the Run pipeline page)." >&2
+        exit 1
+      fi
+    - |
+      docker buildx build \
+        --platform linux/amd64,linux/arm64 \
+        --push \
+        --build-arg MODEL_NAME="$model_name" \
+        --build-arg TASK_TYPE="$task_type" \
+        -t "$IMAGE_REPO/$MODEL_RUNNER_IMAGE_NAME:$deployment_name" \
+        "$MODEL_RUNNER_CONTEXT"
+
+deploy-model:
+  extends: .kubeconfig_template
+  stage: deploy
+  needs: ["build-model-runner"]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api" || $CI_PIPELINE_SOURCE == "trigger"'
+      when: manual
+  script:
+    - !reference [.ghcr_pull_secret_template, script]
+    - |
+      cat <<MANIFEST | kubectl apply -f -
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: ${deployment_name}
+        namespace: ${K8S_NAMESPACE}
+        labels:
+          app: ${deployment_name}
+          managed-by: platform
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: ${deployment_name}
+        template:
+          metadata:
+            labels:
+              app: ${deployment_name}
+              managed-by: platform
+          spec:
+            imagePullSecrets:
+              - name: ghcr-secret
+            containers:
+              - name: model-runner
+                image: ${IMAGE_REPO}/${MODEL_RUNNER_IMAGE_NAME}:${deployment_name}
+                ports:
+                  - name: http
+                    containerPort: 8000
+                env:
+                  - name: MODEL_NAME
+                    value: "${model_name}"
+                  - name: TASK_TYPE
+                    value: "${task_type}"
+                resources:
+                  requests:
+                    memory: "512Mi"
+                    cpu: "80m"
+                  limits:
+                    memory: "2Gi"
+                    cpu: "500m"
+      ---
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: ${deployment_name}
+        namespace: ${K8S_NAMESPACE}
+        labels:
+          app: ${deployment_name}
+          managed-by: platform
+      spec:
+        type: ClusterIP
+        selector:
+          app: ${deployment_name}
+        ports:
+          - name: http
+            port: 80
+            targetPort: 8000
+      MANIFEST
+    - kubectl rollout status deployment/${deployment_name} --namespace "$K8S_NAMESPACE" --timeout=300s
+    - |
+      kubectl run health-check-${deployment_name} \
+        --image=docker.io/curlimages/curl:latest \
+        --restart=Never \
+        --namespace "$K8S_NAMESPACE" \
+        -- curl -s http://${deployment_name}.${K8S_NAMESPACE}.svc.cluster.local/health
+      kubectl wait --for=condition=Ready pod/health-check-${deployment_name} --timeout=30s --namespace "$K8S_NAMESPACE" || true
+      sleep 5
+      kubectl logs health-check-${deployment_name} --namespace "$K8S_NAMESPACE" || true
+      kubectl delete pod health-check-${deployment_name} --namespace "$K8S_NAMESPACE" --now || true

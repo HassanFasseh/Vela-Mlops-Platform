@@ -1,0 +1,16 @@
+# Master GitLab CI pipeline for Vela.
+#
+# Composes three independently-triggered pipelines, mirroring the
+# .github/workflows/*.yml split:
+#   - deploy-backend.yml     push to main touching backend/  -> build + deploy
+#   - deploy-model.yml       manual, parametrized             -> build + deploy a user model
+#   - build-base-runner.yml  manual                           -> rebuild the custom-runner base image
+#
+# See gitlab-ci/README.md for setup: this file lives in gitlab-ci/, not the
+# repo root, so it needs to be pointed at explicitly (or copied to the
+# root) before GitLab will run it — the README covers both options.
+
+include:
+  - local: gitlab-ci/deploy-backend.yml
+  - local: gitlab-ci/deploy-model.yml
+  - local: gitlab-ci/build-base-runner.yml

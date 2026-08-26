@@ -1,0 +1,161 @@
+# GitLab CI equivalent of .github/workflows/deploy-backend.yml
+#
+# Builds a multi-arch (amd64+arm64) backend-app image with docker buildx
+# and rolls it out to the cluster via kubectl. Runs on push to main when
+# backend/ or the Dockerfile change; can also be run manually ("Run
+# pipeline" in the UI, or via the pipeline trigger API).
+#
+# This file also defines the hidden job templates (`.docker_build_template`,
+# `.kubeconfig_template`, `.ghcr_pull_secret_template`) shared by
+# deploy-model.yml and build-base-runner.yml. GitLab merges all `include`d
+# files into one configuration before processing, so hidden jobs defined
+# here are visible to `extends:`/`!reference` anywhere in the pipeline —
+# no separate "common" file needed.
+
+stages:
+  - build
+  - deploy
+
+variables:
+  BACKEND_IMAGE_NAME: backend-app
+  BACKEND_DOCKERFILE: Dockerfile.backend
+  BACKEND_CONTEXT: "."
+  BACKEND_DEPLOYMENT: backend-app
+  BACKEND_CONTAINER: backend-app
+  # Repo path images live under when pushing to GHCR (ignored when falling
+  # back to the GitLab Container Registry — see .docker_build_template).
+  GHCR_NAMESPACE: hassanfasseh/vela
+  K8S_NAMESPACE: default
+
+# ---------------------------------------------------------------------------
+# Shared templates
+# ---------------------------------------------------------------------------
+
+# Sets up docker buildx for multi-arch builds and logs in to whichever
+# registry is configured, leaving $IMAGE_REPO (the repo prefix to push
+# under/deploy from) set for the rest of the job and exported via a dotenv
+# artifact for any job that `needs:` this one.
+#
+# Registry selection: GHCR if GHCR_USER/GHCR_TOKEN are set, otherwise the
+# GitLab Container Registry using GitLab's own built-in credentials.
+.docker_build_template:
+  image: docker:24
+  services:
+    - docker:24-dind
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  before_script:
+    # QEMU emulation + a docker-container buildx builder — the default
+    # driver can build for other architectures but can't push, so a
+    # dedicated builder is required for --platform + --push together.
+    - docker run --rm --privileged tonistiigi/binfmt --install all
+    - docker buildx create --use --name multiarch --driver docker-container 2>/dev/null || docker buildx use multiarch
+    - |
+      if [ -n "$GHCR_TOKEN" ]; then
+        echo "Pushing to GitHub Container Registry (ghcr.io/${GHCR_NAMESPACE})"
+        echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+        echo "IMAGE_REPO=ghcr.io/${GHCR_NAMESPACE}" >> build.env
+      else
+        echo "GHCR_TOKEN not set — pushing to the GitLab Container Registry (${CI_REGISTRY_IMAGE})"
+        echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
+        echo "IMAGE_REPO=${CI_REGISTRY_IMAGE}" >> build.env
+      fi
+    - source build.env
+  artifacts:
+    reports:
+      dotenv: build.env
+
+# Produces a working kubeconfig at ~/.kube/config, either directly from the
+# KUBE_CONFIG variable (base64-encoded kubeconfig) or, if that isn't set,
+# by deriving one from an OKE cluster via the OCI CLI — the same two-step
+# (OCI CLI config -> `oci ce cluster create-kubeconfig`) the GitHub Actions
+# version performs.
+.kubeconfig_template:
+  image: python:3.11-slim
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl ca-certificates >/dev/null
+    - curl -sLO "https://dl.k8s.io/release/$(curl -sL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    - install -m 0755 kubectl /usr/local/bin/kubectl
+    - mkdir -p ~/.kube
+    - |
+      if [ -n "$KUBE_CONFIG" ]; then
+        echo "Using KUBE_CONFIG CI/CD variable"
+        echo "$KUBE_CONFIG" | base64 -d > ~/.kube/config
+      elif [ -n "$CLUSTER_OCID" ]; then
+        echo "KUBE_CONFIG not set — deriving kubeconfig from OKE via the OCI CLI"
+        pip install --quiet oci-cli
+        mkdir -p ~/.oci
+        printf '%s' "$OCI_PRIVATE_KEY" > ~/.oci/oci_api_key.pem
+        chmod 600 ~/.oci/oci_api_key.pem
+        cat > ~/.oci/config <<CFG
+        [DEFAULT]
+        user=$OCI_USER_OCID
+        fingerprint=$OCI_FINGERPRINT
+        tenancy=$OCI_TENANCY_OCID
+        region=$OCI_REGION
+        key_file=~/.oci/oci_api_key.pem
+        CFG
+        oci ce cluster create-kubeconfig --cluster-id "$CLUSTER_OCID" --file ~/.kube/config --region "$OCI_REGION" --token-version 2.0.0
+      else
+        echo "Neither KUBE_CONFIG nor OCI_*/CLUSTER_OCID variables are set — cannot reach the cluster." >&2
+        exit 1
+      fi
+    - kubectl config current-context
+
+# Recreates the ghcr-secret imagePullSecret in-cluster from a durable GHCR
+# PAT. Only runs when GHCR_TOKEN is set (i.e. when pushing to GHCR at all) —
+# see CLAUDE.md's Registry section for why this needs a PAT rather than a
+# short-lived CI token: pods pull images on-demand, long after the job that
+# pushed them has finished.
+.ghcr_pull_secret_template:
+  script:
+    - |
+      if [ -n "$GHCR_TOKEN" ]; then
+        kubectl create secret docker-registry ghcr-secret \
+          --docker-server=ghcr.io \
+          --docker-username="$GHCR_USER" \
+          --docker-password="$GHCR_TOKEN" \
+          --namespace "$K8S_NAMESPACE" \
+          --dry-run=client -o yaml | kubectl apply -f -
+      fi
+
+# ---------------------------------------------------------------------------
+# Jobs
+# ---------------------------------------------------------------------------
+
+build-backend:
+  extends: .docker_build_template
+  stage: build
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+      changes:
+        - backend/**/*
+        - Dockerfile.backend
+        - gitlab-ci/deploy-backend.yml
+    - if: '$CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api" || $CI_PIPELINE_SOURCE == "trigger"'
+  script:
+    - |
+      docker buildx build \
+        --platform linux/amd64,linux/arm64 \
+        --push \
+        -f "$BACKEND_DOCKERFILE" \
+        -t "$IMAGE_REPO/$BACKEND_IMAGE_NAME:$CI_COMMIT_SHA" \
+        -t "$IMAGE_REPO/$BACKEND_IMAGE_NAME:latest" \
+        "$BACKEND_CONTEXT"
+
+deploy-backend:
+  extends: .kubeconfig_template
+  stage: deploy
+  needs: ["build-backend"]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main"'
+      changes:
+        - backend/**/*
+        - Dockerfile.backend
+        - gitlab-ci/deploy-backend.yml
+    - if: '$CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api" || $CI_PIPELINE_SOURCE == "trigger"'
+  script:
+    - !reference [.ghcr_pull_secret_template, script]
+    - kubectl set image deployment/$BACKEND_DEPLOYMENT $BACKEND_CONTAINER=$IMAGE_REPO/$BACKEND_IMAGE_NAME:$CI_COMMIT_SHA --namespace "$K8S_NAMESPACE"
+    - kubectl rollout status deployment/$BACKEND_DEPLOYMENT --namespace "$K8S_NAMESPACE"
