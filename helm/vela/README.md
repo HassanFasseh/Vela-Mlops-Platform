@@ -101,6 +101,7 @@ All values live in [`values.yaml`](values.yaml). The main groups:
 ### Secrets / integrations (`secrets.*`)
 - `secrets.groqApiKey`, `secrets.geminiApiKey` — LLM providers used for drift explanations (`backend/app/services/summary.py`); set at least one
 - `secrets.githubToken`, `secrets.githubRepo` — used to open drift issues / trigger the deploy workflow
+- `secrets.backend` — `kubernetes` (default, above), `vault`, or `external-secrets` — switches where all of this actually comes from. See **[SECRET_MANAGEMENT.md](SECRET_MANAGEMENT.md)** for setting up Vault or the External Secrets Operator, rotation, and migrating between backends.
 
 ### RBAC (`rbac.*`)
 - `rbac.create` — set `false` if you manage the ClusterRole/Binding yourself

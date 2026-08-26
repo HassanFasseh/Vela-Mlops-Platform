@@ -15,6 +15,10 @@ spec:
     metadata:
       labels:
         app: backend-app
+      {{- if and (eq .Values.secrets.backend "vault") .Values.secrets.vault.enabled }}
+      annotations:
+        {{- include "vela.vaultAnnotations" . | nindent 8 }}
+      {{- end }}
     spec:
       serviceAccountName: {{ .Values.rbac.serviceAccountName }}
       imagePullSecrets:
@@ -26,6 +30,21 @@ spec:
           ports:
             - name: http
               containerPort: 8000
+          {{- if and (eq .Values.secrets.backend "vault") .Values.secrets.vault.enabled }}
+          # Vault Agent (injected via the annotations above) writes rendered
+          # secrets to /vault/secrets/config before this container starts;
+          # source it into the shell environment, then hand off to the same
+          # command Dockerfile.backend's own CMD runs.
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              if [ -f /vault/secrets/config ]; then . /vault/secrets/config; fi
+              exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+          {{- else }}
+          # Works whether the Secrets below were rendered natively
+          # (secrets.backend: kubernetes) or synced in by the External
+          # Secrets Operator (secrets.backend: external-secrets) — both
+          # produce Secret objects under these same names/keys.
           env:
             - name: GROQ_API_KEY
               valueFrom:
@@ -67,5 +86,6 @@ spec:
                 secretKeyRef:
                   name: github-secret
                   key: GITHUB_REPO
+          {{- end }}
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}

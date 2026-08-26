@@ -150,7 +150,7 @@ redis:
       cpu: 100m
 
 # -----------------------------------------------------------------------------
-# Secrets — LLM API keys, GitHub integration
+# Secrets — LLM API keys, GitHub integration, and how they're all sourced
 # -----------------------------------------------------------------------------
 secrets:
   # -- Groq API key, used for LLM-generated drift explanations.
@@ -161,6 +161,56 @@ secrets:
   githubToken: ""
   # -- GitHub repo the token operates against, e.g. HassanFasseh/vela
   githubRepo: ""
+
+  # -- Where backend-app's application secrets (GROQ_API_KEY, GEMINI_API_KEY,
+  #    DATABASE_URL, MinIO client creds, GITHUB_TOKEN/REPO) come from:
+  #      kubernetes       — plain Secret objects rendered from the values above (default)
+  #      vault            — injected at pod startup by the Vault Agent Injector
+  #      external-secrets — synced from an external store by the External Secrets Operator
+  #    See SECRET_MANAGEMENT.md — vault mode covers backend-app only, not Postgres/MinIO's
+  #    own bootstrap credentials or the GHCR pull secret (those need a plain Secret
+  #    regardless of this setting, since a pod's own image pull and a stateful
+  #    container's first-boot env can't be solved by Vault's sidecar-injection model).
+  #    external-secrets mode has no such gap: it covers all six secrets below.
+  backend: kubernetes # kubernetes | vault | external-secrets
+
+  vault:
+    # -- Must be true (in addition to backend: vault above) for the Vault Agent
+    #    annotations to actually be added — a deliberate double-flag so flipping
+    #    `backend` alone can't silently change how secrets are injected.
+    enabled: false
+    # -- Vault server address, e.g. https://vault.company.internal:8200. Informational
+    #    / for reference only unless you also set the per-pod override annotation this
+    #    renders (vault.hashicorp.com/service) — most setups instead configure the
+    #    address once on the Vault Agent Injector's own Helm release. See SECRET_MANAGEMENT.md.
+    address: ""
+    # -- Vault Kubernetes-auth role bound to backend-app's ServiceAccount
+    #    (rbac.serviceAccountName) and a policy granting read on `path` below.
+    role: vela-backend
+    # -- KV v2 path holding backend-app's secrets — one Vault key per env var
+    #    backend-app needs: GROQ_API_KEY, GEMINI_API_KEY, DATABASE_URL, MINIO_ENDPOINT,
+    #    MINIO_ACCESS_KEY, MINIO_SECRET_KEY, GITHUB_TOKEN, GITHUB_REPO.
+    path: secret/vela
+    tlsSkipVerify: false
+
+  externalSecrets:
+    # -- Must be true (in addition to backend: external-secrets above) for the
+    #    ExternalSecret resources to actually render.
+    enabled: false
+    refreshInterval: 1h
+    secretStoreRef:
+      name: cluster-secret-store
+      kind: ClusterSecretStore
+    # -- Key/path each secret lives under in your external store (AWS Secrets
+    #    Manager, Azure Key Vault, GCP Secret Manager, ...) — whatever format your
+    #    SecretStore's provider expects.
+    remoteRefs:
+      groqApiKey: vela/groq-api-key
+      geminiApiKey: vela/gemini-api-key
+      githubToken: vela/github-token
+      databasePassword: vela/database-password
+      minioRootPassword: vela/minio-root-password
+      ghcrToken: vela/ghcr-token
 
 # -----------------------------------------------------------------------------
 # RBAC — permissions backend-app needs to manage model Deployments/Services/Jobs
