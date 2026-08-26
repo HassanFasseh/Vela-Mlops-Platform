@@ -303,11 +303,15 @@ def admin_users_page():
       const teams = teamsForUser(u.id);
       const teamBadges = teams.length ? teams.map(t => UI.badge(t, 'neutral')).join(' ') : '<span class="text-muted">—</span>';
       const isSelf = currentUser && u.id === currentUser.id;
-      const action = !u.is_active
-        ? '<span class="text-muted" style="font-size:var(--text-xs)">Deactivated</span>'
-        : isSelf
-          ? '<span class="text-muted" style="font-size:var(--text-xs)">You</span>'
-          : '<button class="btn btn-danger btn-sm" data-deactivate="' + u.id + '" data-username="' + UI.escapeHtml(u.username) + '" type="button">Deactivate</button>';
+      let action;
+      if (isSelf) {
+        action = '<span class="text-muted" style="font-size:var(--text-xs)">You</span>';
+      } else {
+        const toggleBtn = u.is_active
+          ? '<button class="btn btn-danger btn-sm" data-deactivate="' + u.id + '" data-username="' + UI.escapeHtml(u.username) + '" type="button">Deactivate</button>'
+          : '<button class="btn btn-secondary btn-sm" data-reactivate="' + u.id + '" data-username="' + UI.escapeHtml(u.username) + '" type="button">Reactivate</button>';
+        action = toggleBtn + ' <button class="btn btn-ghost btn-sm" data-delete="' + u.id + '" data-username="' + UI.escapeHtml(u.username) + '" type="button">Delete</button>';
+      }
       return '<tr>' +
         '<td>' + UI.escapeHtml(u.username) + '</td>' +
         '<td>' + UI.escapeHtml(u.name) + '</td>' +
@@ -322,17 +326,75 @@ def admin_users_page():
     body.querySelectorAll('[data-deactivate]').forEach(btn => {
       btn.addEventListener('click', () => deactivateUser(btn.dataset.deactivate, btn.dataset.username));
     });
+    body.querySelectorAll('[data-reactivate]').forEach(btn => {
+      btn.addEventListener('click', () => reactivateUser(btn.dataset.reactivate, btn.dataset.username));
+    });
+    body.querySelectorAll('[data-delete]').forEach(btn => {
+      btn.addEventListener('click', () => confirmDeleteUser(btn.dataset.delete, btn.dataset.username));
+    });
   }
 
   async function deactivateUser(id, username) {
     if (!confirm('Deactivate ' + username + '? They will no longer be able to log in.')) return;
     try {
-      await Api.del('/admin/users/' + id);
+      await Api.patch('/admin/users/' + id + '/deactivate');
       UI.toast(username + ' deactivated', 'success');
       loadUsers();
     } catch (e) {
       UI.toast(e.message || 'Could not deactivate user', 'danger');
     }
+  }
+
+  async function reactivateUser(id, username) {
+    try {
+      await Api.patch('/admin/users/' + id + '/reactivate');
+      UI.toast(username + ' reactivated', 'success');
+      loadUsers();
+    } catch (e) {
+      UI.toast(e.message || 'Could not reactivate user', 'danger');
+    }
+  }
+
+  function confirmDeleteUser(id, username) {
+    const overlay = UI.openModal({
+      title: 'Delete ' + username,
+      bodyHtml: `
+        <div class="alert alert-danger" style="margin-bottom:.75rem">
+          <div><div class="alert-title">This cannot be undone</div><div class="alert-body">This will permanently delete the user and all their data. Type the username to confirm.</div></div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="del-user-confirm-name">Username</label>
+          <input class="input" id="del-user-confirm-name" placeholder="${UI.escapeHtml(username)}">
+        </div>
+        <div class="field-error" id="del-user-confirm-error" role="alert"></div>
+      `,
+      footerHtml: `<button class="btn btn-ghost" id="del-user-cancel" type="button">Cancel</button>
+                   <button class="btn btn-danger" id="del-user-confirm" type="button" disabled>Delete</button>`,
+    });
+    const input = overlay.querySelector('#del-user-confirm-name');
+    const confirmBtn = overlay.querySelector('#del-user-confirm');
+    const errorEl = overlay.querySelector('#del-user-confirm-error');
+
+    input.addEventListener('input', () => {
+      confirmBtn.disabled = input.value !== username;
+    });
+    overlay.querySelector('#del-user-cancel').addEventListener('click', UI.closeModal);
+
+    confirmBtn.addEventListener('click', async () => {
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Deleting…';
+      errorEl.textContent = '';
+      try {
+        await Api.del('/admin/users/' + id);
+        UI.closeModal();
+        UI.toast(username + ' deleted', 'success');
+        loadUsers();
+      } catch (e) {
+        errorEl.textContent = e.message || 'Could not delete user.';
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Delete';
+      }
+    });
   }
 
   function openNewUserModal() {
@@ -1561,11 +1623,6 @@ def admin_deployments_page():
           <input class="input" type="file" id="cm-requirements-file" accept=".txt">
           <div class="field-hint">List any Python packages your predict.py needs beyond scikit-learn, joblib, pandas, numpy.</div>
         </div>
-        <div class="field">
-          <label class="field-label" for="cm-api-key">API key</label>
-          <input class="input" id="cm-api-key" placeholder="aodp_your_admin_key" required>
-          <div class="field-hint">An unscoped workspace API key &mdash; see API Keys.</div>
-        </div>
         <div class="field-error" id="cm-error" role="alert"></div>
         <div id="cm-success" style="display:none;margin-bottom:1rem"></div>
         <button class="btn btn-primary" type="submit" id="cm-submit">Upload and deploy</button>
@@ -1665,9 +1722,8 @@ def admin_deployments_page():
     const predictFile = document.getElementById('cm-predict-file').files[0];
     const modelFiles = document.getElementById('cm-model-files').files;
     const requirementsFile = document.getElementById('cm-requirements-file').files[0];
-    const apiKey = document.getElementById('cm-api-key').value.trim();
 
-    if (!deployment_name || !predictFile || !modelFiles.length || !apiKey) {
+    if (!deployment_name || !predictFile || !modelFiles.length) {
       errorEl.textContent = 'Fill in all required fields.';
       return;
     }
@@ -1686,11 +1742,6 @@ def admin_deployments_page():
     const stageTimer = setTimeout(() => { submitBtn.textContent = 'Triggering deployment…'; }, 1200);
 
     try {
-      // /workspaces is JWT-authed (Api.get is correct here) — the upload
-      // itself just below is X-API-Key-authed and deliberately bypasses
-      // Api.request: it treats any 401 as "session expired" and would
-      // clear the admin's own JWT + redirect to /login over a bad model
-      // API key, which is wrong (see predictor.js for the same issue).
       const workspaces = await Api.get('/workspaces');
       if (!workspaces.length) throw new Error('No workspace found — create a team first.');
 
@@ -1704,9 +1755,12 @@ def admin_deployments_page():
       Array.from(modelFiles).forEach(f => form.append('model_files', f));
       if (requirementsFile) form.append('requirements_file', requirementsFile);
 
+      // Uses the logged-in admin's JWT session (Authorization: Bearer) —
+      // the backend accepts that in place of a workspace X-API-Key for
+      // admins, so this form no longer needs one of its own.
       const res = await fetch('/api/v1/upload-custom-model', {
         method: 'POST',
-        headers: { 'X-API-Key': apiKey },
+        headers: { 'Authorization': 'Bearer ' + Api.getToken() },
         body: form,
       });
       const text = await res.text();
@@ -1723,7 +1777,7 @@ def admin_deployments_page():
       document.getElementById('custom-deploy-form').reset();
       document.getElementById('cm-schema-field').style.display = 'none';
       setTimeout(() => { submitBtn.textContent = 'Upload and deploy'; }, 2000);
-      pollCustomModelStatus(data.deployment_id, apiKey, successEl);
+      pollCustomModelStatus(data.deployment_id, successEl);
     } catch (err) {
       clearTimeout(stageTimer);
       submitBtn.textContent = 'Upload and deploy';
@@ -1754,7 +1808,7 @@ def admin_deployments_page():
     return 'warning';
   }
 
-  function pollCustomModelStatus(deploymentId, apiKey, statusEl) {
+  function pollCustomModelStatus(deploymentId, statusEl) {
     const maxAttempts = 60; // ~5 minutes at 5s intervals — then just stop; the table above still reflects whatever the last known status was.
     let attempts = 0;
 
@@ -1762,7 +1816,7 @@ def admin_deployments_page():
       attempts += 1;
       try {
         const res = await fetch('/api/v1/custom-model-status/' + deploymentId, {
-          headers: { 'X-API-Key': apiKey },
+          headers: { 'Authorization': 'Bearer ' + Api.getToken() },
         });
         const data = await res.json().catch(() => null);
         const phase = (data && data.phase) || 'unknown';
