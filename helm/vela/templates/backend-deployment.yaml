@@ -7,7 +7,9 @@ metadata:
     app: backend-app
     {{- include "vela.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.production.autoscaling.backend.enabled }}
   replicas: {{ .Values.backend.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       app: backend-app
@@ -20,6 +22,11 @@ spec:
         {{- include "vela.vaultAnnotations" . | nindent 8 }}
       {{- end }}
     spec:
+      {{- if .Values.production.podAntiAffinity.backend.enabled }}
+      affinity:
+        podAntiAffinity:
+          {{- include "vela.podAntiAffinity" (dict "app" "backend-app" "mode" .Values.production.podAntiAffinity.backend.mode) | nindent 10 }}
+      {{- end }}
       serviceAccountName: {{ .Values.rbac.serviceAccountName }}
       imagePullSecrets:
         - name: {{ .Values.registry.pullSecretName }}
@@ -30,11 +37,34 @@ spec:
           ports:
             - name: http
               containerPort: 8000
+          {{- if .Values.production.healthChecks.backend.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.production.healthChecks.backend.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.production.healthChecks.backend.initialDelaySeconds }}
+            periodSeconds: {{ .Values.production.healthChecks.backend.periodSeconds }}
+            timeoutSeconds: {{ .Values.production.healthChecks.backend.timeoutSeconds }}
+            failureThreshold: {{ .Values.production.healthChecks.backend.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.production.healthChecks.backend.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.production.healthChecks.backend.initialDelaySeconds }}
+            periodSeconds: {{ .Values.production.healthChecks.backend.periodSeconds }}
+            timeoutSeconds: {{ .Values.production.healthChecks.backend.timeoutSeconds }}
+            failureThreshold: {{ .Values.production.healthChecks.backend.failureThreshold }}
+          {{- end }}
           {{- if and (eq .Values.secrets.backend "vault") .Values.secrets.vault.enabled }}
           # Vault Agent (injected via the annotations above) writes rendered
           # secrets to /vault/secrets/config before this container starts;
           # source it into the shell environment, then hand off to the same
           # command Dockerfile.backend's own CMD runs.
+          #
+          # production.externalDatabase/externalMinio (below) aren't wired
+          # into this branch — Vault mode already supports arbitrary keys at
+          # secrets.vault.path, so point DATABASE_URL/MINIO_* at your
+          # external database/storage directly in the Vault KV entry instead.
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -56,11 +86,41 @@ spec:
                 secretKeyRef:
                   name: gemini-secret
                   key: GEMINI_API_KEY
+            {{- if .Values.production.externalDatabase.enabled }}
+            # External database (production.externalDatabase) — host/port/name
+            # are plain values, only the password comes from a Secret.
+            # $(POSTGRES_PASSWORD) is Kubernetes' own dependent-env-var
+            # expansion (no shell involved), not Helm templating.
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.production.externalDatabase.existingSecret }}
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: "postgresql://{{ .Values.database.user }}:$(POSTGRES_PASSWORD)@{{ .Values.production.externalDatabase.host }}:{{ .Values.production.externalDatabase.port }}/{{ .Values.production.externalDatabase.name }}"
+            {{- else }}
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: postgres-secret
                   key: DATABASE_URL
+            {{- end }}
+            {{- if .Values.production.externalMinio.enabled }}
+            # External S3-compatible storage (production.externalMinio) —
+            # endpoint is a plain value, credentials come from existingSecret.
+            - name: MINIO_ENDPOINT
+              value: {{ .Values.production.externalMinio.endpoint | quote }}
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.production.externalMinio.existingSecret }}
+                  key: MINIO_ROOT_USER
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.production.externalMinio.existingSecret }}
+                  key: MINIO_ROOT_PASSWORD
+            {{- else }}
             - name: MINIO_ENDPOINT
               valueFrom:
                 secretKeyRef:
@@ -76,6 +136,7 @@ spec:
                 secretKeyRef:
                   name: minio-secret
                   key: MINIO_ROOT_PASSWORD
+            {{- end }}
             - name: GITHUB_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -88,4 +149,14 @@ spec:
                   key: GITHUB_REPO
           {{- end }}
           resources:
+            {{- if .Values.production.multiNode.enabled }}
+            # Guaranteed QoS class (requests == limits) — see PRODUCTION.md's
+            # Resource limits section for why this matters once pods are
+            # actually spread across nodes.
+            requests:
+              {{- toYaml .Values.backend.resources.limits | nindent 14 }}
+            limits:
+              {{- toYaml .Values.backend.resources.limits | nindent 14 }}
+            {{- else }}
             {{- toYaml .Values.backend.resources | nindent 12 }}
+            {{- end }}

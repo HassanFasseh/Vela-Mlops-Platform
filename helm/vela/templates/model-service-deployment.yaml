@@ -16,6 +16,11 @@ spec:
       labels:
         app: model-service
     spec:
+      {{- if .Values.production.podAntiAffinity.modelService.enabled }}
+      affinity:
+        podAntiAffinity:
+          {{- include "vela.podAntiAffinity" (dict "app" "model-service" "mode" .Values.production.podAntiAffinity.modelService.mode) | nindent 10 }}
+      {{- end }}
       imagePullSecrets:
         - name: {{ .Values.registry.pullSecretName }}
       containers:
@@ -25,5 +30,33 @@ spec:
           ports:
             - name: http
               containerPort: 8000
+          {{- if .Values.production.healthChecks.modelService.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.production.healthChecks.modelService.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.production.healthChecks.modelService.initialDelaySeconds }}
+            periodSeconds: {{ .Values.production.healthChecks.modelService.periodSeconds }}
+            timeoutSeconds: {{ .Values.production.healthChecks.modelService.timeoutSeconds }}
+            failureThreshold: {{ .Values.production.healthChecks.modelService.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.production.healthChecks.modelService.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.production.healthChecks.modelService.initialDelaySeconds }}
+            periodSeconds: {{ .Values.production.healthChecks.modelService.periodSeconds }}
+            timeoutSeconds: {{ .Values.production.healthChecks.modelService.timeoutSeconds }}
+            failureThreshold: {{ .Values.production.healthChecks.modelService.failureThreshold }}
+          {{- end }}
           resources:
+            {{- if .Values.production.multiNode.enabled }}
+            # Guaranteed QoS class (requests == limits) — see PRODUCTION.md's
+            # Resource limits section for why this matters once pods are
+            # actually spread across nodes.
+            requests:
+              {{- toYaml .Values.modelService.resources.limits | nindent 14 }}
+            limits:
+              {{- toYaml .Values.modelService.resources.limits | nindent 14 }}
+            {{- else }}
             {{- toYaml .Values.modelService.resources | nindent 12 }}
+            {{- end }}

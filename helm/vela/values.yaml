@@ -220,6 +220,111 @@ rbac:
   serviceAccountName: default
 
 # -----------------------------------------------------------------------------
+# Production / multi-node — see PRODUCTION.md for the full guide
+# -----------------------------------------------------------------------------
+production:
+  multiNode:
+    # -- Not itself read by any template's `if` — the granular flags below
+    #    (podAntiAffinity/podDisruptionBudget/externalDatabase/externalMinio)
+    #    each have their own independent enabled flag, since anti-affinity in
+    #    "preferred" mode is harmless even on a single node and is on by
+    #    default regardless of this. What this flag DOES gate: when true,
+    #    backend/model-service render with `resources.requests == resources.limits`
+    #    (Guaranteed QoS — see PRODUCTION.md's Resource limits section) instead
+    #    of the requests/limits split in backend.resources/modelService.resources.
+    #    Treat it as the one flag to flip first in a production-values.yaml,
+    #    alongside setting the specific flags below to match.
+    enabled: false
+
+  podAntiAffinity:
+    # -- Spread backend-app pods across nodes so a single node loss doesn't
+    #    take out every replica. On by default in "preferred" mode, which is
+    #    a no-op risk on a single-node cluster (it just can't be satisfied,
+    #    pods still schedule) and real protection once you have >1 node.
+    backend:
+      enabled: true
+      mode: preferred # preferred | required — required can leave pods Pending if replicaCount > available nodes
+    modelService:
+      enabled: true
+      mode: preferred
+
+  podDisruptionBudget:
+    # -- Off by default: with the default replicaCount: 1, a PDB with
+    #    minAvailable: 1 would block ALL voluntary evictions (node drains,
+    #    cluster upgrades) since there'd be no spare replica to move first.
+    #    Turn on together with replicaCount >= 2.
+    backend:
+      enabled: false
+      minAvailable: 1
+    modelService:
+      enabled: false
+      minAvailable: 1
+
+  # -- In-cluster postgres/minio are single-replica — fine for the default
+  #    single-node setup, a single point of failure once you're actually
+  #    spreading everything else across multiple nodes. See PRODUCTION.md
+  #    for why RWX volumes don't actually solve this (Postgres can't have
+  #    multiple writers against shared storage regardless of access mode,
+  #    and MinIO's real distributed/HA mode needs multiple per-node disks,
+  #    not one shared volume) — an external managed service is the
+  #    recommended production path instead.
+  externalDatabase:
+    # -- When true, the in-cluster postgres Deployment/PVC/Service (and its
+    #    Secret, in "kubernetes"/"external-secrets" secrets.backend mode)
+    #    stop rendering entirely, and backend-app's DATABASE_URL is built
+    #    from host/port/name below plus the password in existingSecret.
+    #    (Unrelated to the older database.urlOverride: that just replaces
+    #    the DATABASE_URL value while still deploying in-cluster postgres —
+    #    use this instead for an actual external database.)
+    enabled: false
+    host: "" # e.g. vela.xxxx.us-east-1.rds.amazonaws.com
+    port: 5432
+    name: aodp
+    existingSecret: "" # name of a Secret with a POSTGRES_PASSWORD key, created out of band
+
+  externalMinio:
+    # -- When true, the in-cluster minio Deployment/PVC/Service (and its
+    #    Secret, same conditions as externalDatabase above) stop rendering,
+    #    and backend-app's MinIO client env vars come from endpoint below
+    #    plus existingSecret.
+    enabled: false
+    endpoint: "" # e.g. s3.us-east-1.amazonaws.com, or your S3-compatible endpoint
+    existingSecret: "" # name of a Secret with MINIO_ROOT_USER and MINIO_ROOT_PASSWORD keys, created out of band
+
+  # -- Off by default — existing installs get no pod-spec change unless you
+  #    opt in. backend-app has no dedicated health endpoint; "/" (the
+  #    landing page) is used, which is a liveness signal (process is up and
+  #    serving) rather than a true readiness check (it doesn't verify
+  #    DB/MinIO connectivity). model-service does have a real /health
+  #    endpoint that also reports Redis connectivity. See PRODUCTION.md.
+  healthChecks:
+    backend:
+      enabled: false
+      path: /
+      initialDelaySeconds: 10
+      periodSeconds: 15
+      timeoutSeconds: 5
+      failureThreshold: 3
+    modelService:
+      enabled: false
+      path: /health
+      initialDelaySeconds: 15
+      periodSeconds: 15
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+  autoscaling:
+    backend:
+      # -- Set true when backend-app's replica count is managed by a
+      #    HorizontalPodAutoscaler instead of backend.replicaCount — see
+      #    PRODUCTION.md's Horizontal Pod Autoscaler section for the actual
+      #    HPA manifest (this chart doesn't render one). The only thing this
+      #    flag changes here: the Deployment stops setting `spec.replicas`
+      #    at all, so `helm upgrade` doesn't fight the HPA by resetting the
+      #    replica count back to backend.replicaCount on every release.
+      enabled: false
+
+# -----------------------------------------------------------------------------
 # Ingress (optional — the reference deployment uses LoadBalancer services instead)
 # -----------------------------------------------------------------------------
 ingress:

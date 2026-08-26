@@ -12,12 +12,13 @@ configurable and repeatable.
 |---|---|
 | `backend-app` Deployment + Service (+ external LoadBalancer) | Vela API / dashboard |
 | `model-service` Deployment + Service (+ optional ServiceMonitor) | model serving + metrics |
-| `postgres` Deployment + PVC + Service | primary datastore |
-| `minio` Deployment + PVC + Service | object storage for model artifacts |
+| `postgres` Deployment + PVC + Service (skipped if `production.externalDatabase.enabled`) | primary datastore |
+| `minio` Deployment + PVC + Service (skipped if `production.externalMinio.enabled`) | object storage for model artifacts |
 | `redis` Deployment + Service | drift-detection state |
 | `postgres-secret`, `minio-secret`, `groq-secret`, `gemini-secret`, `github-secret`, `ghcr-secret` | credentials, consumed via `envFrom`/`secretKeyRef` |
 | `ClusterRole` / `ClusterRoleBinding` | lets the backend service account create/manage Deployments, Services, ConfigMaps, PVCs, and Jobs for deployed models |
 | `Ingress` (optional, disabled by default) | host-based routing to `backend-app` in place of/alongside the LoadBalancer service |
+| `PodDisruptionBudget` for backend-app/model-service (optional, disabled by default) | see [PRODUCTION.md](PRODUCTION.md) |
 
 ## Prerequisites
 
@@ -135,6 +136,15 @@ Helm only re-applies what changed. Notes:
 - **Rotating LLM/GitHub keys**: same pattern — `--set secrets.groqApiKey=...` etc. The backend Deployment does not automatically restart on a Secret change; run `kubectl rollout restart deployment/backend-app` afterwards to pick up new env values.
 - **Changing image tags**: `--set backend.image.tag=...` / `--set modelService.image.tag=...` triggers a normal rolling update.
 - **Database/MinIO password changes**: only change these if you also update the underlying data (Postgres/MinIO won't retroactively re-auth existing volumes with a new password baked in by the container's first-boot init) — safest done by setting the new password before first install rather than on an existing PVC.
+
+## Production deployment
+
+The defaults above target a single-node cluster. For a multi-node
+production setup — anti-affinity, PodDisruptionBudgets, Guaranteed-QoS
+resource limits, external managed Postgres/S3 instead of the in-cluster
+single-replica ones, health checks, and Horizontal Pod Autoscaler setup for
+the backend — see **[PRODUCTION.md](PRODUCTION.md)**, including full
+example `values.yaml` files for a 3-node cluster on AWS EKS and Azure AKS.
 
 ## Uninstalling
 

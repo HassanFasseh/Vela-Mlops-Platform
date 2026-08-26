@@ -1,3 +1,10 @@
+{{/*
+Skipped entirely when production.externalDatabase.enabled is true — in that
+mode backend-app talks to an external managed database instead (see
+values.yaml and PRODUCTION.md), so an in-cluster postgres would just be a
+wasted, unconnected pod.
+*/}}
+{{- if not .Values.production.externalDatabase.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -65,3 +72,4 @@ spec:
     - port: 5432
       targetPort: 5432
   type: ClusterIP
+{{- end }}

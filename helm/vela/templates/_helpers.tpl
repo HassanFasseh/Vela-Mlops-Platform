@@ -52,3 +52,35 @@ DATABASE_URL, derived unless database.urlOverride is set.
 {{- printf "postgresql://%s:%s@postgres:5432/%s" .Values.database.user .Values.database.password .Values.database.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+podAntiAffinity block for a Deployment's pod template — spreads pods labeled
+`app: <.app>` across nodes. Called as:
+
+    affinity:
+      podAntiAffinity:
+        {{- include "vela.podAntiAffinity" (dict "app" "backend-app" "mode" .Values.production.podAntiAffinity.backend.mode) | nindent 10 }}
+
+`mode: required` uses requiredDuringSchedulingIgnoredDuringExecution (a hard
+rule — pods stay Pending if there aren't enough distinct nodes to satisfy
+it); anything else (including the default, "preferred") uses
+preferredDuringSchedulingIgnoredDuringExecution (a soft rule — degrades to
+co-locating pods rather than blocking scheduling).
+*/}}
+{{- define "vela.podAntiAffinity" -}}
+{{- if eq .mode "required" }}
+requiredDuringSchedulingIgnoredDuringExecution:
+  - labelSelector:
+      matchLabels:
+        app: {{ .app }}
+    topologyKey: kubernetes.io/hostname
+{{- else }}
+preferredDuringSchedulingIgnoredDuringExecution:
+  - weight: 100
+    podAffinityTerm:
+      labelSelector:
+        matchLabels:
+          app: {{ .app }}
+      topologyKey: kubernetes.io/hostname
+{{- end }}
+{{- end }}

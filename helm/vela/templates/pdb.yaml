@@ -1,0 +1,44 @@
+{{/*
+Guard against production.external{Database,Minio}.enabled being set without
+the Secret they need — without this, backend-app would render with an env
+var pointing at a Secret named "" (secretKeyRef.name: ""), which is invalid
+and fails at pod scheduling time rather than at `helm install`/`template`.
+*/}}
+{{- if and .Values.production.externalDatabase.enabled (not .Values.production.externalDatabase.existingSecret) }}
+{{ fail "production.externalDatabase.enabled is true but production.externalDatabase.existingSecret is empty — set it to the name of a Secret with a POSTGRES_PASSWORD key." }}
+{{- end }}
+{{- if and .Values.production.externalMinio.enabled (not .Values.production.externalMinio.existingSecret) }}
+{{ fail "production.externalMinio.enabled is true but production.externalMinio.existingSecret is empty — set it to the name of a Secret with MINIO_ROOT_USER and MINIO_ROOT_PASSWORD keys." }}
+{{- end }}
+
+{{- if .Values.production.podDisruptionBudget.backend.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend-app
+  namespace: {{ include "vela.namespace" . }}
+  labels:
+    app: backend-app
+    {{- include "vela.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.production.podDisruptionBudget.backend.minAvailable }}
+  selector:
+    matchLabels:
+      app: backend-app
+{{- end }}
+{{- if .Values.production.podDisruptionBudget.modelService.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: model-service
+  namespace: {{ include "vela.namespace" . }}
+  labels:
+    app: model-service
+    {{- include "vela.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.production.podDisruptionBudget.modelService.minAvailable }}
+  selector:
+    matchLabels:
+      app: model-service
+{{- end }}

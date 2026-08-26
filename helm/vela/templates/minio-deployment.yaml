@@ -1,3 +1,10 @@
+{{/*
+Skipped entirely when production.externalMinio.enabled is true — in that
+mode backend-app talks to external S3-compatible storage instead (see
+values.yaml and PRODUCTION.md), so an in-cluster minio would just be a
+wasted, unconnected pod.
+*/}}
+{{- if not .Values.production.externalMinio.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -70,3 +77,4 @@ spec:
       port: 9001
       targetPort: 9001
   type: ClusterIP
+{{- end }}
