@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-service
+  namespace: {{ include "vela.namespace" . }}
+  labels:
+    app: model-service
+    {{- include "vela.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.modelService.replicaCount }}
+  selector:
+    matchLabels:
+      app: model-service
+  template:
+    metadata:
+      labels:
+        app: model-service
+    spec:
+      imagePullSecrets:
+        - name: {{ .Values.registry.pullSecretName }}
+      containers:
+        - name: model-service
+          image: {{ include "vela.image" (dict "root" $ "repository" .Values.modelService.image.repository "tag" .Values.modelService.image.tag) }}
+          imagePullPolicy: {{ .Values.modelService.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            {{- toYaml .Values.modelService.resources | nindent 12 }}

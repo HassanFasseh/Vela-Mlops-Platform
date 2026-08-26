@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: {{ include "vela.namespace" . }}
+  labels:
+    app: minio
+    {{- include "vela.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+        - name: minio
+          image: "{{ .Values.minio.image.repository }}:{{ .Values.minio.image.tag }}"
+          imagePullPolicy: {{ .Values.minio.image.pullPolicy }}
+          args:
+            - server
+            - /data
+            - --console-address
+            - ":9001"
+          ports:
+            - containerPort: 9000
+              name: api
+            - containerPort: 9001
+              name: console
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key: MINIO_ROOT_PASSWORD
+          volumeMounts:
+            - name: minio-storage
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.minio.resources | nindent 12 }}
+      volumes:
+        - name: minio-storage
+          persistentVolumeClaim:
+            claimName: minio-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: {{ include "vela.namespace" . }}
+  labels:
+    app: minio
+    {{- include "vela.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
+    - name: console
+      port: 9001
+      targetPort: 9001
+  type: ClusterIP

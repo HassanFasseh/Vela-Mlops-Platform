@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-service
+  namespace: {{ include "vela.namespace" . }}
+  labels:
+    app: model-service
+    {{- include "vela.labels" . | nindent 4 }}
+  {{- with .Values.modelService.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.modelService.service.type }}
+  selector:
+    app: model-service
+  ports:
+    - name: http
+      port: {{ .Values.modelService.service.port }}
+      targetPort: {{ .Values.modelService.service.targetPort }}
+{{- if .Values.modelService.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: model-service-monitor
+  namespace: {{ .Values.modelService.serviceMonitor.namespace }}
+  labels:
+    {{- toYaml .Values.modelService.serviceMonitor.labels | nindent 4 }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ include "vela.namespace" . }}
+  selector:
+    matchLabels:
+      app: model-service
+  endpoints:
+    - port: http
+      path: {{ .Values.modelService.serviceMonitor.path }}
+      interval: {{ .Values.modelService.serviceMonitor.interval }}
+{{- end }}

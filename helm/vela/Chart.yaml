@@ -1,0 +1,14 @@
+apiVersion: v2
+name: vela
+description: Self-hosted open-source MLOps platform for regulated industries — deploy, monitor, and explain model drift on your own infrastructure.
+type: application
+version: 0.1.0
+appVersion: "latest"
+home: https://github.com/HassanFasseh/vela
+keywords:
+  - mlops
+  - machine-learning
+  - kubernetes
+  - drift-detection
+maintainers:
+  - name: Hassan Fasseh

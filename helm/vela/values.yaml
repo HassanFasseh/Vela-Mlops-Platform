@@ -1,0 +1,182 @@
+# Default values for the Vela Helm chart.
+# Override any of these with --set or -f my-values.yaml at install/upgrade time.
+
+# -- Namespace resources are rendered into. Leave blank to use the release namespace
+#    (i.e. whatever -n/--namespace you pass to `helm install`).
+namespaceOverride: ""
+
+# -----------------------------------------------------------------------------
+# Container registry (GHCR) — where the Vela images live and how to pull them
+# -----------------------------------------------------------------------------
+registry:
+  server: ghcr.io
+  # -- Repository path images are published under, e.g. ghcr.io/hassanfasseh/vela
+  repository: ghcr.io/hassanfasseh/vela
+  # -- Set true to create the `ghcr-secret` imagePullSecret from ghcr.username/ghcr.password below.
+  #    Set false if the secret already exists in the cluster (e.g. created imperatively) and you
+  #    just want the deployments to reference it.
+  createPullSecret: true
+  pullSecretName: ghcr-secret
+  ghcr:
+    username: ""
+    # -- GitHub Personal Access Token with read:packages scope. Rotate and re-run
+    #    `helm upgrade` when it expires (PATs expire ~90 days).
+    password: ""
+    email: "noreply@example.com"
+
+# -----------------------------------------------------------------------------
+# backend-app
+# -----------------------------------------------------------------------------
+backend:
+  replicaCount: 1
+  image:
+    repository: backend-app
+    tag: latest-fix
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8000
+  # -- Separate LoadBalancer service exposing the backend externally (as run today on OCI).
+  externalService:
+    enabled: true
+    type: LoadBalancer
+    port: 80
+    targetPort: 8000
+    # -- Cloud-provider annotations, e.g. OCI load balancer subnet.
+    annotations: {}
+      # service.beta.kubernetes.io/oci-load-balancer-subnet1: "ocid1.subnet.oc1...."
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 80m
+    limits:
+      memory: 512Mi
+      cpu: 300m
+
+# -----------------------------------------------------------------------------
+# model-service
+# -----------------------------------------------------------------------------
+modelService:
+  replicaCount: 1
+  image:
+    repository: model-service
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: LoadBalancer
+    port: 80
+    targetPort: 8000
+    annotations: {}
+      # service.beta.kubernetes.io/oci-load-balancer-subnet1: "ocid1.subnet.oc1...."
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 250m
+    limits:
+      memory: 1Gi
+      cpu: 500m
+  # -- Enable a Prometheus Operator ServiceMonitor scraping /metrics on this service.
+  #    Requires the Prometheus Operator CRDs to be installed in the cluster.
+  serviceMonitor:
+    enabled: false
+    namespace: monitoring
+    labels:
+      release: monitoring
+    interval: 15s
+    path: /metrics
+
+# -----------------------------------------------------------------------------
+# PostgreSQL
+# -----------------------------------------------------------------------------
+database:
+  image:
+    repository: docker.io/postgres
+    tag: 15-alpine
+    pullPolicy: IfNotPresent
+  name: vela
+  user: vela
+  # -- Required. Pass with --set database.password=... at install time.
+  password: ""
+  # -- Full DATABASE_URL override. Leave blank to have it derived from
+  #    name/user/password/host/port in _helpers.tpl.
+  urlOverride: ""
+  storageSize: 5Gi
+  storageClassName: ""
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 300m
+
+# -----------------------------------------------------------------------------
+# MinIO
+# -----------------------------------------------------------------------------
+minio:
+  image:
+    repository: docker.io/minio/minio
+    tag: latest
+    pullPolicy: IfNotPresent
+  rootUser: minioadmin
+  # -- Required. Pass with --set minio.rootPassword=... at install time.
+  rootPassword: ""
+  endpoint: "minio:9000"
+  storageSize: 10Gi
+  storageClassName: ""
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 300m
+
+# -----------------------------------------------------------------------------
+# Redis
+# -----------------------------------------------------------------------------
+redis:
+  image:
+    repository: docker.io/redis
+    tag: 7-alpine
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 50m
+    limits:
+      memory: 128Mi
+      cpu: 100m
+
+# -----------------------------------------------------------------------------
+# Secrets — LLM API keys, GitHub integration
+# -----------------------------------------------------------------------------
+secrets:
+  # -- Groq API key, used for LLM-generated drift explanations.
+  groqApiKey: ""
+  # -- Gemini API key, fallback/alternate LLM provider for drift explanations.
+  geminiApiKey: ""
+  # -- GitHub token used to open drift issues / trigger Actions. Needs repo scope.
+  githubToken: ""
+  # -- GitHub repo the token operates against, e.g. HassanFasseh/vela
+  githubRepo: ""
+
+# -----------------------------------------------------------------------------
+# RBAC — permissions backend-app needs to manage model Deployments/Services/Jobs
+# -----------------------------------------------------------------------------
+rbac:
+  create: true
+  serviceAccountName: default
+
+# -----------------------------------------------------------------------------
+# Ingress (optional — the reference deployment uses LoadBalancer services instead)
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: vela.example.com
+  tls:
+    enabled: false
+    secretName: vela-tls

@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: {{ include "vela.namespace" . }}
+  labels:
+    app: postgres
+    {{- include "vela.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: "{{ .Values.database.image.repository }}:{{ .Values.database.image.tag }}"
+          imagePullPolicy: {{ .Values.database.image.pullPolicy }}
+          ports:
+            - containerPort: 5432
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql
+          resources:
+            {{- toYaml .Values.database.resources | nindent 12 }}
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: {{ include "vela.namespace" . }}
+  labels:
+    app: postgres
+    {{- include "vela.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP

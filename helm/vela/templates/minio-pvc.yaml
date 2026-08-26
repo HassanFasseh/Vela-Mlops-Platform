@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-pvc
+  namespace: {{ include "vela.namespace" . }}
+  labels:
+    app: minio
+    {{- include "vela.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.minio.storageClassName }}
+  storageClassName: {{ .Values.minio.storageClassName }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.minio.storageSize }}
