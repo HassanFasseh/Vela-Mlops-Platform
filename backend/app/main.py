@@ -811,6 +811,26 @@ def custom_model_template():
         filename="predict_template.py"
     )
 
+def _resolve_custom_model_actor(db, authorization: str, x_api_key: str):
+    """Auth for the three custom-model endpoints below: either a workspace
+    X-API-Key (existing behavior) or an admin's JWT (Authorization:
+    Bearer), which bypasses the API key requirement entirely. Returns
+    (api_key_or_None, is_admin_jwt). Raises 401 if neither checks out."""
+    from backend.app.services.auth import verify_api_key, decode_token
+    from backend.app.db.models import User
+
+    if authorization and authorization.startswith("Bearer "):
+        payload = decode_token(authorization.split(" ", 1)[1])
+        if payload:
+            user = db.query(User).filter(User.id == int(payload["sub"])).first()
+            if user and user.is_admin and user.is_active:
+                return None, True
+    if x_api_key:
+        api_key = verify_api_key(db, x_api_key)
+        if api_key:
+            return api_key, False
+    raise HTTPException(status_code=401, detail="API key or admin session required")
+
 @app.post("/api/v1/upload-custom-model")
 async def upload_custom_model(
     predict_file: UploadFile = File(...),
@@ -822,10 +842,10 @@ async def upload_custom_model(
     task_type: str = Form(None),
     requirements_file: UploadFile = File(None),
     pvc_size_gb: int = Form(1),
-    x_api_key: str = fastapi.Header(None, alias="X-API-Key")
+    x_api_key: str = fastapi.Header(None, alias="X-API-Key"),
+    authorization: str = fastapi.Header(None)
 ):
     from backend.app.database import SessionLocal
-    from backend.app.services.auth import verify_api_key
     from backend.app.services.storage import get_client, ensure_bucket, BUCKET_NAME
     from backend.app.services import k8s_custom
     from backend.app.db.models import Deployment as DeploymentModel
@@ -833,8 +853,6 @@ async def upload_custom_model(
     import io
     import re
 
-    if not x_api_key:
-        raise HTTPException(status_code=401, detail="API key required")
     if input_type not in ("text", "json", "file"):
         raise HTTPException(status_code=400, detail="input_type must be one of: text, json, file")
     if not predict_file.filename or not predict_file.filename.endswith(".py"):
@@ -851,15 +869,16 @@ async def upload_custom_model(
 
     db = SessionLocal()
     try:
-        api_key = verify_api_key(db, x_api_key)
-        if not api_key or api_key.workspace_id != workspace_id:
-            raise HTTPException(status_code=401, detail="Invalid API key for this workspace")
-        # "admin key": an unscoped workspace key, not one issued to a team
-        # for calling one specific model. Publishing a new custom model
-        # is a workspace-admin action — same trust level /api/v1/upload-
-        # model already assumes implicitly by only checking workspace_id.
-        if api_key.team_id or api_key.deployment_id:
-            raise HTTPException(status_code=403, detail="This endpoint requires an unscoped workspace API key")
+        api_key, is_admin_jwt = _resolve_custom_model_actor(db, authorization, x_api_key)
+        if not is_admin_jwt:
+            if api_key.workspace_id != workspace_id:
+                raise HTTPException(status_code=401, detail="Invalid API key for this workspace")
+            # "admin key": an unscoped workspace key, not one issued to a team
+            # for calling one specific model. Publishing a new custom model
+            # is a workspace-admin action — same trust level /api/v1/upload-
+            # model already assumes implicitly by only checking workspace_id.
+            if api_key.team_id or api_key.deployment_id:
+                raise HTTPException(status_code=403, detail="This endpoint requires an unscoped workspace API key")
 
         object_prefix = f"workspace-{workspace_id}/custom/{deployment_name}"
         minio_path = f"{BUCKET_NAME}/{object_prefix}"
@@ -1013,25 +1032,19 @@ def redeploy_custom_model(deployment_id: int, x_api_key: str = fastapi.Header(No
     }
 
 @app.get("/api/v1/custom-model-status/{deployment_id}")
-def custom_model_status(deployment_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key")):
+def custom_model_status(deployment_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key"), authorization: str = fastapi.Header(None)):
     from backend.app.database import SessionLocal
-    from backend.app.services.auth import verify_api_key
     from backend.app.services import k8s_custom
     from backend.app.db.models import Deployment as DeploymentModel
 
-    if not x_api_key:
-        raise HTTPException(status_code=401, detail="API key required")
-
     db = SessionLocal()
     try:
-        api_key = verify_api_key(db, x_api_key)
-        if not api_key:
-            raise HTTPException(status_code=401, detail="Invalid API key")
+        api_key, is_admin_jwt = _resolve_custom_model_actor(db, authorization, x_api_key)
 
         deployment = db.query(DeploymentModel).filter(DeploymentModel.id == deployment_id).first()
         if not deployment:
             raise HTTPException(status_code=404, detail="Deployment not found")
-        if deployment.workspace_id != api_key.workspace_id:
+        if not is_admin_jwt and deployment.workspace_id != api_key.workspace_id:
             raise HTTPException(status_code=401, detail="Invalid API key for this workspace")
         if deployment.model_type != "custom":
             raise HTTPException(status_code=400, detail="Not a custom model deployment")
@@ -1058,32 +1071,27 @@ def custom_model_status(deployment_id: int, x_api_key: str = fastapi.Header(None
         db.close()
 
 @app.delete("/api/v1/custom-model/{deployment_id}")
-def delete_custom_model(deployment_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key")):
+def delete_custom_model(deployment_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key"), authorization: str = fastapi.Header(None)):
     """No equivalent existed for any deployment type before this — added
     specifically so a custom deployment's Kubernetes resources (and
     MinIO files are NOT deleted here; they're the durable copy) have
     somewhere to actually get torn down instead of leaking forever."""
     from backend.app.database import SessionLocal
-    from backend.app.services.auth import verify_api_key
     from backend.app.services import k8s_custom
     from backend.app.db.models import Deployment as DeploymentModel, TeamModelPermission
 
-    if not x_api_key:
-        raise HTTPException(status_code=401, detail="API key required")
-
     db = SessionLocal()
     try:
-        api_key = verify_api_key(db, x_api_key)
-        if not api_key:
-            raise HTTPException(status_code=401, detail="Invalid API key")
+        api_key, is_admin_jwt = _resolve_custom_model_actor(db, authorization, x_api_key)
 
         deployment = db.query(DeploymentModel).filter(DeploymentModel.id == deployment_id).first()
         if not deployment:
             raise HTTPException(status_code=404, detail="Deployment not found")
-        if deployment.workspace_id != api_key.workspace_id:
-            raise HTTPException(status_code=401, detail="Invalid API key for this workspace")
-        if api_key.team_id or api_key.deployment_id:
-            raise HTTPException(status_code=403, detail="This endpoint requires an unscoped workspace API key")
+        if not is_admin_jwt:
+            if deployment.workspace_id != api_key.workspace_id:
+                raise HTTPException(status_code=401, detail="Invalid API key for this workspace")
+            if api_key.team_id or api_key.deployment_id:
+                raise HTTPException(status_code=403, detail="This endpoint requires an unscoped workspace API key")
 
         if deployment.model_type == "custom":
             try:
@@ -1476,11 +1484,75 @@ def admin_list_users(authorization: str = fastapi.Header(None)):
     finally:
         db.close()
 
-@app.delete("/admin/users/{user_id}")
-def admin_delete_user(user_id: int, authorization: str = fastapi.Header(None)):
+@app.patch("/admin/users/{user_id}/deactivate")
+def admin_deactivate_user(user_id: int, authorization: str = fastapi.Header(None)):
     from backend.app.database import SessionLocal
     from backend.app.services.auth import decode_token
     from backend.app.db.models import User
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not admin or not admin.is_admin:
+            raise HTTPException(status_code=403, detail="Admin required")
+        if int(payload["sub"]) == user_id:
+            raise HTTPException(status_code=400, detail="Cannot deactivate yourself")
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.is_active = False
+        db.commit()
+        return {"message": f"User {user.username} deactivated"}
+    finally:
+        db.close()
+
+@app.patch("/admin/users/{user_id}/reactivate")
+def admin_reactivate_user(user_id: int, authorization: str = fastapi.Header(None)):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token
+    from backend.app.db.models import User
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not admin or not admin.is_admin:
+            raise HTTPException(status_code=403, detail="Admin required")
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.is_active = True
+        db.commit()
+        return {"message": f"User {user.username} reactivated"}
+    finally:
+        db.close()
+
+@app.delete("/admin/users/{user_id}")
+def admin_delete_user(user_id: int, authorization: str = fastapi.Header(None)):
+    """Permanently removes the user row (unlike the old behavior, which
+    only deactivated it — see PATCH .../deactivate for that now). Rows
+    that are squarely this user's own data (team/workspace membership,
+    their access requests) are deleted with them; nullable "who did
+    this" references on other people's data (deployments, model cards,
+    granted permissions, resolved tickets) are cleared instead of
+    cascading, so deleting a user never takes someone else's records
+    with it. A user who still owns a workspace or has filed_by tickets
+    (both non-nullable FKs) can't be hard-deleted at all — Postgres
+    rejects it and the admin needs to reassign/resolve those first."""
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token
+    from backend.app.db.models import (
+        User, WorkspaceMember, TeamMember, AccessRequest,
+        Deployment, ModelCard, TeamModelPermission, Ticket,
+    )
+    from sqlalchemy.exc import IntegrityError
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Not authenticated")
     payload = decode_token(authorization.split(" ")[1])
@@ -1496,9 +1568,28 @@ def admin_delete_user(user_id: int, authorization: str = fastapi.Header(None)):
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-        user.is_active = False
-        db.commit()
-        return {"message": f"User {user.username} deactivated"}
+        username = user.username
+
+        db.query(TeamMember).filter(TeamMember.user_id == user_id).delete()
+        db.query(WorkspaceMember).filter(WorkspaceMember.user_id == user_id).delete()
+        db.query(AccessRequest).filter(AccessRequest.user_id == user_id).delete()
+
+        db.query(Deployment).filter(Deployment.created_by == user_id).update({"created_by": None})
+        db.query(ModelCard).filter(ModelCard.created_by == user_id).update({"created_by": None})
+        db.query(TeamModelPermission).filter(TeamModelPermission.granted_by == user_id).update({"granted_by": None})
+        db.query(AccessRequest).filter(AccessRequest.reviewed_by == user_id).update({"reviewed_by": None})
+        db.query(Ticket).filter(Ticket.resolved_by == user_id).update({"resolved_by": None})
+
+        db.delete(user)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot delete this user: they still own a workspace or have tickets filed under their name. Reassign or resolve those first."
+            )
+        return {"message": f"User {username} permanently deleted"}
     finally:
         db.close()
 
