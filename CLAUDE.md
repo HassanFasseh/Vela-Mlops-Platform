@@ -1,4 +1,4 @@
-# Vela — MLOps Platform
+# Vela - MLOps Platform
 
 ## What this project is
 Self-hosted open-source MLOps platform for regulated industries. FastAPI backend, Kubernetes on Oracle Cloud, PostgreSQL, MinIO, Redis.
@@ -12,14 +12,14 @@ Building the frontend: admin dashboard, user dashboard, login page, workspace ma
 - Accent blue: #7eb8f7, green: #7ef7a0, red: #f77e7e, amber: #f7c97e
 - Font: monospace throughout
 - Border radius: 8px on cards, 4px on inputs
-- No external CSS frameworks — vanilla CSS only
+- No external CSS frameworks - vanilla CSS only
 
 ## Backend API base URL
 http://51.170.140.102
 
 ## Key endpoints
-- POST /auth/login — {"username": "...", "password": "..."}
-- GET /auth/me — returns user with is_admin flag
+- POST /auth/login - {"username": "...", "password": "..."}
+- GET /auth/me - returns user with is_admin flag
 - POST /auth/change-password
 - GET/POST /admin/users
 - GET/POST /admin/teams
@@ -45,10 +45,10 @@ ghcr-secret expires with the PAT. Recreate when expired:
     kubectl create secret docker-registry ghcr-secret \
       --docker-server=ghcr.io \
       --docker-username=HassanFasseh \
-      --docker-password='<PAT — see .env, NOT checked in>' \
+      --docker-password='<PAT - see .env, NOT checked in>' \
       --dry-run=client -o yaml | kubectl apply -f -
 
-The actual PAT lives in `.env` (gitignored) as `GHCR_PAT=...`, not here —
+The actual PAT lives in `.env` (gitignored) as `GHCR_PAT=...`, not here -
 this file is committed to git, so anything in it is permanent and public
 the moment it's pushed. Current PAT expires ~90 days from 2026-08-24.
 

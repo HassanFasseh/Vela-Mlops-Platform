@@ -1,4 +1,4 @@
-# Vela — Frontend Redesign & UX Implementation
+# Vela - Frontend Redesign & UX Implementation
 
 You already know this codebase, its backend, API endpoints, authentication, roles, models, deployments, monitoring, drift detection, remediation, tickets, teams, API keys, and existing functionality.
 
@@ -9,7 +9,7 @@ Do NOT invent backend functionality.
 Do NOT change working APIs unless absolutely necessary.
 Preserve all existing functionality and integrations.
 
-The goal is to make Vela feel like a serious, modern infrastructure/ML platform — not a generic AI SaaS dashboard.
+The goal is to make Vela feel like a serious, modern infrastructure/ML platform - not a generic AI SaaS dashboard.
 
 ---
 
@@ -495,7 +495,7 @@ p95 latency
 And:
 
 ```text
-Drift score — last 2 hours
+Drift score - last 2 hours
 ```
 
 Use appropriate visualization libraries already present in the project, or introduce a well-maintained charting library if required.
@@ -926,7 +926,7 @@ Do not attempt to redesign every page simultaneously.
 
 Implement in this order:
 
-### Phase 1 — Foundation
+### Phase 1 - Foundation
 
 * Design tokens
 * Typography
@@ -940,13 +940,13 @@ Implement in this order:
 * Status components
 * Loading/error/empty states
 
-### Phase 2 — Landing + authentication
+### Phase 2 - Landing + authentication
 
 * Landing page
 * Authentication
 * First-login password flow
 
-### Phase 3 — Admin
+### Phase 3 - Admin
 
 * Admin overview
 * Models
@@ -955,7 +955,7 @@ Implement in this order:
 * Users
 * API keys
 
-### Phase 4 — Team member
+### Phase 4 - Team member
 
 * Member overview
 * My Models
@@ -963,14 +963,14 @@ Implement in this order:
 * API keys
 * Tickets
 
-### Phase 5 — Monitoring
+### Phase 5 - Monitoring
 
 * Model health
 * Metrics
 * Charts
 * Infrastructure monitoring
 
-### Phase 6 — Drift
+### Phase 6 - Drift
 
 * Drift overview
 * Feature breakdown
@@ -978,14 +978,14 @@ Implement in this order:
 * AI explanation
 * Recommended actions
 
-### Phase 7 — Automation
+### Phase 7 - Automation
 
 * Remediation configuration
 * Webhooks
 * GitHub issues
 * Retraining workflows
 
-### Phase 8 — Documentation + polish
+### Phase 8 - Documentation + polish
 
 * Model cards
 * Documentation

@@ -2,7 +2,7 @@
 
 Packages the Vela MLOps platform (backend API, model-service, PostgreSQL,
 MinIO, Redis, and the RBAC the backend needs to manage model Deployments) as
-a single Helm release. This chart mirrors the manifests in `k8s/*.yaml` —
+a single Helm release. This chart mirrors the manifests in `k8s/*.yaml` -
 it does not change any application behavior, it just makes the deployment
 configurable and repeatable.
 
@@ -29,7 +29,7 @@ configurable and repeatable.
 
 ## Installing
 
-The chart requires four values with no safe default — the database password,
+The chart requires four values with no safe default - the database password,
 the MinIO root password, and (in practice) at least one LLM key so drift
 explanations work. Pull-secret credentials are also required unless you set
 `registry.createPullSecret=false` and provide `ghcr-secret` out of band.
@@ -44,7 +44,7 @@ helm install vela ./helm/vela \
   --set registry.ghcr.password=<your-ghcr-pat>
 ```
 
-Or with a values file (recommended for anything beyond a quick test —
+Or with a values file (recommended for anything beyond a quick test -
 avoids secrets ending up in shell history):
 
 ```bash
@@ -79,34 +79,34 @@ kubectl get pods -w
 All values live in [`values.yaml`](values.yaml). The main groups:
 
 ### Registry (`registry.*`)
-- `registry.repository` — image repo prefix, e.g. `ghcr.io/hassanfasseh/vela`
-- `registry.createPullSecret` — set `false` to skip creating `ghcr-secret` (use if it already exists in-cluster)
-- `registry.ghcr.username` / `registry.ghcr.password` — GHCR credentials used to build the `ghcr-secret` dockerconfigjson. The PAT expires (~90 days) — re-run `helm upgrade` with a fresh one when it does.
+- `registry.repository` - image repo prefix, e.g. `ghcr.io/hassanfasseh/vela`
+- `registry.createPullSecret` - set `false` to skip creating `ghcr-secret` (use if it already exists in-cluster)
+- `registry.ghcr.username` / `registry.ghcr.password` - GHCR credentials used to build the `ghcr-secret` dockerconfigjson. The PAT expires (~90 days) - re-run `helm upgrade` with a fresh one when it does.
 
 ### Backend (`backend.*`)
 - `backend.replicaCount`, `backend.image.tag`, `backend.resources`
-- `backend.service.*` — internal ClusterIP service
-- `backend.externalService.*` — external LoadBalancer (set `enabled: false` if you're fronting with your own Ingress/LoadBalancer instead); `backend.externalService.annotations` is where cloud-provider annotations go, e.g. the OCI load balancer subnet.
+- `backend.service.*` - internal ClusterIP service
+- `backend.externalService.*` - external LoadBalancer (set `enabled: false` if you're fronting with your own Ingress/LoadBalancer instead); `backend.externalService.annotations` is where cloud-provider annotations go, e.g. the OCI load balancer subnet.
 
 ### Model service (`modelService.*`)
 - `modelService.replicaCount`, `modelService.image.tag`, `modelService.resources`
-- `modelService.serviceMonitor.enabled` — set `true` to scrape `/metrics` via the Prometheus Operator (requires its CRDs installed)
+- `modelService.serviceMonitor.enabled` - set `true` to scrape `/metrics` via the Prometheus Operator (requires its CRDs installed)
 
 ### Database (`database.*`)
 - `database.name`, `database.user`, `database.password` (required), `database.storageSize`, `database.storageClassName`
-- `database.urlOverride` — set this instead if you want to point at an external Postgres rather than the in-cluster one; when set it replaces the derived `DATABASE_URL`
+- `database.urlOverride` - set this instead if you want to point at an external Postgres rather than the in-cluster one; when set it replaces the derived `DATABASE_URL`
 
 ### MinIO (`minio.*`)
 - `minio.rootUser`, `minio.rootPassword` (required), `minio.storageSize`, `minio.storageClassName`, `minio.endpoint`
 
 ### Secrets / integrations (`secrets.*`)
-- `secrets.groqApiKey`, `secrets.geminiApiKey` — LLM providers used for drift explanations (`backend/app/services/summary.py`); set at least one
-- `secrets.githubToken`, `secrets.githubRepo` — used to open drift issues / trigger the deploy workflow
-- `secrets.backend` — `kubernetes` (default, above), `vault`, or `external-secrets` — switches where all of this actually comes from. See **[SECRET_MANAGEMENT.md](SECRET_MANAGEMENT.md)** for setting up Vault or the External Secrets Operator, rotation, and migrating between backends.
+- `secrets.groqApiKey`, `secrets.geminiApiKey` - LLM providers used for drift explanations (`backend/app/services/summary.py`); set at least one
+- `secrets.githubToken`, `secrets.githubRepo` - used to open drift issues / trigger the deploy workflow
+- `secrets.backend` - `kubernetes` (default, above), `vault`, or `external-secrets` - switches where all of this actually comes from. See **[SECRET_MANAGEMENT.md](SECRET_MANAGEMENT.md)** for setting up Vault or the External Secrets Operator, rotation, and migrating between backends.
 
 ### RBAC (`rbac.*`)
-- `rbac.create` — set `false` if you manage the ClusterRole/Binding yourself
-- `rbac.serviceAccountName` — defaults to `default`; set to a custom name to have the chart create a dedicated ServiceAccount instead of granting the namespace's `default` account
+- `rbac.create` - set `false` if you manage the ClusterRole/Binding yourself
+- `rbac.serviceAccountName` - defaults to `default`; set to a custom name to have the chart create a dedicated ServiceAccount instead of granting the namespace's `default` account
 
 ### Ingress (`ingress.*`)
 Off by default (the reference deployment uses the `backend-external` LoadBalancer). Enable it to route by hostname instead:
@@ -122,7 +122,7 @@ ingress:
 ```
 
 ### Resource limits / storage / replicas
-Every Deployment's `resources.requests`/`resources.limits` and every PVC's storage size are set under that component's key (`backend.resources`, `database.storageSize`, etc.) — see `values.yaml` for the full set of defaults, which match what's running in `k8s/*.yaml` today.
+Every Deployment's `resources.requests`/`resources.limits` and every PVC's storage size are set under that component's key (`backend.resources`, `database.storageSize`, etc.) - see `values.yaml` for the full set of defaults, which match what's running in `k8s/*.yaml` today.
 
 ## Upgrading
 
@@ -133,17 +133,17 @@ helm upgrade vela ./helm/vela -f my-vela-values.yaml
 Helm only re-applies what changed. Notes:
 
 - **Rotating the GHCR PAT**: `helm upgrade ... --set registry.ghcr.password=<new-pat>` regenerates `ghcr-secret`; existing pods keep running on their already-pulled images, new pulls use the new credential.
-- **Rotating LLM/GitHub keys**: same pattern — `--set secrets.groqApiKey=...` etc. The backend Deployment does not automatically restart on a Secret change; run `kubectl rollout restart deployment/backend-app` afterwards to pick up new env values.
+- **Rotating LLM/GitHub keys**: same pattern - `--set secrets.groqApiKey=...` etc. The backend Deployment does not automatically restart on a Secret change; run `kubectl rollout restart deployment/backend-app` afterwards to pick up new env values.
 - **Changing image tags**: `--set backend.image.tag=...` / `--set modelService.image.tag=...` triggers a normal rolling update.
-- **Database/MinIO password changes**: only change these if you also update the underlying data (Postgres/MinIO won't retroactively re-auth existing volumes with a new password baked in by the container's first-boot init) — safest done by setting the new password before first install rather than on an existing PVC.
+- **Database/MinIO password changes**: only change these if you also update the underlying data (Postgres/MinIO won't retroactively re-auth existing volumes with a new password baked in by the container's first-boot init) - safest done by setting the new password before first install rather than on an existing PVC.
 
 ## Production deployment
 
 The defaults above target a single-node cluster. For a multi-node
-production setup — anti-affinity, PodDisruptionBudgets, Guaranteed-QoS
+production setup - anti-affinity, PodDisruptionBudgets, Guaranteed-QoS
 resource limits, external managed Postgres/S3 instead of the in-cluster
 single-replica ones, health checks, and Horizontal Pod Autoscaler setup for
-the backend — see **[PRODUCTION.md](PRODUCTION.md)**, including full
+the backend - see **[PRODUCTION.md](PRODUCTION.md)**, including full
 example `values.yaml` files for a 3-node cluster on AWS EKS and Azure AKS.
 
 ## Uninstalling
@@ -160,6 +160,6 @@ kubectl delete pvc postgres-pvc minio-pvc
 
 ## Notes
 
-- This chart intentionally does not touch application code — it packages the same containers and config that `k8s/*.yaml` already deploys.
-- The `ClusterRole`/`ClusterRoleBinding` grant broad create/update/delete on Deployments, Services, ConfigMaps, PVCs, and Jobs — that's what lets the backend spin up per-model `model-runner` Deployments from the dashboard. Scope it down further if you're running Vela in a shared cluster.
-- Multi-arch model-runner images (`model-runner`, `model-runner:custom-{name}`) are built and pushed by CI, not by this chart — the chart only manages the long-running platform services.
+- This chart intentionally does not touch application code - it packages the same containers and config that `k8s/*.yaml` already deploys.
+- The `ClusterRole`/`ClusterRoleBinding` grant broad create/update/delete on Deployments, Services, ConfigMaps, PVCs, and Jobs - that's what lets the backend spin up per-model `model-runner` Deployments from the dashboard. Scope it down further if you're running Vela in a shared cluster.
+- Multi-arch model-runner images (`model-runner`, `model-runner:custom-{name}`) are built and pushed by CI, not by this chart - the chart only manages the long-running platform services.

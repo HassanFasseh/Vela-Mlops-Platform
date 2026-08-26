@@ -1,8 +1,8 @@
 # Production / multi-node deployment
 
 The chart's defaults target a single-node cluster (matches the reference
-OKE deployment in `k8s/*.yaml`). This guide covers what changes — and, just
-as importantly, what *doesn't* automatically change — once you're spreading
+OKE deployment in `k8s/*.yaml`). This guide covers what changes - and, just
+as importantly, what *doesn't* automatically change - once you're spreading
 Vela across multiple nodes.
 
 ## Minimum recommended specs
@@ -21,33 +21,33 @@ their own etcd/control-plane resilience if you're not using a fully managed
 control plane tier. 4 vCPU / 16 GB per node covers backend-app +
 model-service + Redis with headroom for the per-model `model-runner`
 Deployments the backend spins up on demand (each requesting up to 2 GB/500m
-by default — see `k8s/model-deployment.yaml`/`model-service-2.yaml`).
+by default - see `k8s/model-deployment.yaml`/`model-service-2.yaml`).
 
 ## Why Postgres and MinIO need special handling in multi-node
 
 This chart runs Postgres and MinIO as single-replica Deployments backed by
 `ReadWriteOnce` PVCs (see `templates/postgres-deployment.yaml`/
 `minio-deployment.yaml`). That's a deliberate simplification, not an
-oversight — and it's worth understanding why before reaching for RWX
+oversight - and it's worth understanding why before reaching for RWX
 volumes as "the multi-node fix":
 
 - **Postgres can't have multiple writers against shared storage, full
   stop**, regardless of the volume's access mode. `ReadWriteMany` (NFS,
   EFS, Azure Files, CephFS) lets multiple *pods* mount the same volume
   concurrently, but PostgreSQL's on-disk format assumes a single process
-  owns it — two `postgres` processes writing to the same data directory
+  owns it - two `postgres` processes writing to the same data directory
   corrupts it. RWX buys you nothing for Postgres HA; real Postgres HA needs
   streaming replication between *separate* data directories (e.g.
   Patroni, CloudNativePG), which this chart doesn't implement.
 - **MinIO's real distributed/HA mode needs multiple independent disks
-  across nodes**, not one shared volume — its erasure-coding scheme
+  across nodes**, not one shared volume - its erasure-coding scheme
   specifically requires each node to have its own local storage. Pointing
   several MinIO replicas at one shared RWX volume doesn't give you MinIO's
   actual HA story, just several processes fighting over one disk (better
   than Postgres's case in that MinIO tolerates it more gracefully, but
   still not what "highly available object storage" means).
 - **A single-replica Postgres/MinIO pod on RWO storage isn't broken by a
-  multi-node cluster** — Kubernetes reattaches the PVC to whatever node the
+  multi-node cluster** - Kubernetes reattaches the PVC to whatever node the
   pod gets rescheduled onto (with a brief detach/reattach delay on most
   cloud block storage). It's just still a single point of failure and does
   nothing to help you scale reads/writes, no matter how many nodes the rest
@@ -95,20 +95,20 @@ kubectl create secret generic vela-s3-credentials \
   --from-literal=MINIO_ROOT_PASSWORD='<your AWS secret access key>'
 ```
 
-(The key names (`MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD`) are historical —
+(The key names (`MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD`) are historical -
 they're literally what backend-app's MinIO client env vars are named
 regardless of whether the actual endpoint is MinIO or S3 itself.)
 
 With both enabled, this chart stops rendering the in-cluster
 `postgres`/`minio` Deployment, PVC, Service, and Secret entirely (see
-`templates/postgres-deployment.yaml`/`minio-deployment.yaml` — there's no
+`templates/postgres-deployment.yaml`/`minio-deployment.yaml` - there's no
 point running an unconnected pod), and backend-app's `DATABASE_URL`/MinIO
 client env vars are built from the host/endpoint above plus the password(s)
 in your Secret. `database.password`/`minio.rootPassword` in `values.yaml`
-become irrelevant in this mode — nothing reads them.
+become irrelevant in this mode - nothing reads them.
 
 If you're using `secrets.backend: vault` (see `SECRET_MANAGEMENT.md`), this
-mode isn't wired into the Vault-injection path — put `DATABASE_URL` and the
+mode isn't wired into the Vault-injection path - put `DATABASE_URL` and the
 MinIO client credentials directly into your Vault KV entry instead (Vault
 mode already supports arbitrary keys at `secrets.vault.path`).
 
@@ -127,14 +127,14 @@ production:
 
 Both default **on**, in `preferred` mode. That's intentionally a safe
 default even on a single-node cluster: `preferredDuringSchedulingIgnoredDuringExecution`
-is a soft rule — the scheduler tries to place replicas on different nodes
+is a soft rule - the scheduler tries to place replicas on different nodes
 but happily co-locates them if it can't (e.g. there's only one node). It
 becomes real protection the moment you have more than one node, with zero
 risk of pods going `Pending` on a small cluster.
 
 Switch to `mode: required` (`requiredDuringSchedulingIgnoredDuringExecution`)
 once you're confident you'll always have at least as many schedulable nodes
-as replicas — it's a hard rule: the scheduler refuses to place two replicas
+as replicas - it's a hard rule: the scheduler refuses to place two replicas
 of the same component on the same node, full stop, and a replica with
 nowhere left to go stays `Pending` instead of silently co-locating. With 3
 nodes, `backend.replicaCount: 3` + `mode: required` guarantees each replica
@@ -155,13 +155,13 @@ production:
 ```
 
 Off by default. A PDB tells Kubernetes the minimum number of replicas that
-must stay up during a *voluntary* disruption — a node drain for a cluster
-upgrade, `kubectl drain`, cluster-autoscaler consolidating nodes — as
+must stay up during a *voluntary* disruption - a node drain for a cluster
+upgrade, `kubectl drain`, cluster-autoscaler consolidating nodes - as
 opposed to an involuntary one (a node crashing), which no PDB can prevent.
 
 **Only turn this on once `replicaCount` is at least `minAvailable + 1`.**
 With the default `backend.replicaCount: 1` and `minAvailable: 1`, a PDB
-would forbid evicting the *only* replica at all — which doesn't protect
+would forbid evicting the *only* replica at all - which doesn't protect
 availability, it just blocks node drains from completing until someone
 manually deletes the pod. Pair `minAvailable: 1` with `replicaCount: 2` (or
 `minAvailable: 2` with `replicaCount: 3`, etc.) so there's always a spare
@@ -171,18 +171,18 @@ replica to move first.
 
 Two related settings:
 
-- **`backend.resources`/`modelService.resources`** (existing, unchanged) —
+- **`backend.resources`/`modelService.resources`** (existing, unchanged) -
   the requests/limits split. Requests reserve capacity for scheduling;
   limits cap actual usage.
-- **`production.multiNode.enabled`** — when `true`, both Deployments render
+- **`production.multiNode.enabled`** - when `true`, both Deployments render
   with `requests` forced equal to `limits` instead of the split above (only
   `.limits` is read; `.requests` is ignored in this mode).
 
 The reason: Kubernetes assigns a pod's QoS class from its
-requests/limits relationship — `requests == limits` on every container is
+requests/limits relationship - `requests == limits` on every container is
 **Guaranteed**, the highest class, evicted last under node memory pressure
 and give the most predictable CPU behavior on a busy node.
-`requests < limits` (the single-node default) is **Burstable** — fine on a
+`requests < limits` (the single-node default) is **Burstable** - fine on a
 node backend-app has to itself, but on a genuinely multi-node/multi-tenant
 cluster where the scheduler is packing several workloads onto shared nodes,
 Burstable pods are the first things evicted when a node runs short, which
@@ -205,7 +205,7 @@ production:
     enabled: true
 ```
 
-(`.requests` under each can stay whatever they were — they're not read in
+(`.requests` under each can stay whatever they were - they're not read in
 this mode, but leaving them isn't harmful either.)
 
 ## Health checks and readiness probes
@@ -225,7 +225,7 @@ production:
 ```
 
 model-service has a real `/health` endpoint (`model-service/main.py`) that
-also reports Redis connectivity — a genuine readiness signal. backend-app
+also reports Redis connectivity - a genuine readiness signal. backend-app
 doesn't have a dedicated health endpoint, so `/` (the landing page) is used
 instead: it's a valid **liveness** check (the process is up and serving
 HTTP) but not a true **readiness** check, since it doesn't verify
@@ -235,23 +235,23 @@ checking for backend-app specifically, that requires adding a proper
 only packages the existing app).
 
 `initialDelaySeconds`/`periodSeconds`/`timeoutSeconds`/`failureThreshold`
-are all configurable per-component under the same block — defaults are
+are all configurable per-component under the same block - defaults are
 generous (10–15s initial delay) to avoid probe failures during normal
 FastAPI/uvicorn startup.
 
 ## Horizontal Pod Autoscaler (backend)
 
-This chart doesn't render an HPA — set it up as a standalone manifest
+This chart doesn't render an HPA - set it up as a standalone manifest
 alongside the release. Two things to configure on the chart side first:
 
-1. **Set real resource requests** — HPA's default CPU-utilization metric is
+1. **Set real resource requests** - HPA's default CPU-utilization metric is
    a percentage *of the request*, so `backend.resources.requests.cpu` has
    to be meaningful (the defaults already set `80m`; size it to your actual
    steady-state usage before turning autoscaling on).
 2. **Set `production.autoscaling.backend.enabled: true`.** This stops the
    Deployment template from setting `spec.replicas` at all. Without it,
    every `helm upgrade` resets replica count back to `backend.replicaCount`
-   — fighting the HPA, which is the single most common "why does my HPA
+   - fighting the HPA, which is the single most common "why does my HPA
    keep getting reset" issue with Helm-managed Deployments in general.
 
 ```yaml
@@ -271,7 +271,7 @@ helm upgrade vela ./helm/vela -f production-values.yaml
 ```
 
 Then apply the HPA itself (requires the [metrics-server](https://github.com/kubernetes-sigs/metrics-server)
-add-on — bundled by default on EKS/AKS/GKE, otherwise install it
+add-on - bundled by default on EKS/AKS/GKE, otherwise install it
 separately):
 
 ```yaml
@@ -377,7 +377,7 @@ production:
 
 ## Example: 3-node cluster on Azure AKS
 
-Same shape — the differences are the load-balancer annotations and the
+Same shape - the differences are the load-balancer annotations and the
 managed-database naming:
 
 ```yaml
@@ -425,7 +425,7 @@ production:
     name: aodp
     existingSecret: vela-db-credentials
   externalMinio:
-    # Azure Blob doesn't speak the S3 API natively — either front it with an
+    # Azure Blob doesn't speak the S3 API natively - either front it with an
     # S3-compatible gateway, or run a small dedicated MinIO cluster (its own
     # nodes/disks, not this chart's in-cluster single-replica one) and point
     # here at that instead.
@@ -455,5 +455,5 @@ helm install vela ./helm/vela -f production-values-eks.yaml \
   --set registry.ghcr.password=<ghcr-pat>
 ```
 
-(`database.password`/`minio.rootPassword` are omitted — irrelevant once
+(`database.password`/`minio.rootPassword` are omitted - irrelevant once
 `externalDatabase`/`externalMinio` are enabled, see above.)

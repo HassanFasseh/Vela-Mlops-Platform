@@ -167,6 +167,57 @@ Every deployed model can have a documented model card covering:
 
 Model cards are queryable via API and visible in the workspace dashboard.
 
+## Deploy Vela
+
+Three ways to run it, depending on what you need.
+
+**Helm (recommended)** - one command, every setting in `values.yaml`:
+
+```bash
+helm install vela ./helm/vela \
+  --set secrets.groqApiKey=gsk_... \
+  --set secrets.githubToken=ghp_... \
+  --set database.password=secure_password \
+  --set minio.rootPassword=secure_password
+```
+
+See [`helm/vela/README.md`](helm/vela/README.md) for the full configuration reference.
+
+**Kubernetes manifests** - the raw manifests the chart is built from, for a quick look or a manual install:
+
+```bash
+kubectl apply -f k8s/
+```
+
+**Local dev** - no cluster, just Docker:
+
+```bash
+docker compose up
+```
+
+See [Quick start](#quick-start) below for the full local setup.
+
+## CI/CD
+
+Both GitHub Actions and GitLab CI are supported for building and deploying Vela's images.
+
+- **GitHub Actions** (default) - workflows in `.github/workflows/`: build/deploy backend and model-service, deploy a user model, build the custom-runner base image.
+- **GitLab CI** - equivalent pipelines in `gitlab-ci/`, for teams running GitLab instead of GitHub. See [`gitlab-ci/README.md`](gitlab-ci/README.md) for setup, required CI/CD variables, and how it differs from the GitHub Actions version.
+
+## Secret management
+
+The Helm chart supports three ways to manage secrets (LLM API keys, database password, MinIO credentials, GitHub token):
+
+- **Kubernetes Secrets** (default) - plain Secret objects, no extra setup.
+- **HashiCorp Vault** - injected into backend-app at pod startup via the Vault Agent Injector.
+- **External Secrets Operator** - synced from AWS Secrets Manager, Azure Key Vault, or GCP Secret Manager.
+
+See [`helm/vela/SECRET_MANAGEMENT.md`](helm/vela/SECRET_MANAGEMENT.md) for setup, rotation, and migrating between backends.
+
+## Production deployment
+
+For a multi-node production setup - anti-affinity, PodDisruptionBudgets, external managed Postgres/S3 instead of the in-cluster single-replica ones, health checks, and autoscaling for the backend - see [`helm/vela/PRODUCTION.md`](helm/vela/PRODUCTION.md), including full example `values.yaml` files for a 3-node cluster on AWS EKS and Azure AKS.
+
 ## Stack
 
 | Layer | Technology |
@@ -208,7 +259,10 @@ Copy `.env.example` to `.env`:
 - [ ] Dashboard authentication (require workspace login to view)
 - [ ] Frontend for teams and permissions management
 - [ ] A/B traffic splitting between model versions
-- [ ] Helm chart for one-command deployment
+- [x] Helm chart for one-command deployment
+- [x] GitLab CI templates
+- [x] Secret management (Vault, External Secrets Operator)
+- [x] Multi-node production configuration
 - [ ] Email and Slack drift alerts
 - [ ] Federated drift signal sharing across organizations (privacy-preserving)
 - [ ] GPU node support

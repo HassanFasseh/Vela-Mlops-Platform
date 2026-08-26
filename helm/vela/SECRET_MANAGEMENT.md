@@ -6,24 +6,24 @@ token) into the cluster, selected by `secrets.backend` in `values.yaml`:
 
 | `secrets.backend` | What happens | Requires |
 |---|---|---|
-| `kubernetes` (default) | Plain `Secret` objects rendered from `values.yaml` — current/existing behavior, no change | nothing extra |
+| `kubernetes` (default) | Plain `Secret` objects rendered from `values.yaml` - current/existing behavior, no change | nothing extra |
 | `vault` | backend-app's secrets are injected at pod startup by the **Vault Agent Injector** | Vault + the injector installed in-cluster |
 | `external-secrets` | Every secret is synced from an external store by the **External Secrets Operator** (ESO) | ESO installed + a configured `(Cluster)SecretStore` |
 
 Only one backend is active at a time. Switching `secrets.backend` alone
-isn't enough for `vault`/`external-secrets` — each also has its own
+isn't enough for `vault`/`external-secrets` - each also has its own
 `enabled: true` flag, a deliberate double-flag so a stray `--set
 secrets.backend=vault` can't silently change how secrets are injected.
 
 **Read this before picking `vault`:** it covers backend-app's own
-application secrets only — see [Scope of the vault backend](#scope-of-the-vault-backend-what-it-does-not-cover)
+application secrets only - see [Scope of the vault backend](#scope-of-the-vault-backend-what-it-does-not-cover)
 below before relying on it for everything.
 
 ---
 
 ## Backend 1: Kubernetes Secrets (default)
 
-No setup — this is what `helm install` does today. See the main
+No setup - this is what `helm install` does today. See the main
 [README.md](README.md) for the install command and value reference.
 
 ---
@@ -33,7 +33,7 @@ No setup — this is what `helm install` does today. See the main
 ### 1. Install the Vault Agent Injector
 
 If you don't already run Vault, the quickest path is the official Helm
-chart, which installs both a Vault server (dev/single-node here — use HA
+chart, which installs both a Vault server (dev/single-node here - use HA
 mode for production) and the injector:
 
 ```bash
@@ -69,12 +69,12 @@ vault write auth/kubernetes/config \
   kubernetes_host="https://kubernetes.default.svc:443"
 ```
 
-(Run this against Vault itself — e.g. `kubectl exec -it vault-0 -- vault ...`
+(Run this against Vault itself - e.g. `kubectl exec -it vault-0 -- vault ...`
 if you installed it with the chart above.)
 
 ### 3. Store Vela's secrets in Vault
 
-One KV v2 entry, one key per env var backend-app needs — this matches
+One KV v2 entry, one key per env var backend-app needs - this matches
 `secrets.vault.path` (default `secret/vela`) and the generic
 `{{- range $k, $v := .Data.data }}` template in
 [`vault-annotations.tpl`](templates/vault-annotations.tpl), which exports
@@ -102,7 +102,7 @@ path "secret/data/vela" {
 POLICY
 ```
 
-(KV v2 stores data under `secret/data/<path>`, not `secret/<path>` — the
+(KV v2 stores data under `secret/data/<path>`, not `secret/<path>` - the
 policy path needs `data/` even though `secrets.vault.path` in `values.yaml`
 and the `vault kv put`/`vault.hashicorp.com/agent-inject-secret-*` annotation
 don't.)
@@ -125,7 +125,7 @@ vault write auth/kubernetes/role/vela-backend \
 ### 6. Create the three secrets vault mode doesn't cover
 
 Read [Scope of the vault backend](#scope-of-the-vault-backend-what-it-does-not-cover)
-below for why — short version: `secrets.yaml`'s native Secrets only render
+below for why - short version: `secrets.yaml`'s native Secrets only render
 when `secrets.backend: kubernetes`, but Postgres/MinIO's own bootstrap
 credentials and the GHCR pull secret can't come from Vault at all, so these
 three need to exist before `helm install` in vault mode too:
@@ -149,7 +149,7 @@ kubectl create secret generic minio-secret \
 ```
 
 Use the same `secure_password` values here as in the `vault kv put` call in
-step 3 — Vault gives backend-app its copy of `DATABASE_URL`/MinIO creds,
+step 3 - Vault gives backend-app its copy of `DATABASE_URL`/MinIO creds,
 these plain Secrets give Postgres/MinIO themselves theirs, and the two need
 to actually match.
 
@@ -168,7 +168,7 @@ helm install vela ./helm/vela \
 ```
 
 `database.password`/`minio.rootPassword`/`registry.ghcr.*` are harmless
-placeholders in this command, not load-bearing — in vault mode `secrets.yaml`
+placeholders in this command, not load-bearing - in vault mode `secrets.yaml`
 doesn't render `postgres-secret`/`minio-secret`/`ghcr-secret` at all (see
 below), so nothing actually reads these three values. Step 6's `kubectl
 create secret` commands are what really sets Postgres/MinIO/the pull
@@ -185,7 +185,7 @@ kubectl exec deploy/backend-app -c backend-app -- cat /vault/secrets/config
 # expect: export GROQ_API_KEY="gsk_..." (etc.)
 ```
 
-### Scope of the vault backend — what it does not cover
+### Scope of the vault backend - what it does not cover
 
 Vault Agent Injector adds an init container + sidecar to the **same pod**,
 authenticated via that pod's own ServiceAccount. That model can't reach two
@@ -193,14 +193,14 @@ things Vela also needs, which is why step 6 above creates them by hand
 instead:
 
 - **The GHCR image pull secret.** Kubelet has to pull the pod's image
-  *before* any container in the pod — including the Vault Agent init
-  container — can run. A secret injected from inside the pod can't
+  *before* any container in the pod - including the Vault Agent init
+  container - can run. A secret injected from inside the pod can't
   retroactively supply the credential kubelet needed to start the pod in
   the first place.
 - **Postgres/MinIO's own bootstrap credentials.** Wiring Vault into those
   pods too is possible in principle (add the same annotations, override
   `command` to source the rendered file before exec'ing each image's real
-  entrypoint — the trick used for backend-app in
+  entrypoint - the trick used for backend-app in
   [`backend-deployment.yaml`](templates/backend-deployment.yaml)) but this
   chart doesn't do it, since it means depending on undocumented internals of
   the upstream `postgres`/`minio` images' entrypoint scripts rather than
@@ -211,12 +211,12 @@ So `secrets.backend: vault` only changes how **backend-app** consumes
 credentials/`GITHUB_TOKEN`/`GITHUB_REPO`. `secrets.yaml` gates its *entire*
 contents (including `postgres-secret`/`minio-secret`/`ghcr-secret`) on
 `secrets.backend == "kubernetes"`, so none of those three render in vault
-mode — hence step 6's manual `kubectl create secret` calls, which need to
+mode - hence step 6's manual `kubectl create secret` calls, which need to
 run once before `helm install`/`upgrade` and don't need to be repeated
 afterwards (Helm doesn't touch Secrets it isn't managing).
 
 If you want Postgres/MinIO/the pull secret *also* externally managed
-instead of hand-created, use `external-secrets` — it has no such gap (see
+instead of hand-created, use `external-secrets` - it has no such gap (see
 below): ESO recreates all three under the same names Postgres/MinIO/kubelet
 already expect.
 
@@ -227,10 +227,10 @@ vault kv put secret/vela GROQ_API_KEY="gsk_new..."
 ```
 
 The sidecar re-renders `/vault/secrets/config` automatically (poll interval
-governed by the injector's lease/TTL settings) — no `helm upgrade` needed.
+governed by the injector's lease/TTL settings) - no `helm upgrade` needed.
 Existing pods do **not** re-source the file into their already-running
 process env on their own, though, since `export`-ing into a shell only
-affects that shell and whatever it execs — restart the pods to pick up the
+affects that shell and whatever it execs - restart the pods to pick up the
 new value:
 
 ```bash
@@ -242,7 +242,7 @@ kubectl rollout restart deployment/backend-app
 ## Backend 3: External Secrets Operator (ESO)
 
 Works with AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, and
-others — the `(Cluster)SecretStore` you point at decides which.
+others - the `(Cluster)SecretStore` you point at decides which.
 
 ### 1. Install ESO
 
@@ -262,7 +262,7 @@ kubectl get pods -n external-secrets
 
 ### 2. Create a ClusterSecretStore
 
-One example per provider — pick the one matching where you actually store
+One example per provider - pick the one matching where you actually store
 secrets. Each needs its own cloud-side credential (an IAM role, a service
 principal, a GCP service account key) with read access to the relevant
 secrets; see ESO's own docs for the exact auth object shape per provider,
@@ -353,13 +353,13 @@ secrets:
 ```
 
 The value on the right is the *key/path in your provider*, not a
-Kubernetes name — e.g. for AWS Secrets Manager that's the secret's name or
+Kubernetes name - e.g. for AWS Secrets Manager that's the secret's name or
 ARN (`vela/groq-api-key`), for Azure Key Vault a secret name, for GCP
 Secret Manager a secret ID.
 
 Non-secret fields (`database.name`/`database.user`, `minio.endpoint`/
 `minio.rootUser`, `secrets.githubRepo`, `registry.ghcr.username`/
-`registry.server`) stay in `values.yaml` as plain values — only the six
+`registry.server`) stay in `values.yaml` as plain values - only the six
 above are fetched at reconcile time. See
 [`external-secrets.yaml`](templates/external-secrets.yaml) for exactly how
 they're combined into each Secret's `target.template`.
@@ -376,12 +376,12 @@ helm install vela ./helm/vela \
 
 `database.password`/`minio.rootPassword` are still declared as "required"
 by the chart's defaults (blank), but their *values* here don't matter in
-external-secrets mode for `postgres-secret`/`minio-secret` themselves —
+external-secrets mode for `postgres-secret`/`minio-secret` themselves -
 ESO's `target.template` overwrites `POSTGRES_PASSWORD`/`DATABASE_URL`/
 `MINIO_ROOT_PASSWORD` with the fetched value once it reconciles (pass
 anything non-empty to satisfy Helm's own templating; ESO wins the race).
 `registry.ghcr.password` similarly doesn't need to be a real PAT in this
-mode — the `ghcr-secret` ExternalSecret fetches the real one from
+mode - the `ghcr-secret` ExternalSecret fetches the real one from
 `remoteRefs.ghcrToken`.
 
 Verify each ExternalSecret synced:
@@ -395,7 +395,7 @@ kubectl get secret groq-secret -o jsonpath='{.data.GROQ_API_KEY}' | base64 -d
 
 ### Rotating a secret (external-secrets backend)
 
-Update the value in your provider (AWS/Azure/GCP console or CLI) — ESO
+Update the value in your provider (AWS/Azure/GCP console or CLI) - ESO
 re-fetches on its own schedule (`secrets.externalSecrets.refreshInterval`,
 default `1h`; lower it, e.g. `5m`, if you need faster propagation). No
 `helm upgrade` needed. As with Vault, restart the consuming pods to pick up
@@ -409,7 +409,7 @@ kubectl rollout restart deployment/backend-app deployment/postgres deployment/mi
 
 ## Migrating from Kubernetes Secrets to Vault
 
-Zero-downtime path — nothing gets deleted until the new backend is proven
+Zero-downtime path - nothing gets deleted until the new backend is proven
 working:
 
 1. **Read out the current values.** Either from what you passed to
@@ -424,7 +424,7 @@ working:
    `vault kv put secret/vela ...` with the values you just read out.
 3. **Before upgrading, protect `ghcr-secret`/`postgres-secret`/
    `minio-secret` from deletion.** They already exist (Helm created them
-   under the current `kubernetes` backend) — the moment `secrets.backend`
+   under the current `kubernetes` backend) - the moment `secrets.backend`
    stops being `kubernetes`, `secrets.yaml` stops rendering them, and a
    plain `helm upgrade` deletes anything it previously managed that drops
    out of the rendered manifest set. Postgres/MinIO's actual data password
@@ -443,7 +443,7 @@ working:
    ```
 5. **Verify** the new pod actually has the Vault sidecar and the right
    values (`kubectl exec ... -- cat /vault/secrets/config`, and confirm
-   backend-app is actually healthy — hit `/dashboard` or check
+   backend-app is actually healthy - hit `/dashboard` or check
    `kubectl logs`) before moving on.
 6. **Only after confirming**, stop maintaining the old values anywhere
    else you'd written them down (CI secrets, a password manager entry kept
@@ -463,7 +463,7 @@ helm upgrade vela ./helm/vela \
   --reuse-values
 ```
 
-No need to touch `postgres-secret`/`minio-secret`/`ghcr-secret` first —
+No need to touch `postgres-secret`/`minio-secret`/`ghcr-secret` first -
 Helm still owns them (step 3 only told it not to *delete* them while they
 were temporarily out of the rendered set, not that it stopped tracking
 them), so this upgrade updates them in place like any other resource.
@@ -474,8 +474,8 @@ marker (the trailing `-` deletes the annotation). `groqApiKey`/
 `values.yaml` in vault mode, only in Vault.
 
 *(If you instead reach this rollback from a fresh `vault`-backend install
-that used step 6's `kubectl create secret` — not this migration's `keep`
-annotation — those three Secrets have no Helm ownership metadata at all,
+that used step 6's `kubectl create secret` - not this migration's `keep`
+annotation - those three Secrets have no Helm ownership metadata at all,
 and `helm upgrade` will refuse to adopt them: `kubectl delete secret
 postgres-secret minio-secret ghcr-secret` first, then run the same
 `helm upgrade` above with `database.password`/`minio.rootPassword`/
@@ -487,6 +487,6 @@ ClusterSecretStore, put the same six values into your external provider
 under `secrets.externalSecrets.remoteRefs`' paths, then `helm upgrade
 --set secrets.backend=external-secrets --set
 secrets.externalSecrets.enabled=true --reuse-values`. This migration has no
-equivalent to the vault caveat above — `postgres-secret`/`minio-secret`/
+equivalent to the vault caveat above - `postgres-secret`/`minio-secret`/
 `ghcr-secret` are recreated by ESO with the same names Postgres/MinIO/kubelet
 already expect, so there's nothing left behind to reconcile by hand.
