@@ -77,6 +77,46 @@
   color: var(--color-text-muted);
 }
 
+/* ---- Compact metric grid — 2 columns of small, square-ish chart panels
+   (predictions / latency / drift score / confidence) instead of a
+   handful of full-width charts stacked one under another. ------------- */
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+}
+
+@media (max-width: 700px) {
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.chart-panel-compact {
+  display: flex;
+  flex-direction: column;
+  max-height: 300px;
+}
+
+/* Chart.js's responsive mode needs an ancestor with a real, non-percent
+   height to size against — this wrapper is that anchor, and the canvas
+   is absolutely positioned to fill it (the standard pattern for a fixed-
+   height responsive Chart.js canvas). Paired with maintainAspectRatio:
+   false in the chart's own options in monitoring.js/drift.js. */
+.chart-canvas-wrap {
+  position: relative;
+  height: 190px;
+  flex-shrink: 0;
+}
+
+.chart-canvas-wrap canvas {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+}
+
 /* ---- Chart panel ---------------------------------------------------- */
 
 .chart-panel-head {

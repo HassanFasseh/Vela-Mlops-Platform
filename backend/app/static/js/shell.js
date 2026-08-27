@@ -92,8 +92,6 @@ const Shell = (() => {
       {
         items: [
           { label: "My Models", href: "/app/models", icon: "box" },
-          { label: "Monitoring", href: "/app/monitoring", icon: "activity" },
-          { label: "Drift", href: "/app/drift", icon: "trending" },
         ],
       },
       {

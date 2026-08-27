@@ -8,6 +8,16 @@
  * Performance section says so honestly instead of drawing an empty/fake
  * chart. See drift.js for the linked full drift analysis.
  *
+ * The performance grid's DOM (canvases) is only (re)built when the
+ * selected model or its instrumented/not-instrumented state actually
+ * changes (see performanceBuiltFor) — the 30s poll just calls
+ * setChartData()/setDriftScoreData() on the existing Chart.js instances.
+ * Rebuilding the canvases on every poll while reusing the same chart
+ * objects (the previous bug here) leaves each chart pointing at a
+ * detached canvas after the first refresh, since a fresh, blank one
+ * replaces it in the DOM — the chart doesn't error, it just silently
+ * never draws into the new element again.
+ *
  * Expects in the page: #model-picker #model-empty #model-content
  *   #mh-name #mh-task #mh-status-badge #mh-status-stats
  *   #mh-performance #mh-drift-link #mh-drift-teaser
@@ -21,6 +31,8 @@ const Monitoring = (() => {
   let pollHandle = null;
   let predictionsChart = null;
   let latencyChart = null;
+  let driftScoreChart = null;
+  let performanceBuiltFor = null; // entry.key, or "not-instrumented:<key>" — see loadPerformance()
 
   function fmtN(n, dec = 1) {
     return n == null || isNaN(n) ? "—" : Number(n).toFixed(dec);
@@ -110,11 +122,31 @@ const Monitoring = (() => {
       },
       options: {
         responsive: true,
+        maintainAspectRatio: false,
         animation: false,
         plugins: { legend: { display: false } },
         scales: {
           x: { display: false },
           y: { beginAtZero: true, ticks: { font: { size: 10 } }, grid: { color: "rgba(128,128,128,0.12)" } },
+        },
+      },
+    });
+  }
+
+  function makeDriftScoreChart(canvasId) {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx || !window.Chart) return null;
+    return new Chart(ctx.getContext("2d"), {
+      type: "line",
+      data: { labels: [], datasets: [{ label: "Drift share", data: [], borderColor: "#f77e7e", backgroundColor: "rgba(247,126,126,0.1)", borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.25 }] },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { display: false },
+          y: { min: 0, max: 1, ticks: { font: { size: 10 } }, grid: { color: "rgba(128,128,128,0.12)" } },
         },
       },
     });
@@ -131,25 +163,60 @@ const Monitoring = (() => {
     chart.update("none");
   }
 
+  function setDriftScoreData(chart, series) {
+    if (!chart) return;
+    chart.data.labels = series.map((p) => new Date(p[0] * 1000).toLocaleTimeString());
+    chart.data.datasets[0].data = series.map((p) => p[1]);
+    chart.update("none");
+  }
+
+  function destroyCharts() {
+    [predictionsChart, latencyChart, driftScoreChart].forEach((c) => {
+      if (c) c.destroy();
+    });
+    predictionsChart = null;
+    latencyChart = null;
+    driftScoreChart = null;
+  }
+
   function ensureCharts() {
     if (!predictionsChart) predictionsChart = makeLineChart("chart-predictions", "#7eb8f7");
     if (!latencyChart) latencyChart = makeLineChart("chart-latency", "#38bdf8");
+    if (!driftScoreChart) driftScoreChart = makeDriftScoreChart("chart-driftscore");
   }
 
-  function perfPanelsHtml() {
+  function chartPanelHtml(canvasId, title, metaId, color, legendLabel, withBaseline) {
+    const legend =
+      '<div class="chart-legend-note"><span><span class="legend-swatch" style="color:' + color + ';background:' + color + '"></span>' + legendLabel + "</span>" +
+      (withBaseline ? '<span><span class="legend-swatch is-dashed" style="color:#8a8a9a"></span>baseline</span>' : "") +
+      "</div>";
     return (
-      '<div class="evidence-panel" style="margin-bottom:var(--space-4)">' +
-      '<div class="chart-panel-head"><div class="chart-panel-title">Predictions</div><div class="chart-panel-meta" id="perf-rate-val">&mdash;</div></div>' +
-      '<canvas id="chart-predictions" height="70"></canvas>' +
-      '<div class="chart-legend-note"><span><span class="legend-swatch" style="color:#7eb8f7;background:#7eb8f7"></span>predictions/min</span>' +
-      '<span><span class="legend-swatch is-dashed" style="color:#8a8a9a"></span>baseline (window median)</span>' +
-      '<span><span class="legend-swatch is-dashed" style="color:#8a8a9a"></span>vertical line = deploy event</span></div>' +
-      '</div>' +
-      '<div class="evidence-panel" style="margin-bottom:var(--space-4)">' +
-      '<div class="chart-panel-head"><div class="chart-panel-title">Latency (p95)</div><div class="chart-panel-meta" id="perf-latency-val">&mdash;</div></div>' +
-      '<canvas id="chart-latency" height="70"></canvas>' +
-      '<div class="chart-legend-note"><span><span class="legend-swatch" style="color:#38bdf8;background:#38bdf8"></span>p95, 5min rolling window</span>' +
-      '<span><span class="legend-swatch is-dashed" style="color:#8a8a9a"></span>baseline (window median)</span></div>' +
+      '<div class="chart-panel-compact evidence-panel">' +
+      '<div class="chart-panel-head"><div class="chart-panel-title">' + title + '</div><div class="chart-panel-meta" id="' + metaId + '">&mdash;</div></div>' +
+      '<div class="chart-canvas-wrap"><canvas id="' + canvasId + '"></canvas></div>' +
+      legend +
+      "</div>"
+    );
+  }
+
+  function confidencePanelHtml() {
+    return (
+      '<div class="chart-panel-compact evidence-panel">' +
+      '<div class="chart-panel-head"><div class="chart-panel-title">Confidence</div></div>' +
+      '<div class="not-instrumented" style="padding:var(--space-3) var(--space-2)">' +
+      '<div class="not-instrumented-title">Not available</div>' +
+      "<div>No live confidence-score metric is exposed today — only a one-off significance check against it in the drift breakdown.</div>" +
+      "</div></div>"
+    );
+  }
+
+  function perfGridHtml() {
+    return (
+      '<div class="metric-grid" style="margin-bottom:var(--space-5)">' +
+      chartPanelHtml("chart-predictions", "Predictions", "perf-rate-val", "#7eb8f7", "predictions/min", true) +
+      chartPanelHtml("chart-latency", "Latency (p95)", "perf-latency-val", "#38bdf8", "p95, 5min window", true) +
+      chartPanelHtml("chart-driftscore", "Drift score", "perf-drift-val", "#f77e7e", "share of features drifted", false) +
+      confidencePanelHtml() +
       "</div>"
     );
   }
@@ -298,31 +365,58 @@ const Monitoring = (() => {
 
   async function loadPerformance(entry) {
     const el = document.getElementById("mh-performance");
+
     if (!entry.instrumented) {
-      el.innerHTML = notInstrumentedHtml(entry);
+      const marker = "not-instrumented:" + entry.key;
+      if (performanceBuiltFor !== marker) {
+        destroyCharts();
+        el.innerHTML = notInstrumentedHtml(entry);
+        performanceBuiltFor = marker;
+      }
       renderDriftTeaser(entry, null);
       await renderSummary(null);
       await renderTimeline(null);
       return;
     }
-    el.innerHTML = perfPanelsHtml();
-    ensureCharts();
+
+    // Only rebuild the grid's DOM (and the Chart.js instances bound to
+    // it) the first time this model is shown, or when switching models —
+    // NOT on every poll tick. A poll just re-fetches and calls
+    // setChartData()/setDriftScoreData() on the charts already in place.
+    if (performanceBuiltFor !== entry.key) {
+      destroyCharts();
+      el.innerHTML = perfGridHtml();
+      ensureCharts();
+      performanceBuiltFor = entry.key;
+    }
+
     try {
       const [d, events] = await Promise.all([
         Api.get("/metrics-summary?job=" + encodeURIComponent(entry.job)),
         renderTimeline(entry.job),
       ]);
-      const rateVal = d.prediction_rate_5m == null ? "no data" : fmtN(d.prediction_rate_5m, 1) + "/min (5m avg)";
-      const latVal = d.latency_p95 == null ? "no data" : fmtN(d.latency_p95 * 1000, 0) + "ms (p95, 5m)";
-      document.getElementById("perf-rate-val").textContent = rateVal;
-      document.getElementById("perf-latency-val").textContent = latVal;
+      const rateVal = d.prediction_rate_5m == null ? "no data" : fmtN(d.prediction_rate_5m, 1) + "/min";
+      const latVal = d.latency_p95 == null ? "no data" : fmtN(d.latency_p95 * 1000, 0) + "ms";
+      const driftVal = d.drift_score == null ? "no data" : (d.drift_score * 100).toFixed(1) + "%";
+      const rateEl = document.getElementById("perf-rate-val");
+      const latEl = document.getElementById("perf-latency-val");
+      const driftEl = document.getElementById("perf-drift-val");
+      if (rateEl) rateEl.textContent = rateVal;
+      if (latEl) latEl.textContent = latVal;
+      if (driftEl) driftEl.textContent = driftVal;
+
       const deployTimestamps = (events || []).filter((e) => e.type === "deploy").map((e) => e.timestamp);
       setChartData(predictionsChart, d.prediction_rate_history || [], deployTimestamps);
       setChartData(latencyChart, d.latency_p95_history || [], deployTimestamps);
+      setDriftScoreData(driftScoreChart, d.drift_history || []);
       renderDriftTeaser(entry, d);
       await renderSummary(entry.job);
     } catch (e) {
-      el.innerHTML = UI.errorState(e.message);
+      // Leave whatever's already on screen alone — replacing the grid's
+      // innerHTML here would tear down the live charts on every failed
+      // poll, which is the same bug this function exists to avoid.
+      console.error("Monitoring: loadPerformance refresh failed", e);
+      UI.toast("Could not refresh metrics: " + e.message, "danger");
     }
   }
 
