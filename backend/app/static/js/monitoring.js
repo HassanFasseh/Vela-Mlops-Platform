@@ -2,21 +2,27 @@
  * Vela Model Health — model-centric (spec redesign). Shared by
  * /admin/monitoring and /app/monitoring via Monitoring.start({role}).
  *
- * Selection comes from ModelCatalog (models.js); a model is either
- * `instrumented` (today: only the id=1 core service, job="model-service"
- * — see services/timeline.py DEFAULT_JOB) or it isn't, in which case the
- * Performance section says so honestly instead of drawing an empty/fake
- * chart. See drift.js for the linked full drift analysis.
+ * Selection comes from ModelCatalog (models.js). Whether a model actually
+ * has performance data is a runtime fact, checked on every fetch
+ * (metricsHaveData()) rather than assumed up front from what kind of
+ * model it is — model-runner and custom-runner deployments got real
+ * Prometheus instrumentation too (see model-runner/main.py, custom-
+ * runner/base/main.py), so any of them can have data once they've
+ * actually served predictions and Prometheus has scraped them. No data
+ * yet (or no resolvable job at all — see entry.job) shows the same
+ * honest "make some predictions and check back" panel regardless of
+ * model kind, and clears itself on the next poll once data shows up.
+ * See drift.js for the linked full drift analysis.
  *
  * The performance grid's DOM (canvases) is only (re)built when the
- * selected model or its instrumented/not-instrumented state actually
- * changes (see performanceBuiltFor) — the 30s poll just calls
- * setChartData()/setDriftScoreData() on the existing Chart.js instances.
- * Rebuilding the canvases on every poll while reusing the same chart
- * objects (the previous bug here) leaves each chart pointing at a
- * detached canvas after the first refresh, since a fresh, blank one
- * replaces it in the DOM — the chart doesn't error, it just silently
- * never draws into the new element again.
+ * selected model or its no-data/has-data state actually changes (see
+ * performanceBuiltFor) — the 30s poll just calls setChartData()/
+ * setDriftScoreData() on the existing Chart.js instances. Rebuilding the
+ * canvases on every poll while reusing the same chart objects (the
+ * previous bug here) leaves each chart pointing at a detached canvas
+ * after the first refresh, since a fresh, blank one replaces it in the
+ * DOM — the chart doesn't error, it just silently never draws into the
+ * new element again.
  *
  * Expects in the page: #model-picker #model-empty #model-content
  *   #mh-name #mh-task #mh-status-badge #mh-status-stats
@@ -32,7 +38,7 @@ const Monitoring = (() => {
   let predictionsChart = null;
   let latencyChart = null;
   let driftScoreChart = null;
-  let performanceBuiltFor = null; // entry.key, or "not-instrumented:<key>" — see loadPerformance()
+  let performanceBuiltFor = null; // entry.key, or "no-data:<key>" — see loadPerformance()
 
   function fmtN(n, dec = 1) {
     return n == null || isNaN(n) ? "—" : Number(n).toFixed(dec);
@@ -221,15 +227,29 @@ const Monitoring = (() => {
     );
   }
 
-  function notInstrumentedHtml(entry) {
-    const why =
-      entry.kind === "core"
-        ? "This core service isn't scraped by Prometheus yet (only the primary sentiment service is)."
-        : "Deployments outside the two core services aren't wired up to Prometheus yet — this is a platform instrumentation gap, not specific to this model.";
+  // Whether a model has performance data is a runtime fact (has anyone
+  // actually called predict on it recently, and is Prometheus scraping
+  // it), not something to hardcode per model kind — a model-runner/
+  // custom-runner deployment is just as capable of reporting real
+  // metrics as the core service once it's received traffic. This is
+  // shown whenever the latest fetch came back empty, whoever the
+  // selected model is, and clears itself on the next poll once data
+  // shows up — no page reload needed.
+  function noDataHtml() {
     return (
       '<div class="evidence-panel" style="margin-bottom:var(--space-5)">' +
-      '<div class="not-instrumented"><div class="not-instrumented-title">No performance telemetry for this model</div><div>' +
-      why + "</div></div></div>"
+      '<div class="not-instrumented"><div class="not-instrumented-title">No telemetry data available yet</div>' +
+      "<div>Make some predictions and check back in 30 seconds.</div></div></div>"
+    );
+  }
+
+  function metricsHaveData(d) {
+    return (
+      d.predictions_total != null ||
+      d.latency_p95 != null ||
+      d.drift_score != null ||
+      (d.prediction_rate_history && d.prediction_rate_history.length > 0) ||
+      (d.latency_p95_history && d.latency_p95_history.length > 0)
     );
   }
 
@@ -366,11 +386,15 @@ const Monitoring = (() => {
   async function loadPerformance(entry) {
     const el = document.getElementById("mh-performance");
 
-    if (!entry.instrumented) {
-      const marker = "not-instrumented:" + entry.key;
+    // No job at all to query yet (a platform/custom deployment whose
+    // Prometheus job isn't resolvable client-side) — same "no data"
+    // state and message as a job that resolves but has nothing to
+    // report, just without a fetch to make first.
+    if (!entry.job) {
+      const marker = "no-data:" + entry.key;
       if (performanceBuiltFor !== marker) {
         destroyCharts();
-        el.innerHTML = notInstrumentedHtml(entry);
+        el.innerHTML = noDataHtml();
         performanceBuiltFor = marker;
       }
       renderDriftTeaser(entry, null);
@@ -379,10 +403,40 @@ const Monitoring = (() => {
       return;
     }
 
+    let d, events;
+    try {
+      [d, events] = await Promise.all([
+        Api.get("/metrics-summary?job=" + encodeURIComponent(entry.job)),
+        renderTimeline(entry.job),
+      ]);
+    } catch (e) {
+      // Leave whatever's already on screen alone — replacing the grid's
+      // innerHTML here would tear down the live charts on every failed
+      // poll, which is the same bug the built-DOM-caching below exists
+      // to avoid.
+      console.error("Monitoring: loadPerformance refresh failed", e);
+      UI.toast("Could not refresh metrics: " + e.message, "danger");
+      return;
+    }
+
+    if (!metricsHaveData(d)) {
+      const marker = "no-data:" + entry.key;
+      if (performanceBuiltFor !== marker) {
+        destroyCharts();
+        el.innerHTML = noDataHtml();
+        performanceBuiltFor = marker;
+      }
+      renderDriftTeaser(entry, d);
+      await renderSummary(entry.job);
+      return;
+    }
+
     // Only rebuild the grid's DOM (and the Chart.js instances bound to
-    // it) the first time this model is shown, or when switching models —
-    // NOT on every poll tick. A poll just re-fetches and calls
-    // setChartData()/setDriftScoreData() on the charts already in place.
+    // it) when the selected model changes, or when it just went from no
+    // data to having some — NOT on every poll tick while nothing about
+    // that has changed. A poll on an already-built grid just re-fetches
+    // and calls setChartData()/setDriftScoreData() on the charts already
+    // in place.
     if (performanceBuiltFor !== entry.key) {
       destroyCharts();
       el.innerHTML = perfGridHtml();
@@ -390,34 +444,22 @@ const Monitoring = (() => {
       performanceBuiltFor = entry.key;
     }
 
-    try {
-      const [d, events] = await Promise.all([
-        Api.get("/metrics-summary?job=" + encodeURIComponent(entry.job)),
-        renderTimeline(entry.job),
-      ]);
-      const rateVal = d.prediction_rate_5m == null ? "no data" : fmtN(d.prediction_rate_5m, 1) + "/min";
-      const latVal = d.latency_p95 == null ? "no data" : fmtN(d.latency_p95 * 1000, 0) + "ms";
-      const driftVal = d.drift_score == null ? "no data" : (d.drift_score * 100).toFixed(1) + "%";
-      const rateEl = document.getElementById("perf-rate-val");
-      const latEl = document.getElementById("perf-latency-val");
-      const driftEl = document.getElementById("perf-drift-val");
-      if (rateEl) rateEl.textContent = rateVal;
-      if (latEl) latEl.textContent = latVal;
-      if (driftEl) driftEl.textContent = driftVal;
+    const rateVal = d.prediction_rate_5m == null ? "no data" : fmtN(d.prediction_rate_5m, 1) + "/min";
+    const latVal = d.latency_p95 == null ? "no data" : fmtN(d.latency_p95 * 1000, 0) + "ms";
+    const driftVal = d.drift_score == null ? "no data" : (d.drift_score * 100).toFixed(1) + "%";
+    const rateEl = document.getElementById("perf-rate-val");
+    const latEl = document.getElementById("perf-latency-val");
+    const driftEl = document.getElementById("perf-drift-val");
+    if (rateEl) rateEl.textContent = rateVal;
+    if (latEl) latEl.textContent = latVal;
+    if (driftEl) driftEl.textContent = driftVal;
 
-      const deployTimestamps = (events || []).filter((e) => e.type === "deploy").map((e) => e.timestamp);
-      setChartData(predictionsChart, d.prediction_rate_history || [], deployTimestamps);
-      setChartData(latencyChart, d.latency_p95_history || [], deployTimestamps);
-      setDriftScoreData(driftScoreChart, d.drift_history || []);
-      renderDriftTeaser(entry, d);
-      await renderSummary(entry.job);
-    } catch (e) {
-      // Leave whatever's already on screen alone — replacing the grid's
-      // innerHTML here would tear down the live charts on every failed
-      // poll, which is the same bug this function exists to avoid.
-      console.error("Monitoring: loadPerformance refresh failed", e);
-      UI.toast("Could not refresh metrics: " + e.message, "danger");
-    }
+    const deployTimestamps = (events || []).filter((e) => e.type === "deploy").map((e) => e.timestamp);
+    setChartData(predictionsChart, d.prediction_rate_history || [], deployTimestamps);
+    setChartData(latencyChart, d.latency_p95_history || [], deployTimestamps);
+    setDriftScoreData(driftScoreChart, d.drift_history || []);
+    renderDriftTeaser(entry, d);
+    await renderSummary(entry.job);
   }
 
   async function renderModel() {
