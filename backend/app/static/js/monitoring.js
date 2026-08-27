@@ -1,219 +1,351 @@
 /*
- * Vela monitoring data layer — shared by /admin/monitoring and
- * /app/monitoring. Ported from /dashboard's loadMetrics/loadModels/
- * loadSummary/loadTimeline (same endpoints, same 30s polling cadence),
- * re-rendered through the shared design system instead of /dashboard's
- * one-off inline styles.
+ * Vela Model Health — model-centric (spec redesign). Shared by
+ * /admin/monitoring and /app/monitoring via Monitoring.start({role}).
  *
- * Requires Chart.js (loaded via CDN, same as /dashboard) and ui.js.
- * Expects these elements to exist in the page:
- *   #m-rate #m-latency #m-drift #m-total
- *   #cpu-fill #cpu-val #mem-fill #mem-val
- *   #drift-chart (canvas) #latency-chart (canvas)
- *   #drift-details-wrap #drift-details-content
- *   #model-status-grid
- *   #summary-box
- *   #timeline-status #timeline-list
+ * Selection comes from ModelCatalog (models.js); a model is either
+ * `instrumented` (today: only the id=1 core service, job="model-service"
+ * — see services/timeline.py DEFAULT_JOB) or it isn't, in which case the
+ * Performance section says so honestly instead of drawing an empty/fake
+ * chart. See drift.js for the linked full drift analysis.
+ *
+ * Expects in the page: #model-picker #model-empty #model-content
+ *   #mh-name #mh-task #mh-status-badge #mh-status-stats
+ *   #mh-performance #mh-drift-link #mh-drift-teaser
+ *   #summary-box #timeline-status #timeline-list
  */
 
 const Monitoring = (() => {
-  const WINDOW_MINUTES = 360;
-  let driftChart = null;
-  let latencyChart = null;
+  let role = "member";
+  let entries = [];
+  let selectedKey = null;
   let pollHandle = null;
+  let predictionsChart = null;
+  let latencyChart = null;
 
   function fmtN(n, dec = 1) {
     return n == null || isNaN(n) ? "—" : Number(n).toFixed(dec);
   }
 
-  function initCharts() {
-    const driftCtx = document.getElementById("drift-chart");
-    if (driftCtx && window.Chart) {
-      driftChart = new Chart(driftCtx.getContext("2d"), {
-        type: "line",
-        data: { labels: [], datasets: [{ label: "Drift", data: [], borderColor: "#f77e7e", backgroundColor: "rgba(247,126,126,0.08)", borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.3 }] },
-        options: {
-          responsive: true,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { display: false },
-            y: { min: 0, max: 1, ticks: { color: "#94a3b8", font: { size: 10 } }, grid: { color: "#f1f5f9" } },
-          },
-        },
-      });
-    }
-    const latencyCtx = document.getElementById("latency-chart");
-    if (latencyCtx && window.Chart) {
-      latencyChart = new Chart(latencyCtx.getContext("2d"), {
-        type: "line",
-        data: { labels: [], datasets: [{ label: "p95 latency (ms)", data: [], borderColor: "#7eb8f7", backgroundColor: "rgba(126,184,247,0.08)", borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.3 }] },
-        options: {
-          responsive: true,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { display: false },
-            y: { beginAtZero: true, ticks: { color: "#94a3b8", font: { size: 10 } }, grid: { color: "#f1f5f9" } },
-          },
-        },
-      });
-    }
+  function median(values) {
+    const v = values.filter((x) => x != null && !isNaN(x)).slice().sort((a, b) => a - b);
+    if (!v.length) return null;
+    const mid = Math.floor(v.length / 2);
+    return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
   }
 
-  async function loadMetrics() {
+  function statLine(value, label, muted) {
+    return (
+      '<div class="stat-line"><div class="stat-line-value' + (muted ? " is-muted" : "") + '">' +
+      UI.escapeHtml(String(value)) + "</div><div class=\"stat-line-label\">" + UI.escapeHtml(label) + "</div></div>"
+    );
+  }
+
+  function customPhaseLabel(phase) {
+    return { downloading: "Downloading model files", provisioning: "Starting", running: "Running", failed: "Failed", unknown: "Unknown" }[phase] || phase;
+  }
+
+  function customPhaseVariant(phase) {
+    if (phase === "running") return "success";
+    if (phase === "failed") return "danger";
+    if (phase === "unknown") return "neutral";
+    return "warning";
+  }
+
+  /* ---- A small Chart.js plugin: vertical dashed markers for deploy
+     events, positioned against the chart's own (rawTimestamps) array
+     rather than a real time scale — labels here are formatted strings,
+     not a linear/time axis, so markers are matched to the nearest
+     sampled point instead of an exact pixel-perfect timestamp. Good
+     enough for "roughly when did this deploy happen relative to the
+     trend", which is the actual question this answers. ------------- */
+  const deployMarkerPlugin = {
+    id: "deployMarkers",
+    afterDatasetsDraw(chart) {
+      const marks = chart.config._deployMarks;
+      const raw = chart.config._rawTimestamps;
+      if (!marks || !marks.length || !raw || !raw.length) return;
+      const xScale = chart.scales.x;
+      const yScale = chart.scales.y;
+      if (!xScale || !yScale) return;
+      const ctx = chart.ctx;
+      ctx.save();
+      ctx.strokeStyle = "#8a8a9a";
+      ctx.setLineDash([3, 3]);
+      ctx.lineWidth = 1;
+      marks.forEach((ts) => {
+        let nearest = 0;
+        let best = Infinity;
+        raw.forEach((t, i) => {
+          const d = Math.abs(t - ts);
+          if (d < best) {
+            best = d;
+            nearest = i;
+          }
+        });
+        const x = xScale.getPixelForValue(nearest);
+        ctx.beginPath();
+        ctx.moveTo(x, yScale.top);
+        ctx.lineTo(x, yScale.bottom);
+        ctx.stroke();
+      });
+      ctx.restore();
+    },
+  };
+
+  function makeLineChart(canvasId, color) {
+    const ctx = document.getElementById(canvasId);
+    if (!ctx || !window.Chart) return null;
+    return new Chart(ctx.getContext("2d"), {
+      type: "line",
+      // Registered per-chart-instance rather than globally via
+      // Chart.register() — avoids any ordering/duplicate-registration
+      // concerns from re-running this module's top-level code.
+      plugins: [deployMarkerPlugin],
+      data: {
+        labels: [],
+        datasets: [
+          { label: "value", data: [], borderColor: color, backgroundColor: "transparent", borderWidth: 1.5, pointRadius: 0, tension: 0.2 },
+          { label: "baseline (median)", data: [], borderColor: "#8a8a9a", borderDash: [4, 3], borderWidth: 1, pointRadius: 0 },
+        ],
+      },
+      options: {
+        responsive: true,
+        animation: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { display: false },
+          y: { beginAtZero: true, ticks: { font: { size: 10 } }, grid: { color: "rgba(128,128,128,0.12)" } },
+        },
+      },
+    });
+  }
+
+  function setChartData(chart, series, deployTimestamps) {
+    if (!chart) return;
+    chart.data.labels = series.map((p) => new Date(p[0] * 1000).toLocaleTimeString());
+    chart.data.datasets[0].data = series.map((p) => p[1]);
+    const base = median(series.map((p) => p[1]));
+    chart.data.datasets[1].data = series.map(() => base);
+    chart.config._rawTimestamps = series.map((p) => p[0]);
+    chart.config._deployMarks = deployTimestamps || [];
+    chart.update("none");
+  }
+
+  function ensureCharts() {
+    if (!predictionsChart) predictionsChart = makeLineChart("chart-predictions", "#7eb8f7");
+    if (!latencyChart) latencyChart = makeLineChart("chart-latency", "#38bdf8");
+  }
+
+  function perfPanelsHtml() {
+    return (
+      '<div class="evidence-panel" style="margin-bottom:var(--space-4)">' +
+      '<div class="chart-panel-head"><div class="chart-panel-title">Predictions</div><div class="chart-panel-meta" id="perf-rate-val">&mdash;</div></div>' +
+      '<canvas id="chart-predictions" height="70"></canvas>' +
+      '<div class="chart-legend-note"><span><span class="legend-swatch" style="color:#7eb8f7;background:#7eb8f7"></span>predictions/min</span>' +
+      '<span><span class="legend-swatch is-dashed" style="color:#8a8a9a"></span>baseline (window median)</span>' +
+      '<span><span class="legend-swatch is-dashed" style="color:#8a8a9a"></span>vertical line = deploy event</span></div>' +
+      '</div>' +
+      '<div class="evidence-panel" style="margin-bottom:var(--space-4)">' +
+      '<div class="chart-panel-head"><div class="chart-panel-title">Latency (p95)</div><div class="chart-panel-meta" id="perf-latency-val">&mdash;</div></div>' +
+      '<canvas id="chart-latency" height="70"></canvas>' +
+      '<div class="chart-legend-note"><span><span class="legend-swatch" style="color:#38bdf8;background:#38bdf8"></span>p95, 5min rolling window</span>' +
+      '<span><span class="legend-swatch is-dashed" style="color:#8a8a9a"></span>baseline (window median)</span></div>' +
+      "</div>"
+    );
+  }
+
+  function notInstrumentedHtml(entry) {
+    const why =
+      entry.kind === "core"
+        ? "This core service isn't scraped by Prometheus yet (only the primary sentiment service is)."
+        : "Deployments outside the two core services aren't wired up to Prometheus yet — this is a platform instrumentation gap, not specific to this model.";
+    return (
+      '<div class="evidence-panel" style="margin-bottom:var(--space-5)">' +
+      '<div class="not-instrumented"><div class="not-instrumented-title">No performance telemetry for this model</div><div>' +
+      why + "</div></div></div>"
+    );
+  }
+
+  async function loadCatalog() {
+    const contentEl = document.getElementById("model-content");
+    const emptyEl = document.getElementById("model-empty");
     try {
-      const d = await Api.get("/metrics-summary");
-      setText("m-rate", fmtN(d.prediction_rate_5m, 1));
-      setText("m-latency", d.latency_p95 > 0 ? fmtN(d.latency_p95 * 1000, 0) : "—");
-      setText("m-drift", fmtN(d.drift_score, 3));
-      setText("m-total", Math.round(d.predictions_total) || "—");
-
-      const cpu = Math.round(d.node_cpu_percent || 0);
-      const mu = d.node_memory_used_gb || 0;
-      const mt = d.node_memory_total_gb || 0;
-      const mp = mt > 0 ? Math.round((mu / mt) * 100) : 0;
-
-      setMeter("cpu", cpu, cpu + "%");
-      setMeter("mem", mp, fmtN(mu, 1) + "GB / " + fmtN(mt, 1) + "GB (" + mp + "%)");
-
-      if (driftChart && d.drift_history && d.drift_history.length) {
-        driftChart.data.labels = d.drift_history.map((p) => new Date(p[0] * 1000).toLocaleTimeString());
-        driftChart.data.datasets[0].data = d.drift_history.map((p) => p[1]);
-        driftChart.update("none");
-      }
-
-      renderDriftDetails(d.drift_details);
+      entries = await ModelCatalog.load(role);
     } catch (e) {
-      UI.toast("Could not load metrics: " + e.message, "danger");
-    }
-  }
-
-  function setText(id, value) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = value;
-  }
-
-  function setMeter(prefix, pct, label) {
-    const fill = document.getElementById(prefix + "-fill");
-    const val = document.getElementById(prefix + "-val");
-    if (fill) {
-      fill.style.width = Math.min(100, Math.max(0, pct)) + "%";
-      fill.className = "meter-fill" + (pct > 85 ? " is-danger" : pct > 65 ? " is-warning" : "");
-    }
-    if (val) val.textContent = label;
-  }
-
-  function renderDriftDetails(details) {
-    const wrap = document.getElementById("drift-details-wrap");
-    const content = document.getElementById("drift-details-content");
-    if (!wrap || !content) return;
-    if (!details || !details.columns || !details.columns.length) {
-      wrap.hidden = true;
+      emptyEl.innerHTML = UI.errorState(e.message, loadCatalog);
+      contentEl.hidden = true;
       return;
     }
-    wrap.hidden = false;
-    content.innerHTML = details.columns
-      .map((c) => {
-        const variant = c.drifted ? "danger" : "success";
-        const pct = Math.round((1 - c.p_value) * 100);
-        return (
-          '<div style="display:flex;align-items:center;gap:.6rem;margin:.4rem 0;font-size:var(--text-sm)">' +
-          '<span style="min-width:120px;color:var(--color-text)">' + UI.escapeHtml(c.column) + "</span>" +
-          '<div class="meter-track" style="flex:1;margin:0"><div class="meter-fill' + (c.drifted ? " is-danger" : "") + '" style="width:' + pct + '%"></div></div>' +
-          '<span style="min-width:110px;text-align:right">' + UI.badge(c.drifted ? "Drifted" : "Stable", variant) + ' <span class="text-muted">p=' + c.p_value + "</span></span>" +
-          "</div>"
-        );
-      })
-      .join("");
+    if (!entries.length) {
+      emptyEl.innerHTML = UI.emptyState(
+        "No models available",
+        role === "admin" ? "No deployments exist yet." : "Your teams haven't been granted access to any models yet."
+      );
+      contentEl.hidden = true;
+      document.getElementById("model-picker").innerHTML = "";
+      return;
+    }
+    emptyEl.innerHTML = "";
+    contentEl.hidden = false;
+    selectedKey = ModelCatalog.pickDefault(entries, ModelCatalog.getSelected());
+    ModelCatalog.renderPicker("model-picker", entries, selectedKey, onSelect);
+    renderModel();
   }
 
-  async function loadTimelineAndLatencyChart() {
-    const statusEl = document.getElementById("timeline-status");
-    const listEl = document.getElementById("timeline-list");
-    try {
-      const events = await Api.get("/timeline?window_minutes=" + WINDOW_MINUTES);
-      if (statusEl) statusEl.textContent = "— " + events.length + " events — last " + WINDOW_MINUTES + "min — refreshes every 30s";
-      if (listEl) {
-        if (!events.length) {
-          listEl.innerHTML = UI.emptyState("No events in this window", "Deploys, drift samples and latency readings will show up here.");
-        } else {
-          listEl.innerHTML = events
-            .slice()
-            .reverse()
-            .map((e) => {
-              const variant = e.type === "drift" ? "danger" : e.type === "latency_p95" ? "success" : "info";
-              return (
-                '<li style="display:flex;gap:.6rem;align-items:baseline;padding:.3rem 0;border-bottom:1px solid var(--color-border-subtle);font-size:var(--text-sm)">' +
-                '<span class="text-muted" style="min-width:150px;flex-shrink:0;font-size:var(--text-xs)">' + new Date(e.timestamp * 1000).toLocaleString() + "</span>" +
-                UI.badge(e.type, variant) +
-                '<span class="text-secondary">' + UI.escapeHtml(e.detail) + "</span>" +
-                "</li>"
-              );
-            })
-            .join("");
-        }
-      }
+  function onSelect(key) {
+    selectedKey = key;
+    ModelCatalog.setSelected(key);
+    renderModel();
+  }
 
-      if (latencyChart) {
-        const latencyEvents = events.filter((e) => e.type === "latency_p95");
-        latencyChart.data.labels = latencyEvents.map((e) => new Date(e.timestamp * 1000).toLocaleTimeString());
-        latencyChart.data.datasets[0].data = latencyEvents.map((e) => parseFloat(e.detail));
-        latencyChart.update("none");
+  function currentEntry() {
+    return entries.find((e) => e.key === selectedKey);
+  }
+
+  async function loadHealth(entry) {
+    const badgeEl = document.getElementById("mh-status-badge");
+    const statsEl = document.getElementById("mh-status-stats");
+    statsEl.innerHTML = '<span class="skeleton skeleton-text" style="width:160px;display:inline-block">&nbsp;</span>';
+    try {
+      if (entry.kind === "core") {
+        const models = await Api.get("/models/status");
+        const id = parseInt(entry.key.split(":")[1], 10);
+        const m = models.find((x) => x.id === id);
+        badgeEl.innerHTML = UI.statusBadge(m ? m.status : "unknown");
+        statsEl.innerHTML =
+          statLine(m && m.model !== "unavailable" ? m.model : "—", "Backing model") +
+          statLine(entry.instrumented ? "Yes" : "No", "Instrumented");
+      } else if (entry.kind === "custom") {
+        const s = await Api.get("/api/v1/custom-model-status/" + entry.deploymentId);
+        const phase = (s && s.phase) || "unknown";
+        badgeEl.innerHTML = UI.badge(customPhaseLabel(phase), customPhaseVariant(phase), true);
+        statsEl.innerHTML = statLine(customPhaseLabel(phase), "Phase") + (s && s.detail ? statLine(s.detail, "Detail") : "");
+      } else {
+        const deployments = await Api.get("/deployments");
+        const d = deployments.find((x) => x.name === entry.deploymentName);
+        badgeEl.innerHTML = UI.statusBadge(d ? d.status : entry.status || "unknown");
+        statsEl.innerHTML = statLine(d ? d.ready + "/" + d.desired : "—", "Replicas ready");
       }
     } catch (e) {
-      if (statusEl) statusEl.textContent = "Error loading timeline: " + e.message;
+      statsEl.innerHTML = UI.errorState(e.message);
+      badgeEl.innerHTML = "";
     }
   }
 
-  async function loadSummary() {
+  function renderDriftTeaser(entry, metrics) {
+    const el = document.getElementById("mh-drift-teaser");
+    if (!metrics || metrics.drift_score == null) {
+      el.innerHTML = '<span class="text-secondary" style="font-size:var(--text-sm)">No drift computation available for this model.</span>';
+      return;
+    }
+    const pct = (metrics.drift_score * 100).toFixed(1) + "%";
+    const columns = (metrics.drift_details && metrics.drift_details.columns) || [];
+    const drifted = columns.some((c) => c.drifted);
+    el.innerHTML =
+      '<div style="display:flex;align-items:center;gap:var(--space-3)">' +
+      UI.badge(drifted ? "Drift detected" : "Stable", drifted ? "warning" : "success", true) +
+      '<span style="font-size:var(--text-sm)">' + pct + " of tracked features drifted</span></div>";
+  }
+
+  async function renderSummary(job) {
     const box = document.getElementById("summary-box");
-    if (!box) return;
+    if (!job) {
+      box.textContent = "No telemetry to summarize for this model yet.";
+      return;
+    }
     try {
-      const d = await Api.get("/summary?window_minutes=" + WINDOW_MINUTES);
+      const d = await Api.get("/summary?window_minutes=360&job=" + encodeURIComponent(job));
       box.textContent = d.summary || "No summary.";
     } catch (e) {
       box.textContent = "Summary unavailable: " + e.message;
     }
   }
 
-  async function loadModelStatus() {
-    const grid = document.getElementById("model-status-grid");
-    if (!grid) return;
+  async function renderTimeline(job) {
+    const statusEl = document.getElementById("timeline-status");
+    const listEl = document.getElementById("timeline-list");
+    if (!job) {
+      statusEl.textContent = "";
+      listEl.innerHTML = UI.emptyState("No events", "This model has no telemetry to derive events from.");
+      return [];
+    }
     try {
-      const [models, deployments] = await Promise.all([Api.get("/models/status"), Api.get("/deployments")]);
-      const rows = [];
-      models.forEach((m) => rows.push({ name: m.name, task: m.task, source: "Core service", status: m.status, detail: "backing model: " + (m.model || "unknown") }));
-      deployments.forEach((d) => rows.push({ name: d.name, task: d.task_type, source: "Deployment", status: d.status, detail: d.ready + "/" + d.desired + " replicas ready" }));
-      if (!rows.length) {
-        grid.innerHTML = UI.emptyState("No models deployed yet", "Infrastructure status will appear here once models are deployed.");
-        return;
+      const events = await Api.get("/timeline?window_minutes=360&job=" + encodeURIComponent(job));
+      statusEl.textContent = "— " + events.length + " events — last 6h — refreshes every 30s";
+      if (!events.length) {
+        listEl.innerHTML = UI.emptyState("No events in this window", "Deploys, drift samples and latency readings will show up here.");
+      } else {
+        listEl.innerHTML = events
+          .slice()
+          .reverse()
+          .slice(0, 40)
+          .map((e) => {
+            const variant = e.type === "drift" ? "danger" : e.type === "latency_p95" ? "success" : "info";
+            return (
+              '<div class="event-row"><span class="event-time">' + new Date(e.timestamp * 1000).toLocaleString() + "</span>" +
+              UI.badge(e.type, variant) + '<span class="text-secondary">' + UI.escapeHtml(e.detail) + "</span></div>"
+            );
+          })
+          .join("");
       }
-      grid.innerHTML = rows
-        .map(
-          (r) =>
-            '<div class="card"><div class="card-title">' + UI.escapeHtml(r.name) + "</div>" +
-            '<div class="card-subtitle">' + UI.escapeHtml(r.task) + " &middot; " + UI.escapeHtml(r.source) + "</div>" +
-            '<div style="margin:.5rem 0">' + UI.statusBadge(r.status) + "</div>" +
-            '<div class="text-secondary" style="font-size:var(--text-xs)">' + UI.escapeHtml(r.detail) + "</div></div>"
-        )
-        .join("");
+      return events;
     } catch (e) {
-      grid.innerHTML = UI.errorState(e.message);
+      statusEl.textContent = "Error loading events: " + e.message;
+      return [];
     }
   }
 
-  async function load() {
-    await Promise.all([loadMetrics(), loadModelStatus(), loadSummary(), loadTimelineAndLatencyChart()]);
+  async function loadPerformance(entry) {
+    const el = document.getElementById("mh-performance");
+    if (!entry.instrumented) {
+      el.innerHTML = notInstrumentedHtml(entry);
+      renderDriftTeaser(entry, null);
+      await renderSummary(null);
+      await renderTimeline(null);
+      return;
+    }
+    el.innerHTML = perfPanelsHtml();
+    ensureCharts();
+    try {
+      const [d, events] = await Promise.all([
+        Api.get("/metrics-summary?job=" + encodeURIComponent(entry.job)),
+        renderTimeline(entry.job),
+      ]);
+      const rateVal = d.prediction_rate_5m == null ? "no data" : fmtN(d.prediction_rate_5m, 1) + "/min (5m avg)";
+      const latVal = d.latency_p95 == null ? "no data" : fmtN(d.latency_p95 * 1000, 0) + "ms (p95, 5m)";
+      document.getElementById("perf-rate-val").textContent = rateVal;
+      document.getElementById("perf-latency-val").textContent = latVal;
+      const deployTimestamps = (events || []).filter((e) => e.type === "deploy").map((e) => e.timestamp);
+      setChartData(predictionsChart, d.prediction_rate_history || [], deployTimestamps);
+      setChartData(latencyChart, d.latency_p95_history || [], deployTimestamps);
+      renderDriftTeaser(entry, d);
+      await renderSummary(entry.job);
+    } catch (e) {
+      el.innerHTML = UI.errorState(e.message);
+    }
   }
 
-  function start() {
-    initCharts();
-    load();
-    pollHandle = setInterval(load, 30000);
+  async function renderModel() {
+    const entry = currentEntry();
+    if (!entry) return;
+    document.getElementById("mh-name").textContent = entry.label;
+    document.getElementById("mh-task").textContent = ModelCatalog.kindLabel(entry.kind) + (entry.task ? " · " + entry.task : "");
+    document.getElementById("mh-drift-link").href = (role === "admin" ? "/admin/drift" : "/app/drift") + "?model=" + encodeURIComponent(entry.key);
+    await Promise.all([loadHealth(entry), loadPerformance(entry)]);
+  }
+
+  function start(opts) {
+    role = (opts && opts.role) || "member";
+    loadCatalog();
+    pollHandle = setInterval(() => {
+      const entry = currentEntry();
+      if (entry) renderModel();
+    }, 30000);
   }
 
   function stop() {
     if (pollHandle) clearInterval(pollHandle);
   }
 
-  return { start, stop, load };
+  return { start, stop };
 })();

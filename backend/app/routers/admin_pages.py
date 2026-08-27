@@ -17,7 +17,7 @@ from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from backend.app.routers._page_fragments import (
-    CHART_JS_CDN, MONITORING_BODY, MONITORING_SCRIPTS_EXTRA,
+    CHART_JS_CDN, MONITORING_CSS, MONITORING_BODY, MONITORING_SCRIPTS_EXTRA,
     DRIFT_BODY, DRIFT_SCRIPTS_EXTRA,
     DOCS_BODY, DOCS_SCRIPTS_EXTRA,
     SETTINGS_BODY, SETTINGS_SCRIPTS_EXTRA,
@@ -864,12 +864,12 @@ def admin_tickets_page():
 
 @router.get("/admin/monitoring", response_class=HTMLResponse)
 def admin_monitoring_page():
-    ready = "Monitoring.start();"
+    ready = "Monitoring.start({role: 'admin'});"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Model Health — Vela Admin</title>\n" + _ASSETS + "\n" + CHART_JS_CDN + "\n</head>\n<body>\n"
+        "<title>Model Health — Vela Admin</title>\n" + _ASSETS + "\n" + CHART_JS_CDN + "\n" + MONITORING_CSS + "\n</head>\n<body>\n"
         + MONITORING_BODY
         + "\n" + _SCRIPTS + "\n" + MONITORING_SCRIPTS_EXTRA
         + _boot_script("/admin/monitoring", "Model Health", ready)
@@ -884,12 +884,12 @@ def admin_monitoring_page():
 
 @router.get("/admin/drift", response_class=HTMLResponse)
 def admin_drift_page():
-    ready = "Drift.start({actionHref: '/admin/tickets-page', actionLabel: 'View open tickets'});"
+    ready = "Drift.start({role: 'admin', actionHrefFor: (e) => '/admin/tickets-page', actionLabel: 'View open tickets'});"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Drift — Vela Admin</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        "<title>Drift — Vela Admin</title>\n" + _ASSETS + "\n" + CHART_JS_CDN + "\n" + MONITORING_CSS + "\n</head>\n<body>\n"
         + DRIFT_BODY
         + "\n" + _SCRIPTS + "\n" + DRIFT_SCRIPTS_EXTRA
         + _boot_script("/admin/drift", "Drift", ready)

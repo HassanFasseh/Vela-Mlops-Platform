@@ -1,0 +1,227 @@
+/*
+ * Model Health / Drift — page-scoped styling on top of components.css.
+ *
+ * Deliberately flatter than the shared component library: no blur, no
+ * glow, no gradient borders. components.css's .card uses backdrop-filter
+ * blur + (on the dark variant) glow shadows, which reads as generic-AI-
+ * SaaS chrome — fine for chrome (buttons, badges, modals stay untouched
+ * here, for consistency with the rest of the app), wrong for the actual
+ * evidence a "is this model healthy" page is built from. These classes
+ * are additive and only used on /app/monitoring, /app/drift,
+ * /admin/monitoring, /admin/drift.
+ */
+
+.evidence-panel {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+
+.model-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+}
+
+.model-header-name {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.model-header-task {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+/* ---- Compact stat line — a labeled number inline with its unit/window,
+   not a giant glowing tile. Used for single point-in-time facts (current
+   p95, current rate, replica count) that sit beside their chart rather
+   than in a KPI wall. ------------------------------------------------ */
+
+.stat-line-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  margin-bottom: var(--space-3);
+}
+
+.stat-line {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stat-line-value {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-line-value.is-muted {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.stat-line-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.stat-line-sub {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+/* ---- Chart panel ---------------------------------------------------- */
+
+.chart-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: var(--space-2);
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.chart-panel-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.chart-panel-meta {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.chart-legend-note {
+  display: flex;
+  gap: var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin-top: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.chart-legend-note span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.legend-swatch.is-dashed {
+  background: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 7px);
+  height: 0;
+  border-top: 2px dashed currentColor;
+}
+
+/* ---- Not-instrumented state — explicit and honest, not a fabricated
+   empty chart. Same "here's why" register as .empty-state. ------------ */
+
+.not-instrumented {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.not-instrumented-title {
+  font-weight: 600;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+/* ---- Drift feature/distribution breakdown --------------------------- */
+
+.feature-row {
+  display: grid;
+  grid-template-columns: 140px 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.feature-row:last-child {
+  border-bottom: none;
+}
+
+.feature-name {
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feature-bar-track {
+  background: var(--color-surface-2);
+  border-radius: var(--radius-sm);
+  height: 6px;
+  overflow: hidden;
+}
+
+.feature-bar-fill {
+  height: 100%;
+  background: var(--color-text-muted);
+}
+
+.feature-bar-fill.is-drifted {
+  background: var(--color-danger);
+}
+
+.feature-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* ---- Since-when strip ------------------------------------------------ */
+
+.since-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-3);
+}
+
+/* ---- Event log — compact, not a huge scroll list --------------------- */
+
+.event-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  padding: 5px 0;
+  font-size: var(--text-xs);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.event-row:last-child {
+  border-bottom: none;
+}
+
+.event-time {
+  color: var(--color-text-muted);
+  min-width: 128px;
+  flex-shrink: 0;
+}

@@ -83,8 +83,8 @@ app.include_router(member_pages_router)
 
 
 @app.get("/metrics-summary")
-def metrics_summary():
-    return build_metrics_summary()
+def metrics_summary(job: str = "model-service"):
+    return build_metrics_summary(job)
 
 import os
 MODEL_SERVICE_URL   = os.environ.get("MODEL_SERVICE_URL", "http://model-service.default.svc.cluster.local")
@@ -454,31 +454,37 @@ def deploy(model: Model):
     return {"status": "deployed", "model": model.name}
 
 @app.get("/timeline")
-def timeline(window_minutes: int = 360):
-    return build_timeline(window_minutes)
+def timeline(window_minutes: int = 360, job: str = "model-service"):
+    return build_timeline(window_minutes, job)
 
 @app.get("/summary")
-def summary(window_minutes: int = 360):
-    events = build_timeline(window_minutes)
+def summary(window_minutes: int = 360, job: str = "model-service"):
+    events = build_timeline(window_minutes, job)
     return {"summary": generate_summary(events)}
 
 @app.get("/models/status")
 def models_status():
     statuses = []
-    for model_id, url, name, task in [
-        (1, MODEL_SERVICE_URL, "DistilBERT Sentiment", "sentiment-analysis"),
-        (2, MODEL_SERVICE_2_URL, "distilbart-mnli Zero-Shot", "zero-shot-classification"),
+    # `job` is the Prometheus job label each service would be scraped
+    # under if it had a ServiceMonitor — only model-service actually does
+    # (k8s/model-service-monitor.yaml selects app=model-service only), so
+    # `instrumented` tells callers up front which of these two has any
+    # real metrics/drift behind it, instead of letting them find out by
+    # getting an empty query back.
+    for model_id, url, name, task, job, instrumented in [
+        (1, MODEL_SERVICE_URL, "DistilBERT Sentiment", "sentiment-analysis", "model-service", True),
+        (2, MODEL_SERVICE_2_URL, "distilbart-mnli Zero-Shot", "zero-shot-classification", "model-service-2", False),
     ]:
         try:
             r = http_requests.get(f"{url}/health", timeout=3)
             health = r.json()
             statuses.append({
-                "id": model_id, "name": name, "task": task,
+                "id": model_id, "name": name, "task": task, "job": job, "instrumented": instrumented,
                 "status": "online", "model": health.get("model", "unknown")
             })
         except Exception:
             statuses.append({
-                "id": model_id, "name": name, "task": task,
+                "id": model_id, "name": name, "task": task, "job": job, "instrumented": instrumented,
                 "status": "offline", "model": "unavailable"
             })
     return statuses
@@ -1031,6 +1037,21 @@ def redeploy_custom_model(deployment_id: int, x_api_key: str = fastapi.Header(No
         "status": "provisioning"
     }
 
+def _user_can_view_deployment(db, user_id: int, deployment_id: int) -> bool:
+    """A plain team member whose team has been granted view or predict
+    access to this exact deployment — the same grant the Model Health/
+    Drift pages use to decide which models show up in a member's model
+    picker in the first place, so this just makes that view actually
+    fetchable instead of admin/API-key-only."""
+    from backend.app.db.models import TeamMember, TeamModelPermission
+    return db.query(TeamModelPermission).join(
+        TeamMember, TeamMember.team_id == TeamModelPermission.team_id
+    ).filter(
+        TeamMember.user_id == user_id,
+        TeamModelPermission.deployment_id == deployment_id,
+        (TeamModelPermission.can_view_metrics == True) | (TeamModelPermission.can_predict == True),
+    ).first() is not None
+
 @app.get("/api/v1/custom-model-status/{deployment_id}")
 def custom_model_status(deployment_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key"), authorization: str = fastapi.Header(None)):
     from backend.app.database import SessionLocal
@@ -1039,12 +1060,26 @@ def custom_model_status(deployment_id: int, x_api_key: str = fastapi.Header(None
 
     db = SessionLocal()
     try:
-        api_key, is_admin_jwt = _resolve_custom_model_actor(db, authorization, x_api_key)
+        try:
+            api_key, is_admin_jwt = _resolve_custom_model_actor(db, authorization, x_api_key)
+            authorized = True
+        except HTTPException:
+            api_key, is_admin_jwt, authorized = None, False, False
 
         deployment = db.query(DeploymentModel).filter(DeploymentModel.id == deployment_id).first()
         if not deployment:
             raise HTTPException(status_code=404, detail="Deployment not found")
-        if not is_admin_jwt and deployment.workspace_id != api_key.workspace_id:
+
+        if not authorized:
+            from backend.app.services.auth import decode_token
+            user_id = None
+            if authorization and authorization.startswith("Bearer "):
+                payload = decode_token(authorization.split(" ", 1)[1])
+                if payload:
+                    user_id = int(payload["sub"])
+            if not user_id or not _user_can_view_deployment(db, user_id, deployment_id):
+                raise HTTPException(status_code=401, detail="API key, admin session, or team access to this model required")
+        elif not is_admin_jwt and deployment.workspace_id != api_key.workspace_id:
             raise HTTPException(status_code=401, detail="Invalid API key for this workspace")
         if deployment.model_type != "custom":
             raise HTTPException(status_code=400, detail="Not a custom model deployment")
