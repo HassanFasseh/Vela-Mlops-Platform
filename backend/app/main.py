@@ -83,8 +83,8 @@ app.include_router(member_pages_router)
 
 
 @app.get("/metrics-summary")
-def metrics_summary(job: str = "model-service", pod: str = None):
-    return build_metrics_summary(job, pod)
+def metrics_summary(job: str = "model-service", pod: str = None, deployment_id: int = None):
+    return build_metrics_summary(job, pod, deployment_id)
 
 import os
 MODEL_SERVICE_URL   = os.environ.get("MODEL_SERVICE_URL", "http://model-service.default.svc.cluster.local")
@@ -696,6 +696,13 @@ def api_predict(req: PredictRequest, x_api_key: str = fastapi.Header(None, alias
                 r = http_requests.post(f"{url}/predict", json=payload, timeout=30)
 
             result = r.json()
+
+            # Fire-and-forget drift telemetry — see services/drift_tracker.py.
+            # Every deployment routed through this one endpoint (both
+            # model-runner and custom-runner) gets a window in Redis this
+            # way, not just model-service's own hardcoded pipeline.
+            from backend.app.services import drift_tracker
+            drift_tracker.record_prediction(req.deployment_id, result, len(req.text) if req.text else 0)
 
             return {
                 "workspace_id": api_key.workspace_id,

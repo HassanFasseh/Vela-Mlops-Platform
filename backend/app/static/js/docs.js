@@ -11,6 +11,8 @@
  */
 
 const Docs = (() => {
+  let role = "member";
+
   function renderInitial() {
     document.getElementById("card-result").innerHTML = UI.emptyState(
       "Look up a model card",
@@ -18,10 +20,16 @@ const Docs = (() => {
     );
   }
 
+  // A 404 here just means nobody's documented this deployment yet — not
+  // a broken page. Copy differs by role: an admin can actually go create
+  // one, a member can't, so pointing them at the Models page too would
+  // be a dead end.
   function renderNotFound(id) {
     document.getElementById("card-result").innerHTML = UI.emptyState(
       "No model card found",
-      'Deployment #' + id + ' hasn\'t been documented yet. Model cards are created from a workspace\'s "Document a model" form.'
+      role === "admin"
+        ? "No model card found for this deployment. You can create one from the Models page."
+        : "No model card available for this model yet."
     );
   }
 
@@ -85,7 +93,8 @@ const Docs = (() => {
     }
   }
 
-  function start() {
+  function start(opts) {
+    role = (opts && opts.role) || "member";
     renderInitial();
     document.getElementById("lookup-form").addEventListener("submit", (e) => {
       e.preventDefault();

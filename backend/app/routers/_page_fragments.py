@@ -23,7 +23,7 @@ CHART_JS_CDN = '<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4
 # HTML (fresh, since FastAPI never caches it), stale JS silently doing
 # nothing with the new page's element ids. Bump this string on every
 # change to these files.
-_STATIC_V = "5"
+_STATIC_V = "6"
 MONITORING_CSS = f'<link rel="stylesheet" href="/static/css/monitoring.css?v={_STATIC_V}">'
 MODEL_CATALOG_JS = f'<script src="/static/js/models.js?v={_STATIC_V}"></script>'
 
@@ -185,7 +185,7 @@ DOCS_BODY = """
 <div class="auth-loading" id="loading-root">Loading&hellip;</div>
 """
 
-DOCS_SCRIPTS_EXTRA = '<script src="/static/js/docs.js"></script>'
+DOCS_SCRIPTS_EXTRA = f'<script src="/static/js/docs.js?v={_STATIC_V}"></script>'
 
 # =========================================================================
 # Settings (spec §18/§21) — identical for admin and team-member: account

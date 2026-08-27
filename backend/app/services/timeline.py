@@ -147,12 +147,44 @@ def get_drift_details() -> dict:
     except Exception:
         return {"drift_share": 0.0, "columns": [], "computed_at": None}
 
-def build_metrics_summary(job: str = DEFAULT_JOB, pod: str = None) -> dict:
+def _drift_fields(job: str, deployment_id) -> dict:
+    """Two entirely different drift sources, picked by whether a caller
+    knows their deployment_id:
+      - deployment_id given: backend/app/services/drift_tracker.py's
+        per-deployment Redis window — works for any deployment (model-
+        runner, custom-runner) that's received predictions through
+        POST /api/v1/predict, regardless of job/pod. No history array:
+        Redis only keeps the latest computed result, not a time series
+        the way Prometheus's drift_score gauge gives model-service.
+      - no deployment_id (legacy path, kept for the callers that predate
+        deployment_id-based lookups — the /dashboard page, and any
+        caller that only ever passed job): model-service's own hardcoded
+        Evidently pipeline, queried via Prometheus (drift_score) and its
+        own /drift-details HTTP endpoint — only ever real for
+        job="model-service".
+    """
+    if deployment_id is not None:
+        from backend.app.services import drift_tracker
+        result = drift_tracker.get_drift_result(deployment_id)
+        return {
+            "drift_score": result.get("drift_share"),
+            "drift_history": [],
+            "drift_details": result,
+        }
     has_drift = job == "model-service"  # see get_drift_details() docstring
+    sel = _selector(job, None)
+    return {
+        "drift_score": _safe(query_instant(f'drift_score{sel}')) if has_drift else None,
+        "drift_history": [[p[0], _safe(p[1])] for p in query_range_values(f'drift_score{sel}', window_minutes=120)] if has_drift else [],
+        "drift_details": get_drift_details() if has_drift else {"drift_share": None, "columns": [], "computed_at": None},
+    }
+
+def build_metrics_summary(job: str = DEFAULT_JOB, pod: str = None, deployment_id=None) -> dict:
     sel = _selector(job, pod)
     return {
         "job": job,
         "pod": pod,
+        "deployment_id": deployment_id,
         "predictions_total": _safe(query_instant(f'predictions_total{sel}')),
         "prediction_rate_5m": _safe(query_instant(f'rate(predictions_total{sel}[5m]) * 60')),
         "prediction_rate_history": [[p[0], _safe(p[1])] for p in query_range_values(f'rate(predictions_total{sel}[5m]) * 60', window_minutes=120)],
@@ -165,9 +197,7 @@ def build_metrics_summary(job: str = DEFAULT_JOB, pod: str = None) -> dict:
         # for job="model-service" — not fabricated as 0.
         "prediction_confidence": _safe(query_instant(f'prediction_confidence{sel}')),
         "prediction_confidence_history": [[p[0], _safe(p[1])] for p in query_range_values(f'prediction_confidence{sel}', window_minutes=120)],
-        "drift_score": _safe(query_instant(f'drift_score{sel}')) if has_drift else None,
-        "drift_history": [[p[0], _safe(p[1])] for p in query_range_values(f'drift_score{sel}', window_minutes=120)] if has_drift else [],
-        "drift_details": get_drift_details() if has_drift else {"drift_share": None, "columns": [], "computed_at": None},
+        **_drift_fields(job, deployment_id),
         # Node-wide, not job-scoped — real system metrics, kept here only
         # because /admin/infrastructure already reads this endpoint for
         # them. Not shown on the model-centric Monitoring/Drift pages.

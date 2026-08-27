@@ -25,6 +25,7 @@ from backend.app.routers._page_fragments import (
     DRIFT_BODY, DRIFT_SCRIPTS_EXTRA,
     DOCS_BODY, DOCS_SCRIPTS_EXTRA,
     SETTINGS_BODY, SETTINGS_SCRIPTS_EXTRA,
+    _STATIC_V,
 )
 
 router = APIRouter()
@@ -35,10 +36,10 @@ _ASSETS = """<link rel="stylesheet" href="/static/css/tokens.css">
 <link rel="stylesheet" href="/static/css/shell.css">
 <link rel="stylesheet" href="/static/css/light-theme.css">"""
 
-_SCRIPTS = """<script src="/static/js/api.js"></script>
+_SCRIPTS = f"""<script src="/static/js/api.js"></script>
 <script src="/static/js/shell.js"></script>
 <script src="/static/js/ui.js"></script>
-<script src="/static/js/predictor.js"></script>"""
+<script src="/static/js/predictor.js?v={_STATIC_V}"></script>"""
 
 
 def _boot_script(active_path: str, breadcrumb_label: str, on_ready: str) -> str:
@@ -847,7 +848,7 @@ def member_drift_page():
 
 @router.get("/app/docs", response_class=HTMLResponse)
 def member_docs_page():
-    ready = "Docs.start();"
+    ready = "Docs.start({role: 'member'});"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"

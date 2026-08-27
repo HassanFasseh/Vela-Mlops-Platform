@@ -1200,7 +1200,7 @@ def admin_remediation_page():
 
 @router.get("/admin/docs", response_class=HTMLResponse)
 def admin_docs_page():
-    ready = "Docs.start();"
+    ready = "Docs.start({role: 'admin'});"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
@@ -1567,8 +1567,16 @@ def admin_deployments_page():
         <div class="field">
           <label class="field-label" for="dp-task">Task</label>
           <select class="select" id="dp-task">
-            <option value="sentiment-analysis">Sentiment analysis</option>
-            <option value="zero-shot-classification">Zero-shot classification</option>
+            <option value="sentiment-analysis">Sentiment Analysis</option>
+            <option value="zero-shot-classification">Zero-Shot Classification</option>
+            <option value="text-classification">Text Classification</option>
+            <option value="token-classification">Named Entity Recognition / Token Classification</option>
+            <option value="text-generation">Text Generation</option>
+            <option value="summarization">Summarization</option>
+            <option value="translation">Translation</option>
+            <option value="question-answering">Question Answering</option>
+            <option value="fill-mask">Fill Mask</option>
+            <option value="image-classification">Image Classification</option>
           </select>
         </div>
         <div class="field">

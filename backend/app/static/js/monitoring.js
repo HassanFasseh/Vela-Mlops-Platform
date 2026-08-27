@@ -339,9 +339,13 @@ const Monitoring = (() => {
   // deployment shares one job behind the platform-runner PodMonitor, so
   // `pod` (a regex matching that deployment's pod-name prefix — see
   // models.js) rides along whenever the model in question needs it.
-  function jobParams(job, pod) {
+  function jobParams(job, pod, deploymentId) {
     const params = new URLSearchParams({ job });
     if (pod) params.set("pod", pod);
+    // Only /metrics-summary understands this (see services/
+    // drift_tracker.py) — /timeline and /summary don't take it and
+    // ignore it harmlessly on the rare call site that passes one anyway.
+    if (deploymentId != null) params.set("deployment_id", deploymentId);
     return params.toString();
   }
 
@@ -416,7 +420,7 @@ const Monitoring = (() => {
     let d, events;
     try {
       [d, events] = await Promise.all([
-        Api.get("/metrics-summary?" + jobParams(entry.job, entry.pod)),
+        Api.get("/metrics-summary?" + jobParams(entry.job, entry.pod, entry.deploymentId)),
         renderTimeline(entry.job, entry.pod),
       ]);
     } catch (e) {

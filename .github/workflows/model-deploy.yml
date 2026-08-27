@@ -8,12 +8,20 @@ on:
         required: true
         type: string
       task_type:
-        description: 'Task type: sentiment-analysis or zero-shot-classification'
+        description: 'HuggingFace pipeline task type'
         required: true
         type: choice
         options:
           - sentiment-analysis
           - zero-shot-classification
+          - text-classification
+          - token-classification
+          - text-generation
+          - summarization
+          - translation
+          - question-answering
+          - fill-mask
+          - image-classification
       deployment_name:
         description: 'Kubernetes deployment name (lowercase, no spaces, e.g. my-model)'
         required: true

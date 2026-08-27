@@ -209,6 +209,20 @@ const Predictor = (() => {
         (pct != null ? meterRow("Confidence", pct) : "")
       );
     }
+    if (result.result !== undefined) {
+      // Every other HuggingFace pipeline task (text-generation,
+      // summarization, translation, question-answering, fill-mask,
+      // token-classification, image-classification, ...) — model-runner
+      // returns each one's own raw pipeline output under "result" rather
+      // than a bespoke shape per task, so there's no single "the answer"
+      // field to pull out here either. Shown as legible formatted JSON
+      // instead of silently looking like nothing came back.
+      return (
+        '<pre style="white-space:pre-wrap;word-break:break-word;font-size:var(--text-xs);margin:0;font-family:var(--font-mono)">' +
+        UI.escapeHtml(JSON.stringify(result.result, null, 2)) +
+        "</pre>"
+      );
+    }
     return '<div class="text-muted" style="font-size:var(--text-xs)">No result returned.</div>';
   }
 
