@@ -365,12 +365,12 @@ def member_team_detail_page(team_id: int):
     overlay.querySelector('#rk-done').addEventListener('click', UI.closeModal);
     overlay.querySelector('#rk-copy').addEventListener('click', async () => {
       const input = overlay.querySelector('#raw-key');
-      try {
-        await navigator.clipboard.writeText(input.value);
+      const ok = await UI.copyText(input.value);
+      if (ok) {
         UI.toast('Copied to clipboard', 'success');
-      } catch (e) {
+      } else {
         input.select();
-        UI.toast('Could not auto-copy — key is selected, press Ctrl/Cmd+C', 'info');
+        UI.toast('Could not copy automatically — key is selected, press Ctrl/Cmd+C', 'danger');
       }
     });
   }

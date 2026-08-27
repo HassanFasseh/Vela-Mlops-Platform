@@ -635,18 +635,7 @@ def deployments():
 @app.post("/api/v1/predict")
 def api_predict(req: PredictRequest, x_api_key: str = fastapi.Header(None, alias="X-API-Key"), authorization: str = fastapi.Header(None)):
     from backend.app.database import SessionLocal
-    from backend.app.services.auth import verify_api_key
-
-    # Accept key from X-API-Key header or Authorization: Bearer aodp_...
-    raw_key = x_api_key
-    if not raw_key and authorization and authorization.startswith("Bearer aodp_"):
-        raw_key = authorization.split(" ")[1]
-
-    if not raw_key:
-        raise HTTPException(status_code=401, detail="API key required. Pass X-API-Key header or Authorization: Bearer <key>")
-
-    if not raw_key.startswith("aodp_"):
-        raise HTTPException(status_code=401, detail="Invalid API key format. Keys must start with aodp_")
+    from backend.app.services.auth import verify_api_key, decode_token
 
     # deployment_id is the only routing key this endpoint accepts now —
     # every prediction goes through a real Deployment row so its
@@ -659,16 +648,52 @@ def api_predict(req: PredictRequest, x_api_key: str = fastapi.Header(None, alias
     if not req.deployment_id:
         raise HTTPException(status_code=400, detail="deployment_id is required")
 
+    # Accept either a workspace API key (X-API-Key, or Authorization:
+    # Bearer aodp_...) for external API consumers, or a plain user JWT
+    # (Authorization: Bearer <jwt>) for the in-app prediction tester
+    # (predictor.js) — team members calling this from the web app are
+    # already authenticated there and shouldn't need to paste a key just
+    # to try a model their team already has access to.
+    raw_key = x_api_key
+    if not raw_key and authorization and authorization.startswith("Bearer aodp_"):
+        raw_key = authorization.split(" ")[1]
+    jwt_token = None
+    if not raw_key and authorization and authorization.startswith("Bearer "):
+        jwt_token = authorization.split(" ", 1)[1]
+
+    if not raw_key and not jwt_token:
+        raise HTTPException(status_code=401, detail="API key or session required. Pass X-API-Key header or Authorization: Bearer <key/token>")
+
+    if raw_key and not raw_key.startswith("aodp_"):
+        raise HTTPException(status_code=401, detail="Invalid API key format. Keys must start with aodp_")
+
     db = SessionLocal()
     try:
-        api_key = verify_api_key(db, raw_key)
-        if not api_key:
-            raise HTTPException(status_code=401, detail="Invalid or revoked API key")
+        api_key = None
+        workspace_id = None
 
-        if api_key.team_id or api_key.deployment_id:
-            from backend.app.services.teams import check_team_model_permission
-            if not check_team_model_permission(db, api_key, req.deployment_id):
-                raise HTTPException(status_code=403, detail="Your API key does not have permission to use this model")
+        if raw_key:
+            api_key = verify_api_key(db, raw_key)
+            if not api_key:
+                raise HTTPException(status_code=401, detail="Invalid or revoked API key")
+
+            if api_key.team_id or api_key.deployment_id:
+                from backend.app.services.teams import check_team_model_permission
+                if not check_team_model_permission(db, api_key, req.deployment_id):
+                    raise HTTPException(status_code=403, detail="Your API key does not have permission to use this model")
+            workspace_id = api_key.workspace_id
+        else:
+            from backend.app.db.models import User
+            payload = decode_token(jwt_token)
+            if not payload:
+                raise HTTPException(status_code=401, detail="Invalid or expired session")
+            user = db.query(User).filter(User.id == int(payload["sub"])).first()
+            if not user or not user.is_active:
+                raise HTTPException(status_code=401, detail="Invalid or expired session")
+
+            from backend.app.services.teams import check_user_predict_permission
+            if not check_user_predict_permission(db, user.id, req.deployment_id):
+                raise HTTPException(status_code=403, detail="You do not have permission to use this model")
 
         from backend.app.db.models import Deployment
         deployment = db.query(Deployment).filter(Deployment.id == req.deployment_id).first()
@@ -676,6 +701,8 @@ def api_predict(req: PredictRequest, x_api_key: str = fastapi.Header(None, alias
             raise HTTPException(status_code=404, detail="Deployment not found")
         if not deployment.is_active:
             raise HTTPException(status_code=403, detail="This model has been disabled")
+        if workspace_id is None:
+            workspace_id = deployment.workspace_id
 
         # Which field is required depends on what this specific
         # deployment actually expects — not a global assumption of
@@ -747,7 +774,7 @@ def api_predict(req: PredictRequest, x_api_key: str = fastapi.Header(None, alias
             drift_tracker.record_prediction(req.deployment_id, result, len(req.text) if req.text else 0)
 
             return {
-                "workspace_id": api_key.workspace_id,
+                "workspace_id": workspace_id,
                 "deployment_id": req.deployment_id,
                 "result": result
             }

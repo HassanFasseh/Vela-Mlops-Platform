@@ -19,11 +19,15 @@
  *           is read client-side into a base64 string (pendingFiles
  *           below) as soon as it's chosen, then sent as {"file": ...}.
  *
- * The API key used to call /api/v1/predict is never routed through the
- * shared Api helper (that attaches the JWT and treats any 401 as
- * "session expired") — it's a workspace-scoped model key the member
- * pastes in once per team+model and it's kept in sessionStorage under
- * vela_key_{team_id}_{deployment_id}, not the JWT-backed session.
+ * Calls go through the shared Api helper, which attaches the member's
+ * own JWT (already how every other page here authenticates) — no
+ * separate model API key needed in-app. /api/v1/predict accepts that
+ * JWT as an alternative to X-API-Key and checks the same
+ * TeamModelPermission.can_predict a key would need (see
+ * check_user_predict_permission in services/teams.py). team_id is kept
+ * in this module's signature only for call-site compatibility with
+ * member_pages.py; it's not otherwise used here — permission is
+ * resolved server-side from the JWT's user across all of their teams.
  */
 
 const Predictor = (() => {
@@ -47,43 +51,7 @@ const Predictor = (() => {
     });
   }
 
-  function keyFor(teamId, deploymentId) {
-    return "vela_key_" + teamId + "_" + deploymentId;
-  }
-
-  function getKey(teamId, deploymentId) {
-    try {
-      return sessionStorage.getItem(keyFor(teamId, deploymentId)) || "";
-    } catch (e) {
-      return "";
-    }
-  }
-
-  function setKey(teamId, deploymentId, value) {
-    try {
-      sessionStorage.setItem(keyFor(teamId, deploymentId), value);
-    } catch (e) {}
-  }
-
-  function clearKey(teamId, deploymentId) {
-    try {
-      sessionStorage.removeItem(keyFor(teamId, deploymentId));
-    } catch (e) {}
-  }
-
   /* ---- Markup ----------------------------------------------------------*/
-
-  function keyPromptHtml(uid) {
-    return (
-      '<div class="field" style="margin-bottom:.4rem">' +
-      '<label class="field-label" for="predict-key-' + uid + '">Enter your API key for this model:</label>' +
-      '<div style="display:flex;gap:.4rem">' +
-      '<input class="input" type="password" id="predict-key-' + uid + '" placeholder="aodp_…" style="font-size:var(--text-xs)">' +
-      '<button class="btn btn-secondary btn-sm" data-save-key="' + uid + '" type="button" style="flex-shrink:0">Save</button>' +
-      "</div>" +
-      "</div>"
-    );
-  }
 
   // One <input> per input_schema key, e.g. {"age":"number","note":"string"}
   // -> an age number-input and a note text-input. Falls back to a single
@@ -151,8 +119,7 @@ const Predictor = (() => {
     return (
       inputHtml +
       '<button class="btn btn-secondary btn-sm" data-run="' + uid + '" type="button">Run prediction</button>' +
-      '<div id="predict-result-' + uid + '" style="margin-top:.6rem"></div>' +
-      '<a class="link-secondary" href="#" data-clear-key="' + uid + '" style="font-size:var(--text-xs);display:inline-block;margin-top:.5rem">Clear key</a>'
+      '<div id="predict-result-' + uid + '" style="margin-top:.6rem"></div>'
     );
   }
 
@@ -161,46 +128,23 @@ const Predictor = (() => {
   // 'd' + deployment_id, which is unique per page in both call sites).
   // inputType/inputSchema come from the permission row; inputType
   // defaults to the plain-text tester for anything other than "json" or
-  // "file" (covers "text" and unset alike).
+  // "file" (covers "text" and unset alike). teamId is unused (see the
+  // module comment) but kept in the signature for call-site compatibility.
   function render(uid, teamId, deploymentId, inputType, inputSchema) {
-    const hasKey = !!getKey(teamId, deploymentId);
-    return (
-      '<div class="predict-tester" id="predict-' + uid + '">' +
-      (hasKey ? testerHtml(uid, inputType, inputSchema) : keyPromptHtml(uid)) +
-      "</div>"
-    );
+    return '<div class="predict-tester" id="predict-' + uid + '">' + testerHtml(uid, inputType, inputSchema) + "</div>";
   }
 
   /* ---- Wiring ------------------------------------------------------------*/
 
   // Attaches event listeners for one tester block — call once, right
-  // after its render() output has been inserted into the DOM. Safe to
-  // call again after the block's own innerHTML is swapped between the
-  // key-prompt and tester states (only the elements that actually exist
-  // in the current state are found and wired).
+  // after its render() output has been inserted into the DOM.
   function wire(uid, teamId, deploymentId, inputType, inputSchema) {
     const root = document.getElementById("predict-" + uid);
     if (!root) return;
 
-    const saveBtn = root.querySelector('[data-save-key="' + uid + '"]');
-    if (saveBtn) {
-      const keyInput = document.getElementById("predict-key-" + uid);
-      const save = () => {
-        const value = (keyInput.value || "").trim();
-        if (!value) return;
-        setKey(teamId, deploymentId, value);
-        root.innerHTML = testerHtml(uid, inputType, inputSchema);
-        wire(uid, teamId, deploymentId, inputType, inputSchema);
-      };
-      saveBtn.addEventListener("click", save);
-      keyInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") save();
-      });
-    }
-
     const runBtn = root.querySelector('[data-run="' + uid + '"]');
     if (runBtn) {
-      runBtn.addEventListener("click", () => runPrediction(uid, teamId, deploymentId, inputType, inputSchema));
+      runBtn.addEventListener("click", () => runPrediction(uid, deploymentId, inputType, inputSchema));
     }
 
     const fileInput = document.getElementById("predict-file-" + uid);
@@ -220,17 +164,6 @@ const Predictor = (() => {
         } catch (e) {
           if (statusEl) statusEl.textContent = "Could not read that file.";
         }
-      });
-    }
-
-    const clearLink = root.querySelector('[data-clear-key="' + uid + '"]');
-    if (clearLink) {
-      clearLink.addEventListener("click", (e) => {
-        e.preventDefault();
-        clearKey(teamId, deploymentId);
-        delete pendingFiles[uid];
-        root.innerHTML = keyPromptHtml(uid);
-        wire(uid, teamId, deploymentId, inputType, inputSchema);
       });
     }
   }
@@ -335,57 +268,33 @@ const Predictor = (() => {
     return { text: text, deployment_id: deploymentId };
   }
 
-  async function runPrediction(uid, teamId, deploymentId, inputType, inputSchema) {
+  async function runPrediction(uid, deploymentId, inputType, inputSchema) {
     const resultEl = document.getElementById("predict-result-" + uid);
     const btn = document.querySelector('[data-run="' + uid + '"]');
 
     const body = collectRequestBody(uid, deploymentId, inputType, resultEl);
     if (!body) return;
 
-    const apiKey = getKey(teamId, deploymentId);
     const originalLabel = btn.textContent;
     btn.disabled = true;
     btn.textContent = "Running…";
     resultEl.innerHTML = '<span class="skeleton skeleton-text" style="display:inline-block;width:50%">&nbsp;</span>';
 
     try {
-      const res = await fetch("/api/v1/predict", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
-        body: JSON.stringify(body),
-      });
-      const raw = await res.text();
-      let data = null;
-      if (raw) {
-        try {
-          data = JSON.parse(raw);
-        } catch (e) {
-          data = null;
-        }
-      }
-      if (!res.ok) {
-        if (res.status === 401) {
-          // A stale/invalid key — drop back to the prompt instead of
-          // leaving the member stuck retrying with a key that will
-          // never work.
-          clearKey(teamId, deploymentId);
-          const root = document.getElementById("predict-" + uid);
-          root.innerHTML =
-            keyPromptHtml(uid) +
-            '<div class="field-error">' + UI.escapeHtml((data && data.detail) || "Invalid API key.") + "</div>";
-          wire(uid, teamId, deploymentId, inputType, inputSchema);
-          return;
-        }
-        throw new Error((data && data.detail) || res.statusText || "Request failed");
-      }
+      // Api.post attaches the member's JWT automatically and already
+      // redirects to /login on a real 401 (session expired) — nothing
+      // extra to handle here for that case.
+      const data = await Api.post("/api/v1/predict", body);
       resultEl.innerHTML = renderResult((data && data.result) || {});
     } catch (e) {
-      resultEl.innerHTML = '<div class="field-error">' + UI.escapeHtml(e.message || "Request failed") + "</div>";
+      if (e.status !== 401) {
+        resultEl.innerHTML = '<div class="field-error">' + UI.escapeHtml(e.message || "Request failed") + "</div>";
+      }
     } finally {
       btn.disabled = false;
       btn.textContent = originalLabel;
     }
   }
 
-  return { render, wire, keyFor, getKey, setKey, clearKey };
+  return { render, wire };
 })();

@@ -176,6 +176,23 @@ def check_team_model_permission(db: Session, api_key: WorkspaceApiKey, deploymen
     ).first()
     return perm is not None
 
+def check_user_predict_permission(db: Session, user_id: int, deployment_id: int) -> bool:
+    """Same permission this deployment's TeamModelPermission grants an API
+    key, checked directly for a logged-in user instead — used by
+    /api/v1/predict's JWT path (the in-app prediction tester, predictor.js)
+    so a team member doesn't need to mint an API key just to try a model
+    their team already has access to. True if any team the user belongs
+    to has been granted can_predict for this deployment."""
+    team_ids = [m.team_id for m in db.query(TeamMember).filter(TeamMember.user_id == user_id).all()]
+    if not team_ids:
+        return False
+    perm = db.query(TeamModelPermission).filter(
+        TeamModelPermission.deployment_id == deployment_id,
+        TeamModelPermission.team_id.in_(team_ids),
+        TeamModelPermission.can_predict == True
+    ).first()
+    return perm is not None
+
 # ── Access Requests ────────────────────────────────────────────────────────
 
 def create_access_request(db: Session, user_id: int, workspace_id: int,

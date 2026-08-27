@@ -34,6 +34,45 @@ const UI = (() => {
     setTimeout(() => el.remove(), timeout);
   }
 
+  /* ---- Clipboard -------------------------------------------------------*/
+  // navigator.clipboard requires a secure context (HTTPS or localhost) —
+  // this platform is served over plain HTTP (see CLAUDE.md's backend API
+  // base URL), so it's commonly undefined entirely rather than just
+  // rejecting, which is what made the API-key "Copy" buttons look like
+  // they silently did nothing. document.execCommand('copy') is
+  // deprecated but still works synchronously from a click handler
+  // regardless of context, so it's the fallback here rather than just
+  // selecting the text and asking the user to press Ctrl/Cmd+C.
+  // Resolves true/false — callers show their own success/failure message.
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) {
+      // fall through to the execCommand fallback below
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.top = "0";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } catch (e) {
+      ok = false;
+    }
+    document.body.removeChild(textarea);
+    return ok;
+  }
+
   /* ---- Modal -----------------------------------------------------------*/
   const FOCUSABLE_SELECTOR =
     'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -192,7 +231,7 @@ const UI = (() => {
   }
 
   return {
-    escapeHtml, toast, openModal, closeModal,
+    escapeHtml, toast, copyText, openModal, closeModal,
     badge, statusBadge, severityBadge,
     fmtDate, timeAgo, skeletonRows, emptyState, errorState,
   };
