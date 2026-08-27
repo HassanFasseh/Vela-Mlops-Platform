@@ -38,6 +38,7 @@ const Monitoring = (() => {
   let predictionsChart = null;
   let latencyChart = null;
   let driftScoreChart = null;
+  let confidenceChart = null;
   let performanceBuiltFor = null; // entry.key, or "no-data:<key>" — see loadPerformance()
 
   function fmtN(n, dec = 1) {
@@ -177,18 +178,26 @@ const Monitoring = (() => {
   }
 
   function destroyCharts() {
-    [predictionsChart, latencyChart, driftScoreChart].forEach((c) => {
+    [predictionsChart, latencyChart, driftScoreChart, confidenceChart].forEach((c) => {
       if (c) c.destroy();
     });
     predictionsChart = null;
     latencyChart = null;
     driftScoreChart = null;
+    confidenceChart = null;
   }
 
   function ensureCharts() {
     if (!predictionsChart) predictionsChart = makeLineChart("chart-predictions", "#7eb8f7");
     if (!latencyChart) latencyChart = makeLineChart("chart-latency", "#38bdf8");
     if (!driftScoreChart) driftScoreChart = makeDriftScoreChart("chart-driftscore");
+    // model-runner/custom-runner set prediction_confidence (see their
+    // main.py); model-service predates that instrumentation and doesn't
+    // export it, so this chart just stays empty with a "no data" meta
+    // readout for that one job — same makeLineChart shape (value +
+    // baseline) as predictions/latency, since a typical-confidence
+    // baseline is exactly what makes a confidence *drop* visible.
+    if (!confidenceChart) confidenceChart = makeLineChart("chart-confidence", "#7ef7a0");
   }
 
   function chartPanelHtml(canvasId, title, metaId, color, legendLabel, withBaseline) {
@@ -205,24 +214,13 @@ const Monitoring = (() => {
     );
   }
 
-  function confidencePanelHtml() {
-    return (
-      '<div class="chart-panel-compact evidence-panel">' +
-      '<div class="chart-panel-head"><div class="chart-panel-title">Confidence</div></div>' +
-      '<div class="not-instrumented" style="padding:var(--space-3) var(--space-2)">' +
-      '<div class="not-instrumented-title">Not available</div>' +
-      "<div>No live confidence-score metric is exposed today — only a one-off significance check against it in the drift breakdown.</div>" +
-      "</div></div>"
-    );
-  }
-
   function perfGridHtml() {
     return (
       '<div class="metric-grid" style="margin-bottom:var(--space-5)">' +
       chartPanelHtml("chart-predictions", "Predictions", "perf-rate-val", "#7eb8f7", "predictions/min", true) +
       chartPanelHtml("chart-latency", "Latency (p95)", "perf-latency-val", "#38bdf8", "p95, 5min window", true) +
       chartPanelHtml("chart-driftscore", "Drift score", "perf-drift-val", "#f77e7e", "share of features drifted", false) +
-      confidencePanelHtml() +
+      chartPanelHtml("chart-confidence", "Confidence", "perf-confidence-val", "#7ef7a0", "avg. prediction confidence", true) +
       "</div>"
     );
   }
@@ -248,8 +246,10 @@ const Monitoring = (() => {
       d.predictions_total != null ||
       d.latency_p95 != null ||
       d.drift_score != null ||
+      d.prediction_confidence != null ||
       (d.prediction_rate_history && d.prediction_rate_history.length > 0) ||
-      (d.latency_p95_history && d.latency_p95_history.length > 0)
+      (d.latency_p95_history && d.latency_p95_history.length > 0) ||
+      (d.prediction_confidence_history && d.prediction_confidence_history.length > 0)
     );
   }
 
@@ -335,21 +335,31 @@ const Monitoring = (() => {
       '<span style="font-size:var(--text-sm)">' + pct + " of tracked features drifted</span></div>";
   }
 
-  async function renderSummary(job) {
+  // job alone identifies model-service; every model-runner/custom-runner
+  // deployment shares one job behind the platform-runner PodMonitor, so
+  // `pod` (a regex matching that deployment's pod-name prefix — see
+  // models.js) rides along whenever the model in question needs it.
+  function jobParams(job, pod) {
+    const params = new URLSearchParams({ job });
+    if (pod) params.set("pod", pod);
+    return params.toString();
+  }
+
+  async function renderSummary(job, pod) {
     const box = document.getElementById("summary-box");
     if (!job) {
       box.textContent = "No telemetry to summarize for this model yet.";
       return;
     }
     try {
-      const d = await Api.get("/summary?window_minutes=360&job=" + encodeURIComponent(job));
+      const d = await Api.get("/summary?window_minutes=360&" + jobParams(job, pod));
       box.textContent = d.summary || "No summary.";
     } catch (e) {
       box.textContent = "Summary unavailable: " + e.message;
     }
   }
 
-  async function renderTimeline(job) {
+  async function renderTimeline(job, pod) {
     const statusEl = document.getElementById("timeline-status");
     const listEl = document.getElementById("timeline-list");
     if (!job) {
@@ -358,7 +368,7 @@ const Monitoring = (() => {
       return [];
     }
     try {
-      const events = await Api.get("/timeline?window_minutes=360&job=" + encodeURIComponent(job));
+      const events = await Api.get("/timeline?window_minutes=360&" + jobParams(job, pod));
       statusEl.textContent = "— " + events.length + " events — last 6h — refreshes every 30s";
       if (!events.length) {
         listEl.innerHTML = UI.emptyState("No events in this window", "Deploys, drift samples and latency readings will show up here.");
@@ -406,8 +416,8 @@ const Monitoring = (() => {
     let d, events;
     try {
       [d, events] = await Promise.all([
-        Api.get("/metrics-summary?job=" + encodeURIComponent(entry.job)),
-        renderTimeline(entry.job),
+        Api.get("/metrics-summary?" + jobParams(entry.job, entry.pod)),
+        renderTimeline(entry.job, entry.pod),
       ]);
     } catch (e) {
       // Leave whatever's already on screen alone — replacing the grid's
@@ -427,7 +437,7 @@ const Monitoring = (() => {
         performanceBuiltFor = marker;
       }
       renderDriftTeaser(entry, d);
-      await renderSummary(entry.job);
+      await renderSummary(entry.job, entry.pod);
       return;
     }
 
@@ -447,19 +457,23 @@ const Monitoring = (() => {
     const rateVal = d.prediction_rate_5m == null ? "no data" : fmtN(d.prediction_rate_5m, 1) + "/min";
     const latVal = d.latency_p95 == null ? "no data" : fmtN(d.latency_p95 * 1000, 0) + "ms";
     const driftVal = d.drift_score == null ? "no data" : (d.drift_score * 100).toFixed(1) + "%";
+    const confVal = d.prediction_confidence == null ? "no data" : (d.prediction_confidence * 100).toFixed(1) + "%";
     const rateEl = document.getElementById("perf-rate-val");
     const latEl = document.getElementById("perf-latency-val");
     const driftEl = document.getElementById("perf-drift-val");
+    const confEl = document.getElementById("perf-confidence-val");
     if (rateEl) rateEl.textContent = rateVal;
     if (latEl) latEl.textContent = latVal;
     if (driftEl) driftEl.textContent = driftVal;
+    if (confEl) confEl.textContent = confVal;
 
     const deployTimestamps = (events || []).filter((e) => e.type === "deploy").map((e) => e.timestamp);
     setChartData(predictionsChart, d.prediction_rate_history || [], deployTimestamps);
     setChartData(latencyChart, d.latency_p95_history || [], deployTimestamps);
     setDriftScoreData(driftScoreChart, d.drift_history || []);
+    setChartData(confidenceChart, d.prediction_confidence_history || [], deployTimestamps);
     renderDriftTeaser(entry, d);
-    await renderSummary(entry.job);
+    await renderSummary(entry.job, entry.pod);
   }
 
   async function renderModel() {

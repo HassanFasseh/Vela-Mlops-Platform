@@ -19,15 +19,24 @@
  *            /deployments for live k8s replica status on the
  *            platform-deployed (non-custom) ones.
  *
- * Every entry also carries `instrumented`: true only for the one
- * Prometheus job that's actually scraped today (see services/timeline.py
- * DEFAULT_JOB) — Model Health/Drift use this to decide whether to render
- * real charts or an honest "not instrumented" state, instead of ever
- * showing a fabricated zero.
+ * Every entry carries `job` (and, for deployments behind the shared
+ * PodMonitor, `pod`) — the Prometheus label selector Model Health/Drift
+ * need to query that model's own metrics, not a static "is this
+ * instrumented" flag. model-service's ServiceMonitor gives it a job all
+ * to itself (job="model-service"); every model-runner/custom-runner
+ * deployment shares ONE job (PLATFORM_RUNNER_JOB, from k8s/platform-
+ * runner-podmonitor.yaml's own namespace/name — a PodMonitor covering
+ * many dynamically-named deployments has no per-deployment job the way
+ * a one-target ServiceMonitor does), disambiguated by `pod`, a regex
+ * matching that deployment's pod-name prefix (pods are named
+ * <deployment>-<replicaset-hash>-<random>). Whether a query for that
+ * selector actually returns anything is then just a runtime fact
+ * (checked by monitoring.js's metricsHaveData()), not assumed here.
  */
 
 const ModelCatalog = (() => {
   const STORAGE_KEY = "vela:selectedModel";
+  const PLATFORM_RUNNER_JOB = "monitoring/platform-runner-podmonitor";
 
   // Every fetch below is its own try/catch, and every entry-building loop
   // guards each item individually — a failing/unreachable endpoint or one
@@ -84,7 +93,8 @@ const ModelCatalog = (() => {
             label: p.model_name, task: p.task_type,
             kind: p.model_type === "custom" ? "custom" : "huggingface",
             deploymentId: p.deployment_id, deploymentName: p.deployment_name,
-            job: null, instrumented: false, status: p.status,
+            job: PLATFORM_RUNNER_JOB, pod: p.deployment_name + "-.*",
+            instrumented: false, status: p.status,
           });
         } catch (e) {
           console.error("ModelCatalog: skipping malformed permission entry", p, e);
@@ -124,7 +134,8 @@ const ModelCatalog = (() => {
           label: r.model_name || r.name, task: r.task_type,
           kind: r.model_type === "custom" ? "custom" : "huggingface",
           deploymentId: r.id, deploymentName: r.name,
-          job: null, instrumented: false,
+          job: PLATFORM_RUNNER_JOB, pod: r.name + "-.*",
+          instrumented: false,
           status: l ? l.status : r.status,
           replicas: l ? l.ready + "/" + l.desired : null,
           isActive: r.is_active,

@@ -83,8 +83,8 @@ app.include_router(member_pages_router)
 
 
 @app.get("/metrics-summary")
-def metrics_summary(job: str = "model-service"):
-    return build_metrics_summary(job)
+def metrics_summary(job: str = "model-service", pod: str = None):
+    return build_metrics_summary(job, pod)
 
 import os
 MODEL_SERVICE_URL   = os.environ.get("MODEL_SERVICE_URL", "http://model-service.default.svc.cluster.local")
@@ -454,12 +454,12 @@ def deploy(model: Model):
     return {"status": "deployed", "model": model.name}
 
 @app.get("/timeline")
-def timeline(window_minutes: int = 360, job: str = "model-service"):
-    return build_timeline(window_minutes, job)
+def timeline(window_minutes: int = 360, job: str = "model-service", pod: str = None):
+    return build_timeline(window_minutes, job, pod)
 
 @app.get("/summary")
-def summary(window_minutes: int = 360, job: str = "model-service"):
-    events = build_timeline(window_minutes, job)
+def summary(window_minutes: int = 360, job: str = "model-service", pod: str = None):
+    events = build_timeline(window_minutes, job, pod)
     return {"summary": generate_summary(events)}
 
 @app.get("/models/status")
