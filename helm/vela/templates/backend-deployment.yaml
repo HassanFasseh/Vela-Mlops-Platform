@@ -70,12 +70,17 @@ spec:
             - |
               if [ -f /vault/secrets/config ]; then . /vault/secrets/config; fi
               exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+          env:
+            - name: CUSTOM_RUNNER_IMAGE
+              value: {{ .Values.backend.customRunnerImage | quote }}
           {{- else }}
           # Works whether the Secrets below were rendered natively
           # (secrets.backend: kubernetes) or synced in by the External
           # Secrets Operator (secrets.backend: external-secrets) — both
           # produce Secret objects under these same names/keys.
           env:
+            - name: CUSTOM_RUNNER_IMAGE
+              value: {{ .Values.backend.customRunnerImage | quote }}
             - name: GROQ_API_KEY
               valueFrom:
                 secretKeyRef:

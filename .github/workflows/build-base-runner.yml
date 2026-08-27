@@ -48,3 +48,39 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE }}:base
+            ${{ env.IMAGE }}:base-${{ github.sha }}
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Install OCI CLI
+        run: pip install oci-cli
+
+      - name: Configure OCI CLI
+        run: |
+          mkdir -p ~/.oci
+          printf '%s' "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+          cat > ~/.oci/config << CFG
+          [DEFAULT]
+          user=${{ secrets.OCI_USER_OCID }}
+          fingerprint=${{ secrets.OCI_FINGERPRINT }}
+          tenancy=${{ secrets.OCI_TENANCY_OCID }}
+          region=${{ secrets.OCI_REGION }}
+          key_file=~/.oci/oci_api_key.pem
+          CFG
+
+      - name: Get kubeconfig
+        run: |
+          oci ce cluster create-kubeconfig --cluster-id ${{ secrets.CLUSTER_OCID }} --file "$HOME/.kube/config" --region ${{ secrets.OCI_REGION }} --token-version 2.0.0
+
+      - name: Point new custom deployments at this build
+        # :base itself is left alone (still useful as a human-readable
+        # tag to pull/inspect manually) — this is what actually makes
+        # every custom model deployed from now on use the image just
+        # built, by way of k8s_custom.py's RUNTIME_IMAGE reading
+        # CUSTOM_RUNNER_IMAGE. Existing custom deployments are untouched;
+        # they keep running whatever they were already running until
+        # someone redeploys/restarts them.
+        run: |
+          kubectl set env deployment/backend-app CUSTOM_RUNNER_IMAGE=${{ env.IMAGE }}:base-${{ github.sha }}

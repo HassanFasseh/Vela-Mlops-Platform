@@ -21,6 +21,15 @@ spec:
             - name: http
               containerPort: 8000
           env:
+            # Which custom-runner image k8s_custom.py's
+            # create_runtime_deployment() hands new custom model
+            # deployments — plain value, not a secret. build-base-
+            # runner.yml patches this in place (kubectl set env, which
+            # restarts this pod) after every successful base-image
+            # build, pointing it at that build's ghcr.io/.../custom-
+            # runner:base-<sha> tag instead of the floating :base one.
+            - name: CUSTOM_RUNNER_IMAGE
+              value: "ghcr.io/hassanfasseh/vela/custom-runner:base"
             - name: GROQ_API_KEY
               valueFrom:
                 secretKeyRef:

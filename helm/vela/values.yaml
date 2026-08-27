@@ -33,6 +33,14 @@ backend:
     repository: backend-app
     tag: latest-fix
     pullPolicy: IfNotPresent
+  # -- Image k8s_custom.py's create_runtime_deployment() hands new custom
+  #    model deployments (CUSTOM_RUNNER_IMAGE env var below). .github/
+  #    workflows/build-base-runner.yml patches this in place on the live
+  #    Deployment (kubectl set env) after every successful base-image
+  #    build, pointing it at that build's :base-<sha> tag instead of this
+  #    floating :base default — a Helm upgrade/reinstall resets it back
+  #    to this value, same as any other kubectl set env drift.
+  customRunnerImage: ghcr.io/hassanfasseh/vela/custom-runner:base
   service:
     type: ClusterIP
     port: 80

@@ -39,7 +39,17 @@ from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 
 NAMESPACE = "default"
-RUNTIME_IMAGE = "ghcr.io/hassanfasseh/vela/custom-runner:base"
+# :base is a floating tag — a pod already running it keeps whatever
+# digest it pulled at creation, and (worse) a *new* deployment created
+# after a rebuild could still resolve the same cached digest depending
+# on kubelet/registry image caching, silently running stale code with no
+# indication anything's wrong. build-base-runner.yml now also pushes a
+# git-SHA-suffixed tag (custom-runner:base-<sha>) and patches this env
+# var onto the backend Deployment after every successful build, so a new
+# custom deployment always resolves to a concrete, unambiguous image —
+# :base itself is kept only as a human-readable fallback for a backend
+# pod that hasn't picked up that env var yet (a fresh install, say).
+RUNTIME_IMAGE = os.environ.get("CUSTOM_RUNNER_IMAGE", "ghcr.io/hassanfasseh/vela/custom-runner:base")
 MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "minio.default.svc.cluster.local:9000")
 
 
