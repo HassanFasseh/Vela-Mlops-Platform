@@ -31,11 +31,27 @@ async def remediation_loop():
             print(f"[remediation] loop error: {e}", flush=True)
         await asyncio.sleep(300)  # 5 minutes
 
+async def deployment_status_sync_loop():
+    """Keep Deployment.status in sync with live k8s state every 60s — see
+    services/deployment_status.py for why this exists (deployments
+    otherwise get stuck showing "pending" on the member side forever)."""
+    while True:
+        try:
+            from backend.app.database import SessionLocal
+            from backend.app.services.deployment_status import sync_deployment_statuses
+            db = SessionLocal()
+            sync_deployment_statuses(db)
+            db.close()
+        except Exception as e:
+            print(f"[deployment-status-sync] loop error: {e}", flush=True)
+        await asyncio.sleep(60)
+
 @asynccontextmanager
 async def lifespan(app):
-    task = asyncio.create_task(remediation_loop())
+    tasks = [asyncio.create_task(remediation_loop()), asyncio.create_task(deployment_status_sync_loop())]
     yield
-    task.cancel()
+    for task in tasks:
+        task.cancel()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -464,30 +480,46 @@ def summary(window_minutes: int = 360, job: str = "model-service", pod: str = No
 
 @app.get("/models/status")
 def models_status():
-    statuses = []
-    # `job` is the Prometheus job label each service would be scraped
-    # under if it had a ServiceMonitor — only model-service actually does
-    # (k8s/model-service-monitor.yaml selects app=model-service only), so
-    # `instrumented` tells callers up front which of these two has any
-    # real metrics/drift behind it, instead of letting them find out by
-    # getting an empty query back.
-    for model_id, url, name, task, job, instrumented in [
-        (1, MODEL_SERVICE_URL, "DistilBERT Sentiment", "sentiment-analysis", "model-service", True),
-        (2, MODEL_SERVICE_2_URL, "distilbart-mnli Zero-Shot", "zero-shot-classification", "model-service-2", False),
-    ]:
-        try:
-            r = http_requests.get(f"{url}/health", timeout=3)
-            health = r.json()
-            statuses.append({
-                "id": model_id, "name": name, "task": task, "job": job, "instrumented": instrumented,
-                "status": "online", "model": health.get("model", "unknown")
-            })
-        except Exception:
-            statuses.append({
-                "id": model_id, "name": name, "task": task, "job": job, "instrumented": instrumented,
-                "status": "offline", "model": "unavailable"
-            })
-    return statuses
+    """Live health-check status for every deployed model — one HTTP
+    /health probe per Deployment row, keyed by its real DB id. Used as an
+    overlay on top of GET /admin/deployment-registry (admin) or a team's
+    permissions (members): those give identity/metadata, this gives
+    whether the pod is actually answering right now.
+
+    Used to hardcode exactly two entries here (DistilBERT Sentiment /
+    distilbart-mnli Zero-Shot, the original model-service/model-service-2
+    core services, back when neither was a real Deployment row) — both
+    have since been retired as first-class Deployment rows like every
+    other model, so there's nothing left to hardcode."""
+    from backend.app.database import SessionLocal
+    from backend.app.db.models import Deployment
+    db = SessionLocal()
+    try:
+        deployments = db.query(Deployment).all()
+        statuses = []
+        for d in deployments:
+            url = f"http://{d.name}.default.svc.cluster.local"
+            try:
+                r = http_requests.get(f"{url}/health", timeout=3)
+                health = r.json()
+                statuses.append({
+                    "id": d.id, "name": d.name, "task": d.task_type,
+                    # Every model-runner/custom-runner pod is covered by
+                    # the one shared PodMonitor now (k8s/platform-runner-
+                    # podmonitor.yaml) — unlike the old two-core-service
+                    # split, there's no deployment that isn't instrumented.
+                    "job": "monitoring/platform-runner-podmonitor", "instrumented": True,
+                    "status": "online", "model": health.get("model", d.model_name)
+                })
+            except Exception:
+                statuses.append({
+                    "id": d.id, "name": d.name, "task": d.task_type,
+                    "job": "monitoring/platform-runner-podmonitor", "instrumented": True,
+                    "status": "offline", "model": d.model_name
+                })
+        return statuses
+    finally:
+        db.close()
 
 @app.post("/predict-proxy")
 def predict_proxy(req: PredictRequest):
@@ -1361,20 +1393,55 @@ class RemediationConfigCreate(BaseModel):
     action_type: str = "github_issue"
     target: str = ""
 
+def _resolve_remediation_actor(db, authorization: str, x_api_key: str):
+    """Auth for the four remediation endpoints below: either a workspace
+    X-API-Key (original behavior — scoped to that one workspace) or an
+    admin's JWT (Authorization: Bearer), which grants access across
+    every workspace instead, the same way /admin/deployment-registry
+    does — the admin is already authenticated for the rest of the admin
+    UI and shouldn't need a separate workspace-scoped key just for this
+    page. Returns (api_key_or_None, is_admin). Raises 401/403 if neither
+    checks out."""
+    from backend.app.services.auth import verify_api_key, decode_token
+    from backend.app.db.models import User
+
+    if authorization and authorization.startswith("Bearer ") and not authorization.startswith("Bearer aodp_"):
+        payload = decode_token(authorization.split(" ", 1)[1])
+        if not payload:
+            raise HTTPException(status_code=401, detail="Invalid or expired session")
+        user = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not user or not user.is_active:
+            raise HTTPException(status_code=401, detail="Invalid or expired session")
+        if not user.is_admin:
+            raise HTTPException(status_code=403, detail="Admin required")
+        return None, True
+
+    raw_key = x_api_key
+    if not raw_key and authorization and authorization.startswith("Bearer aodp_"):
+        raw_key = authorization.split(" ", 1)[1]
+    if raw_key:
+        api_key = verify_api_key(db, raw_key)
+        if api_key:
+            return api_key, False
+    raise HTTPException(status_code=401, detail="API key or admin session required")
+
 @app.post("/api/v1/remediations")
-def create_remediation(req: RemediationConfigCreate, x_api_key: str = fastapi.Header(None, alias="X-API-Key")):
+def create_remediation(req: RemediationConfigCreate, x_api_key: str = fastapi.Header(None, alias="X-API-Key"), authorization: str = fastapi.Header(None)):
     from backend.app.database import SessionLocal
-    from backend.app.services.auth import verify_api_key
-    if not x_api_key:
-        raise HTTPException(status_code=401, detail="API key required")
+    from backend.app.db.models import Deployment as DeploymentModel
     db = SessionLocal()
     try:
-        api_key = verify_api_key(db, x_api_key)
-        if not api_key:
-            raise HTTPException(status_code=401, detail="Invalid API key")
+        api_key, is_admin = _resolve_remediation_actor(db, authorization, x_api_key)
+        if is_admin:
+            deployment = db.query(DeploymentModel).filter(DeploymentModel.id == req.deployment_id).first()
+            if not deployment:
+                raise HTTPException(status_code=404, detail="Deployment not found")
+            workspace_id = deployment.workspace_id
+        else:
+            workspace_id = api_key.workspace_id
         config = RemediationConfig(
             deployment_id=req.deployment_id,
-            workspace_id=api_key.workspace_id,
+            workspace_id=workspace_id,
             drift_threshold=req.drift_threshold,
             action_type=req.action_type,
             target=req.target
@@ -1387,15 +1454,12 @@ def create_remediation(req: RemediationConfigCreate, x_api_key: str = fastapi.He
         db.close()
 
 @app.get("/api/v1/remediations/{workspace_id}")
-def list_remediations(workspace_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key")):
+def list_remediations(workspace_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key"), authorization: str = fastapi.Header(None)):
     from backend.app.database import SessionLocal
-    from backend.app.services.auth import verify_api_key
-    if not x_api_key:
-        raise HTTPException(status_code=401, detail="API key required")
     db = SessionLocal()
     try:
-        api_key = verify_api_key(db, x_api_key)
-        if not api_key or api_key.workspace_id != workspace_id:
+        api_key, is_admin = _resolve_remediation_actor(db, authorization, x_api_key)
+        if not is_admin and api_key.workspace_id != workspace_id:
             raise HTTPException(status_code=401, detail="Invalid API key")
         configs = db.query(RemediationConfig).filter(RemediationConfig.workspace_id == workspace_id).all()
         return [{"id": c.id, "deployment_id": c.deployment_id, "drift_threshold": c.drift_threshold, "action_type": c.action_type, "target": c.target, "is_active": c.is_active, "last_triggered_at": c.last_triggered_at} for c in configs]
@@ -1403,15 +1467,12 @@ def list_remediations(workspace_id: int, x_api_key: str = fastapi.Header(None, a
         db.close()
 
 @app.get("/api/v1/remediation-logs/{workspace_id}")
-def remediation_logs(workspace_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key")):
+def remediation_logs(workspace_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key"), authorization: str = fastapi.Header(None)):
     from backend.app.database import SessionLocal
-    from backend.app.services.auth import verify_api_key
-    if not x_api_key:
-        raise HTTPException(status_code=401, detail="API key required")
     db = SessionLocal()
     try:
-        api_key = verify_api_key(db, x_api_key)
-        if not api_key or api_key.workspace_id != workspace_id:
+        api_key, is_admin = _resolve_remediation_actor(db, authorization, x_api_key)
+        if not is_admin and api_key.workspace_id != workspace_id:
             raise HTTPException(status_code=401, detail="Invalid API key")
         logs = db.query(RemediationLog).filter(RemediationLog.deployment_id.in_(
             [c.deployment_id for c in db.query(RemediationConfig).filter(RemediationConfig.workspace_id == workspace_id).all()]
@@ -1421,18 +1482,13 @@ def remediation_logs(workspace_id: int, x_api_key: str = fastapi.Header(None, al
         db.close()
 
 @app.post("/api/v1/remediations/{config_id}/test")
-def test_remediation(config_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key")):
+def test_remediation(config_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key"), authorization: str = fastapi.Header(None)):
     """Manually trigger a remediation to test it."""
     from backend.app.database import SessionLocal
-    from backend.app.services.auth import verify_api_key
     from backend.app.services.remediation import fire_github_issue, fire_webhook, fire_retrain
-    if not x_api_key:
-        raise HTTPException(status_code=401, detail="API key required")
     db = SessionLocal()
     try:
-        api_key = verify_api_key(db, x_api_key)
-        if not api_key:
-            raise HTTPException(status_code=401, detail="Invalid API key")
+        api_key, is_admin = _resolve_remediation_actor(db, authorization, x_api_key)
         config = db.query(RemediationConfig).filter(RemediationConfig.id == config_id).first()
         if not config:
             raise HTTPException(status_code=404, detail="Config not found")
@@ -1878,13 +1934,11 @@ def admin_create_team(name: str, description: str = "", workspace_id: int = 1, a
         db.close()
 
 # GET /deployments is k8s-live and never carries a Deployment row's real
-# id (it reads straight off the Kubernetes API, keyed by name); the two
-# hardcoded core services in GET /models/status were never Deployment
-# rows to begin with. Neither can be granted a TeamModelPermission
-# (deployment_id is a real FK into the deployments table), so /admin/
-# teams-page's "add model access" dropdown needs an endpoint that
-# actually returns that id — this is that endpoint, not a duplicate of
-# either of the two above.
+# id (it reads straight off the Kubernetes API, keyed by name), so it
+# can't be used to grant a TeamModelPermission (deployment_id is a real
+# FK into the deployments table) — /admin/teams-page's "add model
+# access" dropdown needs an endpoint that actually returns that id, plus
+# every Deployment regardless of live k8s state; this is that endpoint.
 @app.get("/admin/deployment-registry")
 def admin_deployment_registry(authorization: str = fastapi.Header(None)):
     from backend.app.database import SessionLocal
@@ -1909,6 +1963,7 @@ def admin_deployment_registry(authorization: str = fastapi.Header(None)):
             "model_type": d.model_type,
             "status": d.status,
             "is_active": d.is_active,
+            "workspace_id": d.workspace_id,
         } for d in deployments]
     finally:
         db.close()
@@ -2622,11 +2677,9 @@ def dashboard():
   </div>
 
   <h2>Deployed models</h2>
-  <div id="core-models" class="models-grid">
-    <div class="card" id="card-1"><div class="card-name">Loading...</div></div>
-    <div class="card" id="card-2"><div class="card-name">Loading...</div></div>
+  <div id="platform-models" class="models-grid">
+    <div class="card"><div class="card-name">Loading...</div></div>
   </div>
-  <div id="platform-models" style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-top:.6rem"></div>
 
   <h2>Deploy new model</h2>
   <div class="card">
@@ -2648,8 +2701,7 @@ def dashboard():
   <div class="card">
     <div class="row">
       <select id="model-select" style="flex:0 0 auto;min-width:220px">
-        <option value="1">Model 1 — DistilBERT Sentiment</option>
-        <option value="2">Model 2 — distilbart Zero-Shot</option>
+        <option value="" disabled selected>Loading models…</option>
       </select>
       <input type="text" id="pred-input" value="The new product launch exceeded all expectations">
       <button id="pred-btn" onclick="predict()">Predict</button>
@@ -2722,17 +2774,12 @@ def dashboard():
 
     async function loadModels(){
       try{
-        const [sr,dr]=await Promise.all([fetch('/models/status'),fetch('/deployments')]);
-        const models=await sr.json();
-        const platform=await dr.json();
-        models.forEach(m=>{
-          const c=document.getElementById('card-'+m.id);
-          if(!c)return;
-          c.className='card '+m.status;
-          c.innerHTML='<div class="card-name">'+m.name+'</div><div class="card-sub">'+m.task+' &middot; '+m.model+'</div><span class="badge '+m.status+'">'+m.status.toUpperCase()+'</span>';
-        });
+        const r=await fetch('/deployments');
+        const platform=await r.json();
         const pm=document.getElementById('platform-models');
-        pm.innerHTML=platform.map(d=>'<div class="card '+d.status+'"><div class="card-name">'+d.name+'</div><div class="card-sub">'+d.task_type+' &middot; '+d.model_name+'</div><span class="badge '+d.status+'">'+d.status.toUpperCase()+' ('+d.ready+'/'+d.desired+')</span></div>').join('');
+        pm.innerHTML=platform.length
+          ?platform.map(d=>'<div class="card '+d.status+'"><div class="card-name">'+d.name+'</div><div class="card-sub">'+d.task_type+' &middot; '+d.model_name+'</div><span class="badge '+d.status+'">'+d.status.toUpperCase()+' ('+d.ready+'/'+d.desired+')</span></div>').join('')
+          :'<div class="card"><div class="card-name">No models deployed yet</div></div>';
         const sel=document.getElementById('model-select');
         const existing=Array.from(sel.options).map(o=>o.value);
         platform.filter(d=>d.status==='running'&&!existing.includes('svc:'+d.name)).forEach(d=>{
@@ -2741,6 +2788,11 @@ def dashboard():
           opt.textContent=d.name+' — '+d.task_type;
           sel.appendChild(opt);
         });
+        // The "Loading models…" placeholder is only ever removed once a
+        // real option exists to replace it — never leave the select on a
+        // disabled, unsendable value.
+        const placeholder=sel.querySelector('option[value=""]');
+        if(placeholder&&sel.options.length>1)placeholder.remove();
       }catch(e){console.error('models',e);}
     }
 

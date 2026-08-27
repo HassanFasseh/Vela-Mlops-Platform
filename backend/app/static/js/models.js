@@ -6,24 +6,24 @@
  * existing endpoints, the same way /app/models and /admin/deployments
  * already do — there is no single backend endpoint for this:
  *
- *   member: GET /models/status (the two public core services, available
- *            to every authenticated user — see /predict-proxy, which has
- *            no auth check either) + GET /users/me/teams -> GET
- *            /teams/{id}/permissions, filtered to is_active and
- *            (can_view_metrics or can_predict). can_view_metrics has
- *            existed on TeamModelPermission since the teams feature
- *            shipped but was never actually enforced anywhere until now.
+ *   member: GET /users/me/teams -> GET /teams/{id}/permissions, filtered
+ *            to is_active and (can_view_metrics or can_predict).
+ *            can_view_metrics has existed on TeamModelPermission since
+ *            the teams feature shipped but was never actually enforced
+ *            anywhere until now.
  *
- *   admin:  GET /models/status + GET /admin/deployment-registry (every
- *            Deployment row, not team-scoped), enriched with GET
- *            /deployments for live k8s replica status on the
- *            platform-deployed (non-custom) ones.
+ *   admin:  GET /admin/deployment-registry (every Deployment row, not
+ *            team-scoped), enriched with GET /models/status for live
+ *            per-model health-check status.
  *
- * Every entry carries `job` (and, for deployments behind the shared
- * PodMonitor, `pod`) — the Prometheus label selector Model Health/Drift
- * need to query that model's own metrics, not a static "is this
- * instrumented" flag. model-service's ServiceMonitor gives it a job all
- * to itself (job="model-service"); every model-runner/custom-runner
+ * Every model on the platform is a real Deployment row — there is no
+ * separate catalog of hardcoded "core service" entries any more (both
+ * of the original two, model-service and model-service-2, have since
+ * been retired as first-class Deployment rows like everything else).
+ *
+ * Every entry carries `job` (and `pod`) — the Prometheus label selector
+ * Model Health/Drift need to query that model's own metrics, not a
+ * static "is this instrumented" flag. Every model-runner/custom-runner
  * deployment shares ONE job (PLATFORM_RUNNER_JOB, from k8s/platform-
  * runner-podmonitor.yaml's own namespace/name — a PodMonitor covering
  * many dynamically-named deployments has no per-deployment job the way
@@ -45,27 +45,9 @@ const ModelCatalog = (() => {
   // code used to fail totally silently on a bad response shape, which
   // made a real bug (or a stale cached copy of this very file) look like
   // "the picker just doesn't render" with nothing in the console.
-  function pushCoreEntries(entries, core) {
-    core.forEach((m) => {
-      try {
-        entries.push({
-          key: "core:" + m.id, label: m.name, task: m.task, kind: "core",
-          job: m.job, instrumented: !!m.instrumented, status: m.status,
-        });
-      } catch (e) {
-        console.error("ModelCatalog: skipping malformed core entry", m, e);
-      }
-    });
-  }
 
   async function loadForMember() {
     const entries = [];
-    try {
-      pushCoreEntries(entries, await Api.get("/models/status"));
-    } catch (e) {
-      console.error("ModelCatalog: GET /models/status failed", e);
-    }
-
     let teams = [];
     try {
       teams = await Api.get("/users/me/teams");
@@ -94,7 +76,7 @@ const ModelCatalog = (() => {
             kind: p.model_type === "custom" ? "custom" : "huggingface",
             deploymentId: p.deployment_id, deploymentName: p.deployment_name,
             job: PLATFORM_RUNNER_JOB, pod: p.deployment_name + "-.*",
-            instrumented: false, status: p.status,
+            instrumented: true, status: p.status,
           });
         } catch (e) {
           console.error("ModelCatalog: skipping malformed permission entry", p, e);
@@ -106,12 +88,6 @@ const ModelCatalog = (() => {
 
   async function loadForAdmin() {
     const entries = [];
-    try {
-      pushCoreEntries(entries, await Api.get("/models/status"));
-    } catch (e) {
-      console.error("ModelCatalog: GET /models/status failed", e);
-    }
-
     let registry = [];
     try {
       registry = await Api.get("/admin/deployment-registry");
@@ -120,24 +96,23 @@ const ModelCatalog = (() => {
     }
     let live = [];
     try {
-      live = await Api.get("/deployments");
+      live = await Api.get("/models/status");
     } catch (e) {
-      console.error("ModelCatalog: GET /deployments failed", e);
+      console.error("ModelCatalog: GET /models/status failed", e);
     }
-    const liveByName = new Map((live || []).map((d) => [d.name, d]));
+    const liveById = new Map((live || []).map((m) => [m.id, m]));
 
     (registry || []).forEach((r) => {
       try {
-        const l = liveByName.get(r.name);
+        const l = liveById.get(r.id);
         entries.push({
           key: "deployment:" + r.id,
           label: r.model_name || r.name, task: r.task_type,
           kind: r.model_type === "custom" ? "custom" : "huggingface",
           deploymentId: r.id, deploymentName: r.name,
           job: PLATFORM_RUNNER_JOB, pod: r.name + "-.*",
-          instrumented: false,
+          instrumented: l ? !!l.instrumented : true,
           status: l ? l.status : r.status,
-          replicas: l ? l.ready + "/" + l.desired : null,
           isActive: r.is_active,
         });
       } catch (e) {
@@ -173,7 +148,7 @@ const ModelCatalog = (() => {
   }
 
   function kindLabel(kind) {
-    return { core: "Core service", huggingface: "Deployment", custom: "Custom model" }[kind] || kind;
+    return { huggingface: "Deployment", custom: "Custom model" }[kind] || kind;
   }
 
   function pickDefault(entries, requestedKey) {

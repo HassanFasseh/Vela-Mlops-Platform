@@ -118,6 +118,7 @@ class ModelCard(Base):
     workspace_id: Mapped[int] = mapped_column(Integer, ForeignKey("workspaces.id"))
     description: Mapped[str] = mapped_column(Text, default="")
     dataset: Mapped[str] = mapped_column(Text, default="")
+    dataset_source: Mapped[str] = mapped_column(Text, default="")
     dataset_size: Mapped[str] = mapped_column(String(100), default="")
     license: Mapped[str] = mapped_column(String(100), default="")
     tags: Mapped[str] = mapped_column(String(500), default="")

@@ -295,15 +295,7 @@ const Monitoring = (() => {
     const statsEl = document.getElementById("mh-status-stats");
     statsEl.innerHTML = '<span class="skeleton skeleton-text" style="width:160px;display:inline-block">&nbsp;</span>';
     try {
-      if (entry.kind === "core") {
-        const models = await Api.get("/models/status");
-        const id = parseInt(entry.key.split(":")[1], 10);
-        const m = models.find((x) => x.id === id);
-        badgeEl.innerHTML = UI.statusBadge(m ? m.status : "unknown");
-        statsEl.innerHTML =
-          statLine(m && m.model !== "unavailable" ? m.model : "—", "Backing model") +
-          statLine(entry.instrumented ? "Yes" : "No", "Instrumented");
-      } else if (entry.kind === "custom") {
+      if (entry.kind === "custom") {
         const s = await Api.get("/api/v1/custom-model-status/" + entry.deploymentId);
         const phase = (s && s.phase) || "unknown";
         badgeEl.innerHTML = UI.badge(customPhaseLabel(phase), customPhaseVariant(phase), true);

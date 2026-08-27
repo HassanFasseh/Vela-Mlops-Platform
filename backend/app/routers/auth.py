@@ -52,14 +52,23 @@ class ApiKeyCreate(BaseModel):
     deployment_id: Optional[int] = None
 
 class ModelCardCreate(BaseModel):
+    # Optional[...] = None (not a "" default) so create_model_card can
+    # tell "field omitted, leave whatever's already there alone" apart
+    # from "field explicitly cleared to blank" on an update — the docs.js
+    # form only ever sends dataset/dataset_source/license/
+    # performance_notes/limitations, and must not wipe description/
+    # dataset_size/tags on an existing card just because it doesn't know
+    # about them (those are only ever set via the legacy /workspace/{id}
+    # "Document a model" form, which still sends the full set).
     deployment_id: int
-    description: str = ""
-    dataset: str = ""
-    dataset_size: str = ""
-    license: str = ""
-    tags: str = ""
-    performance_notes: str = ""
-    limitations: str = ""
+    description: Optional[str] = None
+    dataset: Optional[str] = None
+    dataset_source: Optional[str] = None
+    dataset_size: Optional[str] = None
+    license: Optional[str] = None
+    tags: Optional[str] = None
+    performance_notes: Optional[str] = None
+    limitations: Optional[str] = None
 
 # Auth endpoints handled in main.py
 @router.post("/workspaces")
@@ -179,24 +188,31 @@ def revoke_api_key(workspace_id: int, key_id: int, user=Depends(get_current_user
     db.commit()
     return {"message": "Key revoked"}
 
+_MODEL_CARD_FIELDS = ("description", "dataset", "dataset_source", "dataset_size", "license", "tags", "performance_notes", "limitations")
+
 @router.post("/model-cards")
 def create_model_card(req: ModelCardCreate, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Create-or-update, keyed by deployment_id — one model card per
+    deployment. Lets /admin/docs offer a single "create or edit" form
+    inline (see docs.js) instead of needing a separate PATCH endpoint."""
     deployment = db.query(Deployment).filter(Deployment.id == req.deployment_id).first()
     if not deployment:
         raise HTTPException(status_code=404, detail="Deployment not found")
-    card = ModelCard(
-        deployment_id=req.deployment_id,
-        workspace_id=deployment.workspace_id,
-        description=req.description,
-        dataset=req.dataset,
-        dataset_size=req.dataset_size,
-        license=req.license,
-        tags=req.tags,
-        performance_notes=req.performance_notes,
-        limitations=req.limitations,
-        created_by=user.id
-    )
-    db.add(card)
+
+    card = db.query(ModelCard).filter(ModelCard.deployment_id == req.deployment_id).first()
+    if card:
+        for f in _MODEL_CARD_FIELDS:
+            value = getattr(req, f)
+            if value is not None:
+                setattr(card, f, value)
+    else:
+        card = ModelCard(
+            deployment_id=req.deployment_id,
+            workspace_id=deployment.workspace_id,
+            created_by=user.id,
+            **{f: (getattr(req, f) or "") for f in _MODEL_CARD_FIELDS},
+        )
+        db.add(card)
     db.commit()
     db.refresh(card)
     return {"id": card.id, "message": f"Model card saved successfully (ID: {card.id})"}
@@ -210,6 +226,7 @@ def get_model_card(deployment_id: int, db: Session = Depends(get_db)):
         "deployment_id": card.deployment_id,
         "description": card.description,
         "dataset": card.dataset,
+        "dataset_source": card.dataset_source,
         "dataset_size": card.dataset_size,
         "license": card.license,
         "tags": card.tags,

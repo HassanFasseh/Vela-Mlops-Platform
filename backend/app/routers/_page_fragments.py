@@ -156,27 +156,27 @@ DRIFT_BODY = """
 DRIFT_SCRIPTS_EXTRA = MODEL_CATALOG_JS + f'\n<script src="/static/js/drift.js?v={_STATIC_V}"></script>'
 
 # =========================================================================
-# Documentation (spec §20) — identical for admin and team-member: model
-# cards aren't role-scoped in the backend (GET /model-cards/{id} has no
-# auth check at all), so there's nothing to differentiate.
+# Documentation (spec §20) — same markup for admin and team-member; the
+# model picker (which endpoint it lists models from) and whether an
+# edit form appears below the card are the only things docs.js branches
+# on role for. GET /model-cards/{id} itself still has no auth check —
+# read access was never actually restricted, only whether you get an
+# edit form is.
 # =========================================================================
 
 DOCS_BODY = """
 <div id="page-content" hidden>
   <div class="page-max">
     <h1 style="font-size:var(--text-lg);margin-bottom:2px">Model Documentation</h1>
-    <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)">
-      Look up a model card by deployment ID.
+    <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)" id="docs-subtitle">
+      Select a model to view its documentation.
     </p>
 
     <div class="card" style="margin-bottom:var(--space-5)">
-      <form id="lookup-form" style="display:flex;gap:var(--space-3);align-items:end;flex-wrap:wrap">
-        <div class="field" style="margin-bottom:0;flex:1;min-width:160px">
-          <label class="field-label" for="dep-id">Deployment ID</label>
-          <input class="input" type="number" id="dep-id" required>
-        </div>
-        <button class="btn btn-primary" type="submit">Look up</button>
-      </form>
+      <div class="field" style="margin-bottom:0">
+        <label class="field-label" for="docs-model-select">Model</label>
+        <select class="select" id="docs-model-select" style="min-width:280px"></select>
+      </div>
     </div>
 
     <div id="card-result"></div>

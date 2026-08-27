@@ -112,22 +112,30 @@ def admin_overview_page():
     const results = await Promise.allSettled([
       Api.get('/admin/users'),
       Api.get('/admin/tickets'),
-      Api.get('/models/status'),
-      Api.get('/deployments'),
-      Api.get('/metrics-summary'),
       Api.get('/admin/deployment-registry'),
+      Api.get('/models/status'),
+      Api.get('/metrics-summary'),
     ]);
-    const [usersR, ticketsR, modelsR, depsR, metricsR, registryR] = results;
+    const [usersR, ticketsR, registryR, liveR, metricsR] = results;
     const users = usersR.status === 'fulfilled' ? usersR.value : [];
     const tickets = ticketsR.status === 'fulfilled' ? ticketsR.value : [];
-    const models = modelsR.status === 'fulfilled' ? modelsR.value : [];
-    const deployments = depsR.status === 'fulfilled' ? depsR.value : [];
-    const metrics = metricsR.status === 'fulfilled' ? metricsR.value : {};
     const registry = registryR.status === 'fulfilled' ? registryR.value : [];
+    const live = liveR.status === 'fulfilled' ? liveR.value : [];
+    const metrics = metricsR.status === 'fulfilled' ? metricsR.value : {};
 
-    renderStatus(models);
-    renderMetrics(users, tickets, models, deployments, metrics);
-    renderModelHealth(models, deployments, registry);
+    // Every model on the platform is a real Deployment row now — GET
+    // /admin/deployment-registry is the full list, GET /models/status is
+    // just a live health overlay on top of it (matched by id). There is
+    // no separate "core service" catalog to merge in any more.
+    const liveById = new Map(live.map(m => [m.id, m]));
+    const rows = registry.map(r => {
+      const l = liveById.get(r.id);
+      return { id: r.id, name: r.name, task: r.task_type, model_type: r.model_type, status: l ? l.status : r.status, backing_model: l ? l.model : null };
+    });
+
+    renderStatus(rows);
+    renderMetrics(users, tickets, rows, metrics);
+    renderModelHealth(rows);
     renderRecentTickets(tickets);
   }
 
@@ -137,17 +145,17 @@ def admin_overview_page():
     return part + ', ' + (user.name || user.username);
   }
 
-  function renderStatus(models) {
+  function renderStatus(rows) {
     const el = document.getElementById('platform-status');
-    if (!models.length) {
-      el.innerHTML = UI.badge('Unknown', 'neutral', true) + ' <span class="text-muted">no core services reporting</span>';
+    if (!rows.length) {
+      el.innerHTML = UI.badge('Unknown', 'neutral', true) + ' <span class="text-muted">no models deployed yet</span>';
       return;
     }
-    const offline = models.filter(m => m.status !== 'online').length;
+    const offline = rows.filter(r => r.status !== 'online' && r.status !== 'running').length;
     if (offline === 0) {
       el.innerHTML = UI.badge('Operational', 'success', true);
     } else {
-      el.innerHTML = UI.badge('Degraded', 'danger', true) + ' <span class="text-muted">' + offline + ' of ' + models.length + ' core services offline</span>';
+      el.innerHTML = UI.badge('Degraded', 'danger', true) + ' <span class="text-muted">' + offline + ' of ' + rows.length + ' models offline</span>';
     }
   }
 
@@ -155,9 +163,9 @@ def admin_overview_page():
     return '<div class="metric-tile"><div class="metric-tile-value' + (variant ? ' is-' + variant : '') + '">' + value + '</div><div class="metric-tile-label">' + label + '</div></div>';
   }
 
-  function renderMetrics(users, tickets, models, deployments, metrics) {
-    const totalModels = models.length + deployments.length;
-    const running = models.filter(m => m.status === 'online').length + deployments.filter(d => d.status === 'running').length;
+  function renderMetrics(users, tickets, rows, metrics) {
+    const totalModels = rows.length;
+    const running = rows.filter(r => r.status === 'online' || r.status === 'running').length;
     const attention = totalModels - running;
     const openTickets = tickets.filter(t => t.status === 'open' || t.status === 'investigating').length;
     const activeUsers = users.filter(u => u.is_active).length;
@@ -170,40 +178,16 @@ def admin_overview_page():
       tile(activeUsers, 'Active users');
   }
 
-  function renderModelHealth(models, deployments, registry) {
+  function renderModelHealth(rows) {
     const body = document.getElementById('model-health-body');
-    // Same fix as /admin/models and /admin/deployments: GET /deployments
-    // reads model_name/task_type off the k8s Deployment's MODEL_NAME/
-    // TASK_TYPE env vars, which custom-runner pods never set (only
-    // INPUT_TYPE/INPUT_SCHEMA are) — both come back "unknown" there for
-    // every custom model. The registry (DB Deployment row) has the real
-    // values and wins whenever a match exists. Core services are never
-    // DB rows, so they never match and fall through to their existing
-    // /models/status values unchanged.
-    const registryByName = new Map((registry || []).map(r => [r.name, r]));
-    const rows = [];
-    models.forEach(m => {
-      const reg = registryByName.get(m.name) || null;
-      rows.push({
-        name: m.name, task: (reg && reg.task_type) || m.task, source: 'Core service',
-        status: m.status, detail: 'backing model: ' + (m.model || 'unknown'),
-      });
-    });
-    deployments.forEach(d => {
-      const reg = registryByName.get(d.name) || null;
-      rows.push({
-        name: (reg && reg.model_name) || d.model_name, task: (reg && reg.task_type) || d.task_type, source: 'Deployment',
-        status: d.status, detail: d.ready + '/' + d.desired + ' replicas ready',
-      });
-    });
     if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="5">' + UI.emptyState('No models deployed yet', 'Deployed models and core services will show up here once available.') + '</td></tr>';
+      body.innerHTML = '<tr><td colspan="5">' + UI.emptyState('No models deployed yet', 'Deployed models will show up here once available.') + '</td></tr>';
       return;
     }
     body.innerHTML = rows.map(r =>
       '<tr><td>' + UI.escapeHtml(r.name) + '</td><td>' + UI.escapeHtml(r.task) + '</td><td>' +
-      UI.badge(r.source, 'neutral') + '</td><td>' + UI.statusBadge(r.status) + '</td><td class="text-secondary">' +
-      UI.escapeHtml(r.detail) + '</td></tr>'
+      UI.badge(r.model_type, 'neutral') + '</td><td>' + UI.statusBadge(r.status) + '</td><td class="text-secondary">' +
+      UI.escapeHtml(r.backing_model ? 'backing model: ' + r.backing_model : '—') + '</td></tr>'
     ).join('');
   }
 
@@ -545,10 +529,9 @@ def admin_teams_page():
       : '<div class="text-muted" style="font-size:var(--text-xs)">No model access granted yet</div>';
 
     // deployment_id is a real FK into the deployments table — GET
-    // /deployments (k8s-live) and GET /models/status (the two hardcoded
-    // core services) don't carry that id at all, so the "add model"
-    // dropdown is sourced from /admin/deployment-registry instead (real
-    // Deployment rows only). Already-granted ones are filtered out.
+    // /deployments (k8s-live) doesn't carry that id at all, so the "add
+    // model" dropdown is sourced from /admin/deployment-registry instead
+    // (real Deployment rows only). Already-granted ones are filtered out.
     const grantedIds = new Set(perms.map(p => p.deployment_id));
     const availableDeployments = cachedDeployments.filter(d => !grantedIds.has(d.id));
     const deploymentOptions = availableDeployments.map(d =>
@@ -901,15 +884,15 @@ def admin_drift_page():
 # =========================================================================
 # Remediation — /admin/remediation (spec §15 "Automated remediation")
 #
-# Unlike every other admin page, these three endpoints
-# (/api/v1/remediations, /api/v1/remediation-logs/{workspace_id},
-# /api/v1/remediations/{id}/test) authenticate with X-API-Key, not the
-# admin's JWT — see main.py. This page never touches the shared Api
-# helper for them: Api.request() treats any 401 as "session expired,
-# clear the JWT and go to /login", which would silently log the admin
-# out over a wrong/missing API key. A separate fetch wrapper is used
-# instead, and the key is kept in sessionStorage (tab-scoped), not
-# localStorage.
+# The four backing endpoints (/api/v1/remediations, /api/v1/remediations/
+# {workspace_id}, /api/v1/remediation-logs/{workspace_id}, /api/v1/
+# remediations/{id}/test) now accept the admin's own JWT as an
+# alternative to a workspace X-API-Key (see _resolve_remediation_actor in
+# main.py) — same as every other admin page, this one goes through the
+# shared Api helper and needs no separate connection step. An admin JWT
+# isn't scoped to one workspace, so configs/logs are loaded across every
+# workspace that has at least one deployment (via GET /admin/deployment-
+# registry), not just one the admin manually picked.
 #
 # "Webhooks" and "Retraining" aren't separate resources — they're just
 # action_type values on the same RemediationConfig — so there's one page
@@ -926,31 +909,12 @@ def admin_remediation_page():
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
-    <h1 style="font-size:var(--text-lg);margin-bottom:var(--space-3)">Remediation</h1>
+    <h1 style="font-size:var(--text-lg);margin-bottom:2px">Remediation</h1>
+    <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)">
+      Configure automatic actions when model drift exceeds a threshold. When triggered, Vela can open a GitHub issue, call a webhook, or start a retraining workflow.
+    </p>
 
-    <div class="alert alert-warning" style="margin-bottom:var(--space-4)">
-      <div>
-        <div class="alert-title">Uses a workspace API key, not your admin login</div>
-        <div class="alert-body">
-          These endpoints authenticate with a workspace-scoped API key (X-API-Key), separate from your admin session.
-          Generate one from a workspace's API Keys page, then connect below with that key and its workspace ID.
-          All configured actions currently react to the same platform-wide drift signal &mdash; there isn't yet a per-model detector.
-        </div>
-      </div>
-    </div>
-
-    <div class="card" id="creds-card" style="margin-bottom:var(--space-5)">
-      <div class="card-title" style="margin-bottom:.75rem">Connect</div>
-      <div class="grid-creds">
-        <div class="field" style="margin-bottom:0"><label class="field-label" for="rk-key">API key</label><input class="input" type="password" id="rk-key" placeholder="aodp_..." autocomplete="off"></div>
-        <div class="field" style="margin-bottom:0"><label class="field-label" for="rk-ws">Workspace ID</label><input class="input" type="number" id="rk-ws" placeholder="1"></div>
-        <button class="btn btn-primary" id="rk-connect" type="button">Connect</button>
-      </div>
-      <div class="field-error" id="rk-error" role="alert" style="margin-top:.5rem"></div>
-      <div id="rk-status" style="margin-top:.5rem"></div>
-    </div>
-
-    <div id="remediation-content" hidden>
+    <div id="remediation-content">
       <div class="card-header">
         <div class="section-label" style="margin:0">Remediation configs</div>
         <button class="btn btn-secondary btn-sm" id="new-config-btn" type="button">New config</button>
@@ -977,85 +941,42 @@ def admin_remediation_page():
 
     script = """
 <script>
-  const RK_KEY_STORE = 'vela_remediation_key';
-  const RK_WS_STORE = 'vela_remediation_ws';
+  // Registry rows this admin has already loaded — used to resolve a
+  // config/log's deployment_id to a real name instead of just "#N", and
+  // to populate the New config modal's deployment picker. Also, since an
+  // admin JWT isn't scoped to one workspace the way an API key is, this
+  // is what determines *which* workspaces to ask /api/v1/remediations/
+  // {workspace_id} and /api/v1/remediation-logs/{workspace_id} about —
+  // every workspace with at least one deployment, unioned together.
+  let registryDeployments = [];
 
-  async function remediationFetch(path, opts) {
-    opts = opts || {};
-    const apiKey = sessionStorage.getItem(RK_KEY_STORE) || '';
-    const headers = Object.assign({ 'X-API-Key': apiKey }, opts.headers);
-    let body = opts.body;
-    if (body && typeof body !== 'string') {
-      body = JSON.stringify(body);
-      headers['Content-Type'] = 'application/json';
-    }
-    const res = await fetch(path, Object.assign({}, opts, { headers, body }));
-    const text = await res.text();
-    let data = null;
-    if (text) { try { data = JSON.parse(text); } catch (e) { data = text; } }
-    if (!res.ok) {
-      const detail = (data && data.detail) || res.statusText || 'Request failed';
-      const err = new Error(detail);
-      err.status = res.status;
-      throw err;
-    }
-    return data;
-  }
-
-  function currentWorkspaceId() {
-    return sessionStorage.getItem(RK_WS_STORE);
-  }
-
-  async function connect() {
-    const key = document.getElementById('rk-key').value.trim();
-    const ws = document.getElementById('rk-ws').value.trim();
-    const errorEl = document.getElementById('rk-error');
-    const statusEl = document.getElementById('rk-status');
-    errorEl.textContent = '';
-    if (!key || !ws) {
-      errorEl.textContent = 'Enter both an API key and a workspace ID.';
-      return;
-    }
-    sessionStorage.setItem(RK_KEY_STORE, key);
-    sessionStorage.setItem(RK_WS_STORE, ws);
-    statusEl.textContent = 'Connecting…';
-    try {
-      await loadAll();
-      statusEl.innerHTML = UI.badge('Connected to workspace ' + ws, 'success', true) +
-        ' <button class="btn btn-ghost btn-sm" id="rk-disconnect" type="button" style="margin-left:.5rem">Disconnect</button>';
-      document.getElementById('rk-disconnect').addEventListener('click', disconnect);
-      document.getElementById('remediation-content').hidden = false;
-    } catch (e) {
-      statusEl.textContent = '';
-      errorEl.textContent = e.message || 'Could not connect with this key/workspace.';
-      document.getElementById('remediation-content').hidden = true;
-      sessionStorage.removeItem(RK_KEY_STORE);
-      sessionStorage.removeItem(RK_WS_STORE);
-    }
-  }
-
-  function disconnect() {
-    sessionStorage.removeItem(RK_KEY_STORE);
-    sessionStorage.removeItem(RK_WS_STORE);
-    document.getElementById('rk-key').value = '';
-    document.getElementById('rk-status').innerHTML = '';
-    document.getElementById('remediation-content').hidden = true;
+  function deploymentLabel(id) {
+    const d = registryDeployments.find(r => r.id === id);
+    return d ? d.name : ('Deployment #' + id);
   }
 
   async function loadAll() {
-    const ws = currentWorkspaceId();
-    const [configs, logs] = await Promise.all([
-      remediationFetch('/api/v1/remediations/' + ws),
-      remediationFetch('/api/v1/remediation-logs/' + ws),
-    ]);
-    renderConfigs(configs);
-    renderLogs(logs);
+    const body = document.getElementById('configs-body');
+    body.innerHTML = UI.skeletonRows(3, 7);
+    try {
+      registryDeployments = await Api.get('/admin/deployment-registry');
+      const workspaceIds = Array.from(new Set(registryDeployments.map(d => d.workspace_id).filter(id => id != null)));
+
+      const [configResults, logResults] = await Promise.all([
+        Promise.allSettled(workspaceIds.map(ws => Api.get('/api/v1/remediations/' + ws))),
+        Promise.allSettled(workspaceIds.map(ws => Api.get('/api/v1/remediation-logs/' + ws))),
+      ]);
+      const configs = configResults.filter(r => r.status === 'fulfilled').flatMap(r => r.value);
+      const logs = logResults.filter(r => r.status === 'fulfilled').flatMap(r => r.value);
+
+      renderConfigs(configs);
+      renderLogs(logs);
+    } catch (e) {
+      body.innerHTML = '<tr><td colspan="7">' + UI.errorState(e.message, loadAll) + '</td></tr>';
+    }
   }
 
-  let cachedConfigs = [];
-
   function renderConfigs(configs) {
-    cachedConfigs = configs;
     const body = document.getElementById('configs-body');
     if (!configs.length) {
       body.innerHTML = '<tr><td colspan="7">' + UI.emptyState('No remediation configs yet', 'Create one to automatically react when drift crosses a threshold.') + '</td></tr>';
@@ -1063,7 +984,7 @@ def admin_remediation_page():
     }
     body.innerHTML = configs.map(c =>
       '<tr>' +
-      '<td>Deployment #' + c.deployment_id + '</td>' +
+      '<td>' + UI.escapeHtml(deploymentLabel(c.deployment_id)) + '</td>' +
       '<td>' + c.drift_threshold + '</td>' +
       '<td>' + UI.badge(c.action_type, 'neutral') + '</td>' +
       '<td class="text-secondary" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + UI.escapeHtml(c.target || '—') + '</td>' +
@@ -1085,7 +1006,7 @@ def admin_remediation_page():
     }
     body.innerHTML = logs.map(l =>
       '<tr>' +
-      '<td>Deployment #' + l.deployment_id + '</td>' +
+      '<td>' + UI.escapeHtml(deploymentLabel(l.deployment_id)) + '</td>' +
       '<td>' + Number(l.drift_score).toFixed(3) + '</td>' +
       '<td>' + UI.badge(l.action_type, 'neutral') + '</td>' +
       '<td>' + UI.statusBadge(l.status) + '</td>' +
@@ -1096,7 +1017,7 @@ def admin_remediation_page():
 
   async function testConfig(id) {
     try {
-      const result = await remediationFetch('/api/v1/remediations/' + id + '/test', { method: 'POST' });
+      const result = await Api.post('/api/v1/remediations/' + id + '/test', {});
       const ok = result.status === 'success';
       UI.toast('Test ' + (ok ? 'succeeded' : 'failed') + ': ' + (result.response || result.status), ok ? 'success' : 'danger', 6000);
       loadAll();
@@ -1113,14 +1034,19 @@ def admin_remediation_page():
   }
 
   function openNewConfigModal() {
+    const depOptionsHtml = registryDeployments.length
+      ? registryDeployments.map(d => '<option value="' + d.id + '">' + UI.escapeHtml(d.name) + ' (ID ' + d.id + ')</option>').join('')
+      : '';
     const overlay = UI.openModal({
       title: 'New remediation config',
       bodyHtml: `
         <form id="new-config-form" novalidate>
           <div class="field">
-            <label class="field-label" for="nc-dep">Deployment ID</label>
-            <input class="input" type="number" id="nc-dep" required>
-            <div class="field-hint">Deployment IDs aren't listed in the admin UI yet — use the ID returned when the model was deployed or uploaded.</div>
+            <label class="field-label" for="nc-dep">Deployment</label>
+            ${depOptionsHtml
+              ? `<select class="select" id="nc-dep" required>${depOptionsHtml}</select>`
+              : `<input class="input" type="number" id="nc-dep" placeholder="Deployment ID" required>
+                 <div class="field-hint">No deployments found — enter the ID directly.</div>`}
           </div>
           <div class="field"><label class="field-label" for="nc-threshold">Drift threshold</label><input class="input" type="number" id="nc-threshold" step="0.01" min="0" max="1" value="0.5"></div>
           <div class="field">
@@ -1152,10 +1078,10 @@ def admin_remediation_page():
       const drift_threshold = parseFloat(overlay.querySelector('#nc-threshold').value);
       const action_type = overlay.querySelector('#nc-action').value;
       const target = overlay.querySelector('#nc-target').value.trim();
-      if (!deployment_id) { errorEl.textContent = 'Deployment ID is required.'; return; }
+      if (!deployment_id) { errorEl.textContent = 'Deployment is required.'; return; }
       if (action_type === 'webhook' && !target) { errorEl.textContent = 'Webhook actions require a target URL.'; return; }
       try {
-        await remediationFetch('/api/v1/remediations', { method: 'POST', body: { deployment_id, drift_threshold, action_type, target } });
+        await Api.post('/api/v1/remediations', { deployment_id, drift_threshold, action_type, target });
         UI.toast('Remediation config created', 'success');
         UI.closeModal();
         loadAll();
@@ -1165,22 +1091,10 @@ def admin_remediation_page():
     });
   }
 
-  document.getElementById('rk-connect').addEventListener('click', connect);
   document.getElementById('new-config-btn').addEventListener('click', openNewConfigModal);
-
-  // Resume a connection already established earlier in this tab session.
-  (function restore() {
-    const key = sessionStorage.getItem(RK_KEY_STORE);
-    const ws = sessionStorage.getItem(RK_WS_STORE);
-    if (key && ws) {
-      document.getElementById('rk-key').value = key;
-      document.getElementById('rk-ws').value = ws;
-      connect();
-    }
-  })();
 </script>"""
 
-    ready = ""
+    ready = "loadAll();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
@@ -1237,16 +1151,14 @@ def admin_settings_page():
 # =========================================================================
 # Model Registry — /admin/models
 #
-# Every row here comes from either /models/status (the two hardcoded core
-# services, both HuggingFace-hosted) or /deployments (k8s Deployments
-# labeled managed-by=platform) — that's still what decides which rows
-# exist and their live status. GET /admin/deployment-registry is merged
-# in by name to attach each row's real DB Deployment.id, model_type, and
-# is_active where one exists, which is what lets a row carry Disable/
-# Enable and Delete controls. The two hardcoded core services were never
-# DB rows and never will be, so they never get those buttons — same
-# pre-existing gap as before, just no longer blocking management actions
-# for everything else.
+# GET /admin/deployment-registry (every Deployment row) decides which
+# rows exist; GET /models/status is merged in by id to attach each row's
+# live health-check status, since the registry's own Deployment.status
+# is only set once at deploy/upload time and doesn't track a running
+# pod's actual reachability. No other source feeds this page — the two
+# hardcoded core services (DistilBERT Sentiment / distilbart-mnli
+# Zero-Shot) this used to also show, from before either was a real
+# Deployment row, are gone.
 # =========================================================================
 
 @router.get("/admin/models", response_class=HTMLResponse)
@@ -1256,7 +1168,7 @@ def admin_models_page():
   <div class="page-max">
     <h1 style="font-size:var(--text-lg);margin-bottom:2px">Model Registry</h1>
     <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)">
-      Every model currently reachable on the platform &mdash; core services and self-service deployments.
+      Every model deployed on the platform.
     </p>
     <div class="table-wrap">
       <table class="table">
@@ -1271,15 +1183,11 @@ def admin_models_page():
 
     script = """
 <script>
-  // GET /deployments (k8s-live) and GET /models/status (the two
-  // hardcoded core services) don't carry a real Deployment.id — see
-  // GET /admin/deployment-registry's own comment in main.py. Rows here
-  // are built from the first two (for display: every model actually
-  // reachable, core services included) then matched by name against the
-  // registry (for the real id/model_type/is_active that management
-  // actions need) — a row with no registry match (the two core
-  // services, or an orphaned k8s Deployment with no DB row) just gets
-  // no management buttons, same as before this feature existed.
+  // Every row comes from the registry (the real DB Deployment, and the
+  // source of truth for id/model_type/is_active — what management
+  // actions below need); /models/status is merged in by id purely for
+  // live health-check status, since Deployment.status is only ever set
+  // once at deploy/upload time.
   let registryRows = [];
   let managementApiKey = '';
 
@@ -1287,27 +1195,14 @@ def admin_models_page():
     const body = document.getElementById('registry-body');
     body.innerHTML = UI.skeletonRows(5, 5);
     try {
-      const [models, deployments, registry] = await Promise.all([
-        Api.get('/models/status'), Api.get('/deployments'), Api.get('/admin/deployment-registry')
+      const [registry, live] = await Promise.all([
+        Api.get('/admin/deployment-registry'), Api.get('/models/status')
       ]);
-      const registryByName = new Map(registry.map(r => [r.name, r]));
+      const liveById = new Map(live.map(m => [m.id, m]));
 
-      // The registry's task_type (Deployment.task_type — DB, editable via
-      // the pencil below) wins over /models/status'/deployments' own task
-      // field whenever a registry match exists. /deployments derives its
-      // task_type from the k8s Deployment's TASK_TYPE env var, which
-      // custom-runner containers never set (only INPUT_TYPE/INPUT_SCHEMA
-      // are) — without this, every custom row would show "unknown" here,
-      // and any edit made via the pencil would appear to revert on the
-      // next page load even though the DB write succeeded.
-      const rows = [];
-      models.forEach(m => {
-        const reg = registryByName.get(m.name) || null;
-        rows.push({ name: m.name, task: (reg && reg.task_type) || m.task, status: m.status, reg });
-      });
-      deployments.forEach(d => {
-        const reg = registryByName.get(d.name) || null;
-        rows.push({ name: d.name, task: (reg && reg.task_type) || d.task_type, status: d.status, reg });
+      const rows = registry.map(reg => {
+        const l = liveById.get(reg.id);
+        return { name: reg.name, task: reg.task_type, status: l ? l.status : reg.status, reg };
       });
       registryRows = rows;
 
@@ -1326,7 +1221,8 @@ def admin_models_page():
     const modelType = r.reg ? r.reg.model_type : 'huggingface';
     const isActive = r.reg ? r.reg.is_active !== false : true;
 
-    const actions = ['<a class="link-secondary" style="font-size:var(--text-xs)" href="/admin/docs">Look up documentation &rarr;</a>'];
+    const docsHref = '/admin/docs' + (r.reg ? '?deployment_id=' + r.reg.id : '');
+    const actions = ['<a class="link-secondary" style="font-size:var(--text-xs)" href="' + docsHref + '">Look up documentation &rarr;</a>'];
     if (r.reg) {
       actions.push('<button class="btn btn-ghost btn-sm" data-toggle-active="' + idx + '" type="button">' + (isActive ? 'Disable' : 'Enable') + '</button>');
       actions.push('<button class="btn btn-danger btn-sm" data-delete-model="' + idx + '" type="button">Delete</button>');
@@ -1647,8 +1543,8 @@ def admin_deployments_page():
     const body = document.getElementById('deployments-body');
     body.innerHTML = UI.skeletonRows(6, 3);
     try {
-      const [models, deployments, registry] = await Promise.all([
-        Api.get('/models/status'), Api.get('/deployments'), Api.get('/admin/deployment-registry')
+      const [deployments, registry] = await Promise.all([
+        Api.get('/deployments'), Api.get('/admin/deployment-registry')
       ]);
       const registryByName = new Map(registry.map(r => [r.name, r]));
 
@@ -1658,14 +1554,14 @@ def admin_deployments_page():
       // custom model there. The registry (DB Deployment row) has the real
       // values, so it wins whenever a match exists — same fix as the
       // task_type column on /admin/models, for the same underlying reason.
-      const rows = [];
-      models.forEach(m => {
-        const reg = registryByName.get(m.name) || null;
-        rows.push({ name: m.name, model: (reg && reg.model_name) || m.model, task: (reg && reg.task_type) || m.task, status: m.status, replicas: '—', managed: 'core service' });
-      });
-      deployments.forEach(d => {
+      // It also carries model_type, which "Managed by" shows instead of
+      // the old always-"platform"/hardcoded-"core service" label.
+      const rows = deployments.map(d => {
         const reg = registryByName.get(d.name) || null;
-        rows.push({ name: d.name, model: (reg && reg.model_name) || d.model_name, task: (reg && reg.task_type) || d.task_type, status: d.status, replicas: d.ready + '/' + d.desired, managed: 'platform' });
+        return {
+          name: d.name, model: (reg && reg.model_name) || d.model_name, task: (reg && reg.task_type) || d.task_type,
+          status: d.status, replicas: d.ready + '/' + d.desired, model_type: reg ? reg.model_type : 'huggingface',
+        };
       });
       if (!rows.length) {
         body.innerHTML = '<tr><td colspan="6">' + UI.emptyState('No deployments yet', 'Use the form below to deploy your first model.') + '</td></tr>';
@@ -1673,7 +1569,7 @@ def admin_deployments_page():
       }
       body.innerHTML = rows.map(r =>
         '<tr><td>' + UI.escapeHtml(r.name) + '</td><td class="text-secondary">' + UI.escapeHtml(r.model || '—') + '</td><td>' + UI.escapeHtml(r.task) + '</td>' +
-        '<td>' + UI.statusBadge(r.status) + '</td><td class="text-secondary">' + r.replicas + '</td><td>' + UI.badge(r.managed, 'neutral') + '</td></tr>'
+        '<td>' + UI.statusBadge(r.status) + '</td><td class="text-secondary">' + r.replicas + '</td><td>' + UI.badge(r.model_type, 'neutral') + '</td></tr>'
       ).join('');
     } catch (e) {
       body.innerHTML = '<tr><td colspan="6">' + UI.errorState(e.message, loadDeployments) + '</td></tr>';
@@ -1941,16 +1837,11 @@ def admin_infrastructure_page():
     const body = document.getElementById('services-body');
     body.innerHTML = UI.skeletonRows(4, 3);
     try {
-      const [models, deployments] = await Promise.all([Api.get('/models/status'), Api.get('/deployments')]);
+      const deployments = await Api.get('/deployments');
       let runningInstances = 0;
-      const rows = [];
-      models.forEach(m => {
-        rows.push({ name: m.name, type: 'Core service', status: m.status, replicas: '—' });
-        if (m.status === 'online') runningInstances += 1;
-      });
-      deployments.forEach(d => {
-        rows.push({ name: d.name, type: 'Platform deployment', status: d.status, replicas: d.ready + '/' + d.desired });
+      const rows = deployments.map(d => {
         runningInstances += d.ready || 0;
+        return { name: d.name, type: 'Platform deployment', status: d.status, replicas: d.ready + '/' + d.desired };
       });
       document.getElementById('pod-count').textContent = runningInstances;
       if (!rows.length) {
