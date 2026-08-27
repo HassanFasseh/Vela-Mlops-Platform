@@ -686,14 +686,25 @@ def api_predict(req: PredictRequest, x_api_key: str = fastapi.Header(None, alias
                     # slower to preprocess than a short text/json body.
                     r = http_requests.post(f"{url}/predict", files={"file": ("upload", file_bytes)}, timeout=60)
             else:
-                # Built-in HuggingFace runners (model-runner) always speak
-                # {"text": ..., ["labels": ...]} — input_type on these
-                # deployments is always "text" (see the input_type check
-                # above), so req.text is guaranteed present here.
-                payload = {"text": req.text}
-                if deployment.task_type == "zero-shot-classification":
-                    payload["labels"] = req.labels
-                r = http_requests.post(f"{url}/predict", json=payload, timeout=30)
+                # Built-in HuggingFace runners (model-runner) branch on
+                # INPUT_TYPE the same way custom-runner does now — match
+                # whichever field this deployment's input_type expects
+                # rather than always sending {"text": ...} (that only
+                # ever worked for the text-input deployments; image/audio
+                # models set up with input_type=file or json need their
+                # own field forwarded instead).
+                if input_type == "text":
+                    payload = {"text": req.text}
+                    if deployment.task_type == "zero-shot-classification":
+                        payload["labels"] = req.labels
+                    r = http_requests.post(f"{url}/predict", json=payload, timeout=30)
+                elif input_type == "json":
+                    r = http_requests.post(f"{url}/predict", json={"data": req.data}, timeout=30)
+                else:  # file
+                    # Longer timeout, same reasoning as the custom-runner
+                    # file branch above — image/audio payloads are bigger
+                    # and slower to preprocess than a short text/json body.
+                    r = http_requests.post(f"{url}/predict", json={"file": req.file}, timeout=60)
 
             result = r.json()
 
