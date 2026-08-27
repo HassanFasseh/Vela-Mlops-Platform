@@ -58,8 +58,10 @@ jobs:
           context: ./model-runner
           platforms: linux/amd64,linux/arm64
           push: true
+          no-cache: true
           tags: |
             ${{ env.IMAGE }}:${{ github.event.inputs.deployment_name }}
+            ${{ env.IMAGE }}:${{ github.event.inputs.deployment_name }}-${{ github.sha }}
           build-args: |
             MODEL_NAME=${{ github.event.inputs.model_name }}
             TASK_TYPE=${{ github.event.inputs.task_type }}
@@ -125,7 +127,7 @@ jobs:
                   - name: ghcr-secret
                 containers:
                   - name: model-runner
-                    image: ${{ env.IMAGE }}:${{ github.event.inputs.deployment_name }}
+                    image: ${{ env.IMAGE }}:${{ github.event.inputs.deployment_name }}-${{ github.sha }}
                     ports:
                       - name: http
                         containerPort: 8000
