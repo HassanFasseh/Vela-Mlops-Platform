@@ -17,14 +17,43 @@ created and mounted.
 import base64
 import json
 import os
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from prometheus_client import Counter, Histogram, Gauge, Info, generate_latest, CONTENT_TYPE_LATEST
 
 INPUT_TYPE = os.environ.get("INPUT_TYPE", "text")  # text, json, file
 
 MODEL = None
+
+# Every custom deployment runs this same image, one pod per deployment —
+# input_type is the one thing that varies across them and is known at
+# startup (see k8s_custom.create_runtime_deployment's env), so it's
+# attached as a label on every series here rather than left for someone
+# querying Prometheus to have to join against the platform DB to find
+# out whether a given series came from a text/json/file model.
+#
+# predict.py is arbitrary user code (see ../predict_template.py) — unlike
+# model-runner/model-service, there's no guaranteed "label" vocabulary,
+# so PREDICTION_COUNT/LATENCY are NOT broken down by predicted label the
+# way those are: an arbitrary user-supplied label used as a Prometheus
+# label value would be unbounded cardinality. The most recent label is
+# still tracked, via LAST_PREDICTION (Info's replace-on-set semantics
+# keep that to one active series no matter how many distinct labels a
+# model has produced over its lifetime).
+PREDICTION_COUNT = Counter("predictions_total", "Total predictions", ["input_type"])
+PREDICTION_LATENCY = Histogram("prediction_latency_seconds", "Prediction latency", ["input_type"])
+PREDICTION_CONFIDENCE = Gauge(
+    "prediction_confidence",
+    "Confidence score of the most recent prediction — only set when predict.py's result carries a numeric 'score' key",
+    ["input_type"],
+)
+LAST_PREDICTION = Info(
+    "last_prediction",
+    "input_type and label of the most recently served prediction — label is 'n/a' when predict.py's result doesn't carry one",
+)
 
 
 @asynccontextmanager
@@ -72,15 +101,39 @@ def normalize_result(result):
     return out
 
 
+def _extract_confidence(normalized):
+    """A numeric 'score' key, if predict.py's result followed that
+    convention — None (not 0.0) when it didn't, so callers can leave the
+    gauge untouched instead of recording a fabricated confidence."""
+    if not isinstance(normalized, dict) or "score" not in normalized:
+        return None
+    try:
+        return float(normalized["score"])
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_label(normalized):
+    if not isinstance(normalized, dict) or "label" not in normalized or normalized["label"] is None:
+        return None
+    return str(normalized["label"])
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "model_type": "custom", "input_type": INPUT_TYPE}
+
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.post("/predict")
 async def run_predict(request: Request):
     from predict import predict as user_predict
 
+    start = time.time()
     try:
         if INPUT_TYPE == "text":
             body = await request.json()
@@ -99,6 +152,16 @@ async def run_predict(request: Request):
             raise ValueError(f"Unsupported INPUT_TYPE: {INPUT_TYPE!r} (expected text, json, or file)")
 
         result = user_predict(MODEL, input_data)
-        return normalize_result(result)
+        normalized = normalize_result(result)
+
+        PREDICTION_COUNT.labels(input_type=INPUT_TYPE).inc()
+        PREDICTION_LATENCY.labels(input_type=INPUT_TYPE).observe(time.time() - start)
+        confidence = _extract_confidence(normalized)
+        if confidence is not None:
+            PREDICTION_CONFIDENCE.labels(input_type=INPUT_TYPE).set(confidence)
+        label = _extract_label(normalized)
+        LAST_PREDICTION.info({"input_type": INPUT_TYPE, "label": label if label is not None else "n/a"})
+
+        return normalized
     except Exception as e:
         return JSONResponse(status_code=400, content={"error": str(e)})

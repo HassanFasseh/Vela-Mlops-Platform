@@ -17,7 +17,8 @@ WORKDIR /app
 RUN pip install --no-cache-dir \
     fastapi uvicorn \
     scikit-learn joblib pandas numpy \
-    minio
+    minio \
+    prometheus-client
 
 COPY main.py /app/main.py
 

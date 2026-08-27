@@ -52,6 +52,23 @@ def _labels(name: str) -> dict:
     return {"app": name, "managed-by": "platform", "model-type": "custom"}
 
 
+# custom-runner:base exposes /metrics on the same port as /predict (see
+# custom-runner/base/main.py) — these are the classic annotation-based
+# scrape hints. Note: the Prometheus actually running in this cluster is
+# kube-prometheus-stack (Prometheus Operator), which discovers targets
+# via ServiceMonitor/PodMonitor CRDs, not these annotations, by default
+# — see k8s/model-service-monitor.yaml for the one target that's
+# currently wired up that way, and k8s/platform-runner-podmonitor.yaml
+# for the PodMonitor that actually makes these pods (and model-runner's,
+# same managed-by=platform label) scraped. Set regardless, since they're
+# the right metadata either way and cost nothing.
+_PROMETHEUS_ANNOTATIONS = {
+    "prometheus.io/scrape": "true",
+    "prometheus.io/path": "/metrics",
+    "prometheus.io/port": "8000",
+}
+
+
 def _ignore_404(fn, *args, **kwargs):
     """Delete calls in cleanup should succeed even if the resource is
     already gone (partial previous cleanup, manual deletion, ...) —
@@ -271,7 +288,8 @@ def create_runtime_deployment(name: str, cm_name: str, pvc: str, input_type: str
             replicas=1,
             selector=client.V1LabelSelector(match_labels={"app": name}),
             template=client.V1PodTemplateSpec(
-                metadata=client.V1ObjectMeta(labels=_labels(name)), spec=pod_spec
+                metadata=client.V1ObjectMeta(labels=_labels(name), annotations=_PROMETHEUS_ANNOTATIONS),
+                spec=pod_spec,
             ),
         ),
     )

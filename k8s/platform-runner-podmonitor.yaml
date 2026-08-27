@@ -1,0 +1,37 @@
+# Makes the prometheus.io/scrape annotations set on model-runner
+# (model-deploy.yml) and custom-runner (backend/app/services/
+# k8s_custom.py) pods actually take effect.
+#
+# The Prometheus running in this cluster is kube-prometheus-stack
+# (Prometheus Operator) — see k8s/monitoring-values.yaml — which
+# discovers scrape targets via ServiceMonitor/PodMonitor CRDs, not the
+# classic annotation-based auto-discovery those annotations imply on
+# their own (that's a vanilla-Prometheus `kubernetes_sd_configs` +
+# `relabel_configs` pattern; kube-prometheus-stack doesn't wire it up by
+# default). This PodMonitor is the CRD-native equivalent for these
+# specifically: one resource covering every model-runner and
+# custom-runner pod via the managed-by=platform label they both already
+# carry (deployment names are dynamic/per-model, so a ServiceMonitor
+# keyed to one fixed app= label, the way k8s/model-service-monitor.yaml
+# does it for the one static core service, doesn't work here).
+#
+# Not applied by any CI workflow — same as model-service-monitor.yaml,
+# this needs a one-time `kubectl apply -f k8s/platform-runner-podmonitor.yaml`.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: platform-runner-podmonitor
+  namespace: monitoring
+  labels:
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - default
+  selector:
+    matchLabels:
+      managed-by: platform
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
