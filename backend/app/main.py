@@ -250,6 +250,23 @@ def root():
     .terminal{display:none}
     footer{padding:.8rem 1rem}
   }
+
+  /* Mobile (phones and small tablets) — the desktop layout above already
+     centers everything and sizes text with clamp(), so most of this is
+     just: let the terminal shrink to the viewport instead of assuming
+     460px of room, stack the CTA row instead of wrapping it awkwardly,
+     and make the primary button (and the Demo link under it) full width
+     and thumb-friendly. Node count for the constellation canvas is
+     reduced on these widths in the script below, not here. */
+  @media (max-width:768px){
+    main{padding:0 1.1rem; max-width:100%}
+    .wordmark{gap:.4rem; flex-wrap:wrap}
+    .terminal{max-width:100%}
+    .terminal-body{padding:.65rem .75rem; font-size:.66rem}
+    .cta-row{flex-direction:column; align-items:stretch; width:100%; gap:.75rem}
+    .btn-primary{width:100%; text-align:center; box-sizing:border-box; padding:.75rem 1.4rem}
+    .link-secondary{width:100%; text-align:center}
+  }
 </style>
 </head>
 <body>
@@ -280,7 +297,7 @@ def root():
     </p>
     <div class="cta-row">
       <a class="btn-primary" href="/login">Get Started</a>
-      <a class="link-secondary" href="/docs">Documentation</a>
+      <a class="link-secondary" href="http://51.170.140.102/login">Demo</a>
     </div>
 
     <div class="terminal" role="img" aria-label="Terminal demo: deploying a model, then detecting and explaining drift">
@@ -295,10 +312,9 @@ def root():
   </main>
 
   <footer>
-    <a href="/docs">Documentation</a>
     <a href="https://github.com/HassanFasseh/vela" target="_blank" rel="noopener">GitHub</a>
     <a href="/about">About</a>
-    <a href="/privacy">Privacy</a>
+    <a href="https://github.com/HassanFasseh/Vela/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
   </footer>
 
 <script>
@@ -312,14 +328,20 @@ def root():
   if (!canvas) return;
   var ctx = canvas.getContext('2d');
 
-  var NODE_COUNT = 40;
   var MAX_DIST = 150;
   var SPEED = 0.3;
   var NODE_COLOR = '30, 41, 59'; // dark navy/slate (#1e293b), rgb triplet for rgba()
+  var MOBILE_BREAKPOINT = 768;
 
   var DPR = window.devicePixelRatio || 1;
   var W = 0, H = 0;
   var nodes = [];
+
+  // Fewer nodes (and so fewer pairwise distance checks + connecting
+  // lines) below 768px — same animation, lighter on a phone's GPU/CPU.
+  // Re-evaluated on every reseed, so rotating a phone or resizing across
+  // the breakpoint picks it up too.
+  function nodeCount(){ return window.innerWidth < MOBILE_BREAKPOINT ? 20 : 40; }
 
   function rand(min, max){ return min + Math.random() * (max - min); }
 
@@ -333,7 +355,8 @@ def root():
 
   function seed(){
     nodes = [];
-    for (var i = 0; i < NODE_COUNT; i++) {
+    var count = nodeCount();
+    for (var i = 0; i < count; i++) {
       var angle = rand(0, Math.PI * 2);
       nodes.push({
         x: rand(0, W),
@@ -411,15 +434,15 @@ def root():
   var LOG = document.getElementById('term-log');
   if (!LOG) return;
   var LINES = [
-    {cls:'cmd', text:'$ vela deploy sentiment-model'},
-    {cls:'ok',  text:'\\u2713 Building multi-arch image...'},
+    {cls:'cmd', text:'$ vela deploy your-model'},
+    {cls:'ok',  text:'\\u2713 Building image...'},
     {cls:'ok',  text:'\\u2713 Pushing to registry...'},
-    {cls:'ok',  text:'\\u2713 Model live in 47s'},
+    {cls:'ok',  text:'\\u2713 Live in 47s'},
     {cls:'cmd', text:'$ drift detected \\u2014 score 0.94'},
-    {cls:'cmd', text:'$ generating explanation...'},
-    {cls:'ok',  text:'\\u2713 confidence score and label distribution shifted'}
+    {cls:'cmd', text:'$ explaining...'},
+    {cls:'ok',  text:'\\u2713 Confidence dropped. Labels shifted. Issue opened.'}
   ];
-  var LONG_PAUSE_AFTER = 3; // pause after "Model live in 47s" before the drift sequence
+  var LONG_PAUSE_AFTER = 3; // pause after "Live in 47s" before the drift sequence
 
   function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
 
@@ -451,7 +474,7 @@ def root():
         await typeLine(LINES[i].text, LINES[i].cls);
         await sleep(i === LONG_PAUSE_AFTER ? 1100 : 280);
       }
-      await sleep(2200);
+      await sleep(3000); // 3 second pause before looping
     }
   }
 
