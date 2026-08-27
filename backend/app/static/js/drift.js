@@ -2,20 +2,25 @@
  * Vela Drift — model-centric, the standout page (spec goal #5). Shared by
  * /admin/drift and /app/drift via Drift.start({role, actionHrefFor, actionLabel}).
  *
- * There is exactly one drift pipeline in this backend (model-service's
- * Evidently DataDriftPreset, recomputed every 30 predictions against a
- * 30-sample reference window — see model-service/main.py) — selecting any
- * other model here shows an honest "not instrumented" state instead of a
- * fabricated chart. A few fields a fuller spec might want don't exist in
- * the backend and are NOT invented:
+ * Two drift sources, picked server-side by whether a deployment_id is
+ * passed (see services/timeline.py's _drift_fields and services/
+ * drift_tracker.py): model-service's original hardcoded Evidently
+ * pipeline for the core sentiment service (job="model-service", no
+ * deployment_id — it isn't a Deployment row), and, for every other
+ * deployment, drift_tracker's per-deployment Redis window, fed by every
+ * successful POST /api/v1/predict. Either way this page just renders
+ * whatever GET /metrics-summary returns — whether a given model actually
+ * has a drift computation yet is a runtime fact read off that response
+ * (driftHasData()), not assumed up front from a static "is this
+ * instrumented" flag the way this page used to gate on. A few fields a
+ * fuller spec might want don't exist in the backend and are NOT invented:
  *   - "Change" (e.g. "+31%") per feature — Evidently's output only carries
  *     p_value/drifted/method per column, no magnitude/delta.
  *   - A configurable overall-score threshold — the only real threshold is
- *     the per-feature significance level hardcoded in model-service
- *     (p < 0.05), which is what's shown. (RemediationConfig.drift_threshold
- *     exists for real Deployment rows, but the one model that actually has
- *     a drift signal today, the core sentiment service, isn't a Deployment
- *     row and can never have one — so it's not wired in here.)
+ *     the per-feature significance level hardcoded in both drift
+ *     pipelines (p < 0.05), which is what's shown. RemediationConfig.
+ *     drift_threshold exists for real Deployment rows but isn't wired in
+ *     here (a separate, not-yet-connected piece).
  *
  * Expects in the page: #model-picker #model-empty #d-name #d-task
  *   #d-status-badge #d-not-instrumented #d-instrumented #d-share
@@ -29,6 +34,7 @@ const Drift = (() => {
   let selectedKey = null;
   let opts = {};
   let driftChart = null;
+  let pollHandle = null;
 
   function fmtEpoch(sec) {
     if (!sec) return "—";
@@ -145,28 +151,47 @@ const Drift = (() => {
     }
   }
 
-  async function loadAiAnalysis(job) {
+  // job alone identifies model-service; every model-runner/custom-runner
+  // deployment shares one job behind the platform-runner PodMonitor
+  // (pod disambiguates), and deployment_id is what actually routes to
+  // drift_tracker's per-deployment Redis result on the backend — same
+  // three params monitoring.js's jobParams() builds, kept separate here
+  // since the two files don't share a module.
+  function driftParams(entry) {
+    const params = new URLSearchParams({ job: entry.job });
+    if (entry.pod) params.set("pod", entry.pod);
+    if (entry.deploymentId != null) params.set("deployment_id", entry.deploymentId);
+    return params.toString();
+  }
+
+  // Whether this model has an actual drift computation yet is a runtime
+  // fact — checked on the response, not assumed from what kind of model
+  // it is. Any deployment that's received predictions through
+  // POST /api/v1/predict can have this now (see drift_tracker.py).
+  function driftHasData(metrics) {
+    const columns = (metrics.drift_details && metrics.drift_details.columns) || [];
+    return columns.length > 0 || metrics.drift_score != null;
+  }
+
+  async function loadAiAnalysis(job, pod) {
     const box = document.getElementById("ai-analysis-box");
     if (!job) {
       box.textContent = "No telemetry to explain for this model yet.";
       return;
     }
     try {
-      const d = await Api.get("/summary?window_minutes=360&job=" + encodeURIComponent(job));
+      const d = await Api.get("/summary?window_minutes=360&" + driftParams({ job, pod }));
       box.textContent = d.summary || "No summary available for the current window.";
     } catch (e) {
       box.textContent = "AI analysis unavailable: " + e.message;
     }
   }
 
-  function renderNotInstrumented(entry) {
+  function renderNoData(entry) {
     document.getElementById("d-instrumented").hidden = true;
-    const why =
-      entry.kind === "core"
-        ? "This core service isn't wired up to the drift pipeline (only the primary sentiment service is)."
-        : "Drift detection only runs for the platform's primary sentiment service today — this model isn't instrumented for it.";
     document.getElementById("d-not-instrumented").innerHTML =
-      '<div class="evidence-panel"><div class="not-instrumented"><div class="not-instrumented-title">No drift detection for this model</div><div>' + why + "</div></div></div>";
+      '<div class="evidence-panel"><div class="not-instrumented"><div class="not-instrumented-title">No drift computation yet</div>' +
+      "<div>Make some predictions and check back — this refreshes automatically.</div></div></div>";
   }
 
   async function renderModel() {
@@ -177,44 +202,55 @@ const Drift = (() => {
     document.getElementById("d-status-badge").innerHTML = "";
     document.getElementById("d-not-instrumented").innerHTML = "";
 
-    if (!entry.instrumented) {
-      renderNotInstrumented(entry);
+    if (!entry.job) {
+      renderNoData(entry);
+      return;
+    }
+
+    let metrics;
+    try {
+      metrics = await Api.get("/metrics-summary?" + driftParams(entry));
+    } catch (e) {
+      UI.toast("Could not load drift data: " + e.message, "danger");
+      return;
+    }
+
+    if (!driftHasData(metrics)) {
+      renderNoData(entry);
       return;
     }
 
     document.getElementById("d-instrumented").hidden = false;
     ensureChart();
-    try {
-      const metrics = await Api.get("/metrics-summary?job=" + encodeURIComponent(entry.job));
-      const details = metrics.drift_details || { drift_share: null, columns: [], computed_at: null };
-      const columns = details.columns || [];
-      const share = metrics.drift_score;
 
-      document.getElementById("d-status-badge").innerHTML = !columns.length
-        ? UI.badge("No data yet", "neutral", true)
-        : columns.some((c) => c.drifted)
-        ? UI.badge("Drift detected", "warning", true)
-        : UI.badge("Stable", "success", true);
+    const details = metrics.drift_details || { drift_share: null, columns: [], computed_at: null };
+    const columns = details.columns || [];
+    const share = metrics.drift_score;
 
-      document.getElementById("d-share").textContent = share == null ? "—" : (share * 100).toFixed(1) + "%";
-      document.getElementById("d-computed").textContent = details.computed_at ? fmtEpoch(details.computed_at) + " (" + timeAgoEpoch(details.computed_at) + ")" : "No computation yet";
+    document.getElementById("d-status-badge").innerHTML = !columns.length
+      ? UI.badge("No data yet", "neutral", true)
+      : columns.some((c) => c.drifted)
+      ? UI.badge("Drift detected", "warning", true)
+      : UI.badge("Stable", "success", true);
 
-      const history = metrics.drift_history || [];
-      const since = driftSince(history);
-      document.getElementById("d-since").textContent = since
-        ? "Continuously elevated since " + fmtEpoch(since) + " (" + timeAgoEpoch(since) + ")"
-        : columns.some((c) => c.drifted)
-        ? "Currently elevated — not enough history yet to say since when."
-        : "No drift currently present in this window.";
+    document.getElementById("d-share").textContent = share == null ? "—" : (share * 100).toFixed(1) + "%";
+    document.getElementById("d-computed").textContent = details.computed_at ? fmtEpoch(details.computed_at) + " (" + timeAgoEpoch(details.computed_at) + ")" : "No computation yet";
 
-      setChartData(history);
-      renderBreakdown(columns);
-      renderWhatChanged(columns);
-      renderRecommended(columns);
-      await loadAiAnalysis(entry.job);
-    } catch (e) {
-      UI.toast("Could not load drift data: " + e.message, "danger");
-    }
+    const history = metrics.drift_history || [];
+    const since = driftSince(history);
+    document.getElementById("d-since").textContent = since
+      ? "Continuously elevated since " + fmtEpoch(since) + " (" + timeAgoEpoch(since) + ")"
+      : columns.some((c) => c.drifted)
+      ? "Currently elevated — not enough history yet to say since when."
+      : history.length
+      ? "No drift currently present in this window."
+      : "No drift history available for this model — only the latest computation is kept.";
+
+    setChartData(history);
+    renderBreakdown(columns);
+    renderWhatChanged(columns);
+    renderRecommended(columns);
+    await loadAiAnalysis(entry.job, entry.pod);
   }
 
   async function loadCatalog() {
@@ -258,7 +294,17 @@ const Drift = (() => {
     opts = o || {};
     role = opts.role || "member";
     loadCatalog();
+    // Matches Model Health's cadence — "check back" in the no-data state
+    // above is only true if this actually refreshes on its own.
+    pollHandle = setInterval(() => {
+      const entry = currentEntry();
+      if (entry) renderModel();
+    }, 30000);
   }
 
-  return { start };
+  function stop() {
+    if (pollHandle) clearInterval(pollHandle);
+  }
+
+  return { start, stop };
 })();
