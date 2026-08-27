@@ -171,8 +171,13 @@ def predict(input: PredictIn):
                 # image-classification, object-detection, and any other
                 # TASK_TYPE this deployment was given INPUT_TYPE=file
                 # for — every current image pipeline in transformers
-                # takes a PIL.Image.
-                result = classifier(Image.open(io.BytesIO(file_bytes)))
+                # takes a PIL.Image. Force RGB: grayscale (chest X-rays
+                # and other medical imagery are commonly single-channel),
+                # RGBA, and palette-mode images all fail model forward
+                # passes built around 3-channel input otherwise.
+                img = Image.open(io.BytesIO(file_bytes))
+                img = img.convert("RGB")
+                result = classifier(img)
         elif INPUT_TYPE == "json":
             if input.data is None:
                 raise ValueError("Missing 'data' field")
