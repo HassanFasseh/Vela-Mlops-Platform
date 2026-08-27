@@ -14,8 +14,18 @@ backend today (services/timeline.py's DEFAULT_JOB).
 """
 
 CHART_JS_CDN = '<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>'
-MONITORING_CSS = '<link rel="stylesheet" href="/static/css/monitoring.css">'
-MODEL_CATALOG_JS = '<script src="/static/js/models.js"></script>'
+
+# Cache-busting query param on our own monitoring/drift static assets only
+# (third-party CDN URLs above are already version-pinned in their path).
+# These files are served from a fixed URL with no content hash, so a
+# browser or intermediate proxy that cached the pre-redesign monitoring.js
+# against that same URL would keep serving it after a redeploy — same
+# HTML (fresh, since FastAPI never caches it), stale JS silently doing
+# nothing with the new page's element ids. Bump this string on every
+# change to these files.
+_STATIC_V = "2"
+MONITORING_CSS = f'<link rel="stylesheet" href="/static/css/monitoring.css?v={_STATIC_V}">'
+MODEL_CATALOG_JS = f'<script src="/static/js/models.js?v={_STATIC_V}"></script>'
 
 MONITORING_BODY = """
 <div id="page-content" hidden>
@@ -66,7 +76,7 @@ MONITORING_BODY = """
 <div class="auth-loading" id="loading-root">Loading&hellip;</div>
 """
 
-MONITORING_SCRIPTS_EXTRA = MODEL_CATALOG_JS + '\n<script src="/static/js/monitoring.js"></script>'
+MONITORING_SCRIPTS_EXTRA = MODEL_CATALOG_JS + f'\n<script src="/static/js/monitoring.js?v={_STATIC_V}"></script>'
 
 # =========================================================================
 # Drift — the standout page (spec goal #5): what changed, which features,
@@ -143,7 +153,7 @@ DRIFT_BODY = """
 <div class="auth-loading" id="loading-root">Loading&hellip;</div>
 """
 
-DRIFT_SCRIPTS_EXTRA = MODEL_CATALOG_JS + '\n<script src="/static/js/drift.js"></script>'
+DRIFT_SCRIPTS_EXTRA = MODEL_CATALOG_JS + f'\n<script src="/static/js/drift.js?v={_STATIC_V}"></script>'
 
 # =========================================================================
 # Documentation (spec §20) — identical for admin and team-member: model

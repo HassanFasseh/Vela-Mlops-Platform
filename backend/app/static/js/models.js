@@ -29,31 +29,48 @@
 const ModelCatalog = (() => {
   const STORAGE_KEY = "vela:selectedModel";
 
-  async function loadForMember() {
-    const entries = [];
-    try {
-      const core = await Api.get("/models/status");
-      core.forEach((m) =>
+  // Every fetch below is its own try/catch, and every entry-building loop
+  // guards each item individually — a failing/unreachable endpoint or one
+  // malformed record degrades the catalog (fewer entries) instead of
+  // silently producing zero. Failures are logged, not swallowed: this
+  // code used to fail totally silently on a bad response shape, which
+  // made a real bug (or a stale cached copy of this very file) look like
+  // "the picker just doesn't render" with nothing in the console.
+  function pushCoreEntries(entries, core) {
+    core.forEach((m) => {
+      try {
         entries.push({
           key: "core:" + m.id, label: m.name, task: m.task, kind: "core",
           job: m.job, instrumented: !!m.instrumented, status: m.status,
-        })
-      );
+        });
+      } catch (e) {
+        console.error("ModelCatalog: skipping malformed core entry", m, e);
+      }
+    });
+  }
+
+  async function loadForMember() {
+    const entries = [];
+    try {
+      pushCoreEntries(entries, await Api.get("/models/status"));
     } catch (e) {
-      /* core services unreachable — fall through to whatever team grants exist */
+      console.error("ModelCatalog: GET /models/status failed", e);
     }
 
     let teams = [];
     try {
       teams = await Api.get("/users/me/teams");
     } catch (e) {
-      teams = [];
+      console.error("ModelCatalog: GET /users/me/teams failed", e);
     }
     if (teams.length) {
       const perTeam = await Promise.allSettled(teams.map((t) => Api.get("/teams/" + t.id + "/permissions")));
       const byDeployment = new Map();
       perTeam.forEach((r) => {
-        if (r.status !== "fulfilled") return;
+        if (r.status !== "fulfilled") {
+          console.error("ModelCatalog: GET /teams/{id}/permissions failed", r.reason);
+          return;
+        }
         r.value.forEach((p) => {
           if (p.is_active === false) return;
           if (!p.can_view_metrics && !p.can_predict) return;
@@ -61,13 +78,17 @@ const ModelCatalog = (() => {
         });
       });
       byDeployment.forEach((p) => {
-        entries.push({
-          key: "deployment:" + p.deployment_id,
-          label: p.model_name, task: p.task_type,
-          kind: p.model_type === "custom" ? "custom" : "huggingface",
-          deploymentId: p.deployment_id, deploymentName: p.deployment_name,
-          job: null, instrumented: false, status: p.status,
-        });
+        try {
+          entries.push({
+            key: "deployment:" + p.deployment_id,
+            label: p.model_name, task: p.task_type,
+            kind: p.model_type === "custom" ? "custom" : "huggingface",
+            deploymentId: p.deployment_id, deploymentName: p.deployment_name,
+            job: null, instrumented: false, status: p.status,
+          });
+        } catch (e) {
+          console.error("ModelCatalog: skipping malformed permission entry", p, e);
+        }
       });
     }
     return entries;
@@ -76,43 +97,41 @@ const ModelCatalog = (() => {
   async function loadForAdmin() {
     const entries = [];
     try {
-      const core = await Api.get("/models/status");
-      core.forEach((m) =>
-        entries.push({
-          key: "core:" + m.id, label: m.name, task: m.task, kind: "core",
-          job: m.job, instrumented: !!m.instrumented, status: m.status,
-        })
-      );
+      pushCoreEntries(entries, await Api.get("/models/status"));
     } catch (e) {
-      /* fall through */
+      console.error("ModelCatalog: GET /models/status failed", e);
     }
 
     let registry = [];
     try {
       registry = await Api.get("/admin/deployment-registry");
     } catch (e) {
-      registry = [];
+      console.error("ModelCatalog: GET /admin/deployment-registry failed", e);
     }
     let live = [];
     try {
       live = await Api.get("/deployments");
     } catch (e) {
-      live = [];
+      console.error("ModelCatalog: GET /deployments failed", e);
     }
-    const liveByName = new Map(live.map((d) => [d.name, d]));
+    const liveByName = new Map((live || []).map((d) => [d.name, d]));
 
-    registry.forEach((r) => {
-      const l = liveByName.get(r.name);
-      entries.push({
-        key: "deployment:" + r.id,
-        label: r.model_name || r.name, task: r.task_type,
-        kind: r.model_type === "custom" ? "custom" : "huggingface",
-        deploymentId: r.id, deploymentName: r.name,
-        job: null, instrumented: false,
-        status: l ? l.status : r.status,
-        replicas: l ? l.ready + "/" + l.desired : null,
-        isActive: r.is_active,
-      });
+    (registry || []).forEach((r) => {
+      try {
+        const l = liveByName.get(r.name);
+        entries.push({
+          key: "deployment:" + r.id,
+          label: r.model_name || r.name, task: r.task_type,
+          kind: r.model_type === "custom" ? "custom" : "huggingface",
+          deploymentId: r.id, deploymentName: r.name,
+          job: null, instrumented: false,
+          status: l ? l.status : r.status,
+          replicas: l ? l.ready + "/" + l.desired : null,
+          isActive: r.is_active,
+        });
+      } catch (e) {
+        console.error("ModelCatalog: skipping malformed registry entry", r, e);
+      }
     });
     return entries;
   }

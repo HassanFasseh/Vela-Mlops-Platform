@@ -172,6 +172,7 @@ const Monitoring = (() => {
     try {
       entries = await ModelCatalog.load(role);
     } catch (e) {
+      console.error("Monitoring: ModelCatalog.load failed", e);
       emptyEl.innerHTML = UI.errorState(e.message, loadCatalog);
       contentEl.hidden = true;
       return;
