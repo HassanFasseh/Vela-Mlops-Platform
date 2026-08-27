@@ -508,6 +508,22 @@ def predict_proxy(req: PredictRequest):
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e))
 
+def _infer_input_type(task_type: str) -> str:
+    """What model-runner needs INPUT_TYPE set to for a given HuggingFace
+    task_type — mirrors model-runner/main.py's IMAGE_TASKS/AUDIO_TASKS
+    plus question-answering's json-shaped {question, context} input.
+    Everything else (sentiment-analysis, zero-shot-classification,
+    text-classification, ...) takes plain text."""
+    if task_type in (
+        "image-classification", "object-detection", "image-segmentation",
+        "automatic-speech-recognition", "audio-classification",
+    ):
+        return "file"
+    if task_type == "question-answering":
+        return "json"
+    return "text"
+
+
 @app.post("/deploy-model")
 def deploy_model_endpoint(req: DeployModelRequest):
     if not GITHUB_TOKEN or not GITHUB_REPO:
@@ -554,6 +570,21 @@ def deploy_model_endpoint(req: DeployModelRequest):
         }
     )
     if resp.status_code == 204:
+        # Set now that the deploy is actually underway, so a future model
+        # of this task_type doesn't need a manual DB fix the way
+        # chest-xray did — the prediction tester (predictor.js) and
+        # /api/v1/predict both key off Deployment.input_type.
+        if deployment_id is not None:
+            db2 = SessionLocal()
+            try:
+                record = db2.query(DeploymentModel).filter(DeploymentModel.id == deployment_id).first()
+                if record:
+                    record.input_type = _infer_input_type(req.task_type)
+                    db2.commit()
+            except Exception:
+                db2.rollback()
+            finally:
+                db2.close()
         return {
             "status": "triggered",
             "deployment_name": req.deployment_name,

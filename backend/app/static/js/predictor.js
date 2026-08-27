@@ -9,13 +9,15 @@
  * input_type/input_schema come straight off the permission row (GET
  * /teams/{id}/permissions — see services/teams.py's get_team_permissions)
  * and decide what the tester actually renders/sends:
- *   "text" (default, also used for "file" — no dedicated UI for that
- *           yet) — a plain textarea, {"text": ...}.
+ *   "text" (default) — a plain textarea, {"text": ...}.
  *   "json" — input_schema is a JSON string like {"f1":"number"} stored
  *           on the deployment; parsed into one input field per key. No
  *           usable schema (missing/unparseable/empty) falls back to a
  *           raw-JSON textarea instead of losing the ability to predict
  *           entirely. Either way, sent as {"data": {...}}.
+ *   "file" — images and audio. A <input type=file>; the selected file
+ *           is read client-side into a base64 string (pendingFiles
+ *           below) as soon as it's chosen, then sent as {"file": ...}.
  *
  * The API key used to call /api/v1/predict is never routed through the
  * shared Api helper (that attaches the JWT and treats any 401 as
@@ -25,6 +27,26 @@
  */
 
 const Predictor = (() => {
+  // uid -> base64 string (no "data:...;base64," prefix) of the file
+  // currently selected for a "file" input_type tester. Populated by the
+  // file input's change handler in wire() below, read by
+  // collectRequestBody — kept out of the DOM rather than stashed on the
+  // input element since it can be a multi-MB string.
+  const pendingFiles = {};
+
+  function readFileAsBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result || "";
+        const comma = result.indexOf(",");
+        resolve(comma !== -1 ? result.slice(comma + 1) : result);
+      };
+      reader.onerror = () => reject(reader.error || new Error("Could not read file"));
+      reader.readAsDataURL(file);
+    });
+  }
+
   function keyFor(teamId, deploymentId) {
     return "vela_key_" + teamId + "_" + deploymentId;
   }
@@ -104,10 +126,25 @@ const Predictor = (() => {
     return '<div data-json-fields="' + uid + '">' + fields + "</div>";
   }
 
+  // <input type=file> — accepts images and audio since "file" covers
+  // both (see model-runner/main.py's IMAGE_TASKS/AUDIO_TASKS). Actually
+  // reading the file happens in wire()'s change handler, not here.
+  function fileFieldHtml(uid) {
+    return (
+      '<div class="field" style="margin-bottom:.4rem">' +
+      '<label class="field-label" for="predict-file-' + uid + '">Upload an image or audio file</label>' +
+      '<input class="input" type="file" id="predict-file-' + uid + '" accept="image/*,audio/*" style="font-size:var(--text-xs)">' +
+      '<div id="predict-file-status-' + uid + '" class="text-muted" style="font-size:var(--text-xs);margin-top:.3rem"></div>' +
+      "</div>"
+    );
+  }
+
   function testerHtml(uid, inputType, inputSchema) {
     const inputHtml =
       inputType === "json"
         ? jsonFieldsHtml(uid, inputSchema)
+        : inputType === "file"
+        ? fileFieldHtml(uid)
         : '<div class="field" style="margin-bottom:.4rem">' +
           '<textarea class="textarea" id="predict-input-' + uid + '" placeholder="Enter text to analyze…" style="font-size:var(--text-xs);min-height:3.5em"></textarea>' +
           "</div>";
@@ -123,8 +160,8 @@ const Predictor = (() => {
   // among every tester rendered on the same page (callers use
   // 'd' + deployment_id, which is unique per page in both call sites).
   // inputType/inputSchema come from the permission row; inputType
-  // defaults to the plain-text tester for anything other than "json"
-  // (covers "text", "file", and unset alike).
+  // defaults to the plain-text tester for anything other than "json" or
+  // "file" (covers "text" and unset alike).
   function render(uid, teamId, deploymentId, inputType, inputSchema) {
     const hasKey = !!getKey(teamId, deploymentId);
     return (
@@ -166,11 +203,32 @@ const Predictor = (() => {
       runBtn.addEventListener("click", () => runPrediction(uid, teamId, deploymentId, inputType, inputSchema));
     }
 
+    const fileInput = document.getElementById("predict-file-" + uid);
+    if (fileInput) {
+      fileInput.addEventListener("change", async () => {
+        const statusEl = document.getElementById("predict-file-status-" + uid);
+        const file = fileInput.files && fileInput.files[0];
+        delete pendingFiles[uid];
+        if (!file) {
+          if (statusEl) statusEl.textContent = "";
+          return;
+        }
+        if (statusEl) statusEl.textContent = "Reading " + file.name + "…";
+        try {
+          pendingFiles[uid] = await readFileAsBase64(file);
+          if (statusEl) statusEl.textContent = file.name + " ready (" + Math.round(file.size / 1024) + " KB)";
+        } catch (e) {
+          if (statusEl) statusEl.textContent = "Could not read that file.";
+        }
+      });
+    }
+
     const clearLink = root.querySelector('[data-clear-key="' + uid + '"]');
     if (clearLink) {
       clearLink.addEventListener("click", (e) => {
         e.preventDefault();
         clearKey(teamId, deploymentId);
+        delete pendingFiles[uid];
         root.innerHTML = keyPromptHtml(uid);
         wire(uid, teamId, deploymentId, inputType, inputSchema);
       });
@@ -195,7 +253,9 @@ const Predictor = (() => {
 
   function renderResult(result) {
     if (result.all_labels && Object.keys(result.all_labels).length) {
-      // Zero-shot — ranked labels as a small bar chart.
+      // Zero-shot, image-classification, audio-classification, ... —
+      // anything model-runner's normalize_output gave a full ranking to.
+      // Ranked labels as a small bar chart.
       const ranked = Object.entries(result.all_labels).sort((a, b) => b[1] - a[1]);
       return ranked
         .map(([label, score]) => meterRow(label, Math.round(score * 1000) / 10))
@@ -226,10 +286,20 @@ const Predictor = (() => {
     return '<div class="text-muted" style="font-size:var(--text-xs)">No result returned.</div>';
   }
 
-  // Reads the current form state into the {text: ...} or {data: ...}
-  // body /api/v1/predict expects for this input_type. Returns null (after
-  // showing an inline error) when there's nothing usable to send yet.
+  // Reads the current form state into the {text: ...}, {data: ...}, or
+  // {file: ...} body /api/v1/predict expects for this input_type.
+  // Returns null (after showing an inline error) when there's nothing
+  // usable to send yet.
   function collectRequestBody(uid, deploymentId, inputType, resultEl) {
+    if (inputType === "file") {
+      const base64 = pendingFiles[uid];
+      if (!base64) {
+        resultEl.innerHTML = '<div class="field-error" style="min-height:0">Choose a file first.</div>';
+        return null;
+      }
+      return { file: base64, deployment_id: deploymentId };
+    }
+
     if (inputType === "json") {
       const fieldsContainer = document.querySelector('[data-json-fields="' + uid + '"]');
       if (fieldsContainer) {
