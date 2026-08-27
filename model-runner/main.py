@@ -13,15 +13,23 @@ import time
 
 MODEL_NAME = os.environ.get("MODEL_NAME", "distilbert-base-uncased-finetuned-sst-2-english")
 TASK_TYPE  = os.environ.get("TASK_TYPE", "sentiment-analysis")
+
+IMAGE_TASKS = {"image-classification", "object-detection"}
+AUDIO_TASKS = {"automatic-speech-recognition", "audio-classification"}
+
 # Mirrors the Deployment.input_type convention used everywhere else in
 # the platform (backend/app/db/models.py, custom-runner/base/main.py) —
 # text, json, or file. "file" covers both images and audio; which of the
 # two a given file is comes from TASK_TYPE, not a separate input_type
-# value (see IMAGE_TASKS/AUDIO_TASKS below).
-INPUT_TYPE = os.environ.get("INPUT_TYPE", "text")
-
-IMAGE_TASKS = {"image-classification", "object-detection"}
-AUDIO_TASKS = {"automatic-speech-recognition", "audio-classification"}
+# value. Falls back to inferring from TASK_TYPE when INPUT_TYPE isn't
+# set explicitly (e.g. model-deploy.yml's manifest not passing it), so
+# an image/audio TASK_TYPE doesn't silently default to "text" and get
+# handed an empty string on every request — that's what actually broke
+# chest-xray: the pod ran with TASK_TYPE=image-classification but no
+# INPUT_TYPE env var at all, so it defaulted to "text" and never took
+# the file-decoding path below regardless of what that path did.
+_default_input_type = "file" if TASK_TYPE in IMAGE_TASKS | AUDIO_TASKS else "text"
+INPUT_TYPE = os.environ.get("INPUT_TYPE") or _default_input_type
 
 print(f"[runner] loading model={MODEL_NAME} task={TASK_TYPE} input_type={INPUT_TYPE}", flush=True)
 classifier = pipeline(TASK_TYPE, model=MODEL_NAME)

@@ -66,6 +66,21 @@ jobs:
             MODEL_NAME=${{ github.event.inputs.model_name }}
             TASK_TYPE=${{ github.event.inputs.task_type }}
 
+      - name: Determine input type for task
+        # model-runner/main.py falls back to inferring this from
+        # TASK_TYPE when INPUT_TYPE isn't set, but setting it explicitly
+        # here keeps the deployed manifest self-describing rather than
+        # relying on that fallback silently doing the right thing.
+        run: |
+          case "${{ github.event.inputs.task_type }}" in
+            image-classification|object-detection|automatic-speech-recognition|audio-classification)
+              echo "INPUT_TYPE=file" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "INPUT_TYPE=text" >> "$GITHUB_ENV"
+              ;;
+          esac
+
       - name: Set up kubectl
         uses: azure/setup-kubectl@v4
 
@@ -136,6 +151,8 @@ jobs:
                         value: "${{ github.event.inputs.model_name }}"
                       - name: TASK_TYPE
                         value: "${{ github.event.inputs.task_type }}"
+                      - name: INPUT_TYPE
+                        value: "${{ env.INPUT_TYPE }}"
                     resources:
                       requests:
                         memory: "512Mi"
