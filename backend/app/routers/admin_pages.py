@@ -25,15 +25,14 @@ from backend.app.routers._page_fragments import (
 
 router = APIRouter()
 
-_ASSETS = """<link rel="stylesheet" href="/static/css/tokens.css">
-<link rel="stylesheet" href="/static/css/base.css">
-<link rel="stylesheet" href="/static/css/components.css">
-<link rel="stylesheet" href="/static/css/shell.css">
-<link rel="stylesheet" href="/static/css/light-theme.css">"""
+_ASSETS = """<link rel="stylesheet" href="/static/css/tokens.css?v=8">
+<link rel="stylesheet" href="/static/css/base.css?v=8">
+<link rel="stylesheet" href="/static/css/components.css?v=8">
+<link rel="stylesheet" href="/static/css/shell.css?v=8">"""
 
-_SCRIPTS = """<script src="/static/js/api.js"></script>
-<script src="/static/js/shell.js"></script>
-<script src="/static/js/ui.js"></script>"""
+_SCRIPTS = """<script src="/static/js/api.js?v=8"></script>
+<script src="/static/js/shell.js?v=8"></script>
+<script src="/static/js/ui.js?v=8"></script>"""
 
 # Shared boot sequence: authenticate, require is_admin, mount the shell.
 # Pages call ADMIN_BOOT(activePath, breadcrumbLabel) then their own loader.
@@ -84,20 +83,21 @@ def admin_overview_page():
       </div>
     </div>
 
-    <div class="metric-row" id="metric-row" style="margin:var(--space-5) 0"></div>
+    <div class="metric-strip" id="metric-row" style="margin:var(--space-5) 0"></div>
 
     <div class="section-label">Model health</div>
+    <div id="drift-banner"></div>
     <div class="table-wrap">
       <table class="table">
         <thead>
-          <tr><th>Model</th><th>Task</th><th>Source</th><th>Status</th><th>Detail</th></tr>
+          <tr><th>Model</th><th>Task</th><th>Source</th><th>Status</th><th>Actions</th></tr>
         </thead>
         <tbody id="model-health-body">""" + "" + """</tbody>
       </table>
     </div>
 
     <div class="section-label">Recent tickets</div>
-    <div class="card" id="recent-tickets-card"></div>
+    <div id="recent-tickets-card"></div>
   </div>
 </div>
 <div class="auth-loading" id="loading-root">Loading…</div>
@@ -107,8 +107,13 @@ def admin_overview_page():
 <script>
   function fmtPct(x) { return (x == null || isNaN(x)) ? '—' : (x * 100).toFixed(1) + '%'; }
 
+  let overviewRows = [];
+  let managementApiKey = '';
+  let overviewUser = null;
+
   async function loadOverview(user) {
-    document.getElementById('greeting').textContent = greetingFor(user);
+    overviewUser = user || overviewUser;
+    document.getElementById('greeting').textContent = greetingFor(overviewUser);
     const results = await Promise.allSettled([
       Api.get('/admin/users'),
       Api.get('/admin/tickets'),
@@ -130,11 +135,13 @@ def admin_overview_page():
     const liveById = new Map(live.map(m => [m.id, m]));
     const rows = registry.map(r => {
       const l = liveById.get(r.id);
-      return { id: r.id, name: r.name, task: r.task_type, model_type: r.model_type, status: l ? l.status : r.status, backing_model: l ? l.model : null };
+      return { id: r.id, name: r.name, task: r.task_type, model_type: r.model_type, is_active: r.is_active, status: l ? l.status : r.status, backing_model: l ? l.model : null };
     });
+    overviewRows = rows;
 
     renderStatus(rows);
-    renderMetrics(users, tickets, rows, metrics);
+    renderMetrics(tickets, rows, metrics);
+    renderDriftBanner(metrics);
     renderModelHealth(rows);
     renderRecentTickets(tickets);
   }
@@ -148,34 +155,43 @@ def admin_overview_page():
   function renderStatus(rows) {
     const el = document.getElementById('platform-status');
     if (!rows.length) {
-      el.innerHTML = UI.badge('Unknown', 'neutral', true) + ' <span class="text-muted">no models deployed yet</span>';
+      el.innerHTML = UI.statusDot('Unknown', 'neutral') + ' <span class="text-muted">no models deployed yet</span>';
       return;
     }
     const offline = rows.filter(r => r.status !== 'online' && r.status !== 'running').length;
     if (offline === 0) {
-      el.innerHTML = UI.badge('Operational', 'success', true);
+      el.innerHTML = UI.statusDot('Operational', 'running');
     } else {
-      el.innerHTML = UI.badge('Degraded', 'danger', true) + ' <span class="text-muted">' + offline + ' of ' + rows.length + ' models offline</span>';
+      el.innerHTML = UI.statusDot('Degraded', 'error') + ' <span class="text-muted">' + offline + ' of ' + rows.length + ' models offline</span>';
     }
   }
 
-  function tile(value, label, variant) {
-    return '<div class="metric-tile"><div class="metric-tile-value' + (variant ? ' is-' + variant : '') + '">' + value + '</div><div class="metric-tile-label">' + label + '</div></div>';
+  // A plain-text 3-column strip (spec) instead of a KPI card wall —
+  // total running models, open tickets, and platform-wide drift, each
+  // just a number + label separated by a divider.
+  function stripItem(value, label, variant) {
+    return '<div class="metric-strip-item"><div class="metric-strip-value' + (variant ? ' is-' + variant : '') + '">' + value + '</div><div class="metric-strip-label">' + label + '</div></div>';
   }
 
-  function renderMetrics(users, tickets, rows, metrics) {
-    const totalModels = rows.length;
+  function renderMetrics(tickets, rows, metrics) {
     const running = rows.filter(r => r.status === 'online' || r.status === 'running').length;
-    const attention = totalModels - running;
     const openTickets = tickets.filter(t => t.status === 'open' || t.status === 'investigating').length;
-    const activeUsers = users.filter(u => u.is_active).length;
     document.getElementById('metric-row').innerHTML =
-      tile(totalModels, 'Total models') +
-      tile(running, 'Running', 'success') +
-      tile(attention, 'Needs attention', attention > 0 ? 'warning' : undefined) +
-      tile(fmtPct(metrics.drift_score), 'Platform drift') +
-      tile(openTickets, 'Open tickets', openTickets > 0 ? 'warning' : undefined) +
-      tile(activeUsers, 'Active users');
+      stripItem(running + ' / ' + rows.length, 'Models running') +
+      stripItem(openTickets, 'Open tickets', openTickets > 0 ? 'warning' : undefined) +
+      stripItem(fmtPct(metrics.drift_score), 'Platform drift', (metrics.drift_score || 0) > 0.3 ? 'danger' : undefined);
+  }
+
+  // There's no per-model drift breakdown fetched on this page (that lives
+  // on /admin/drift, one model at a time) — only a platform-wide
+  // drift_score from /metrics-summary. Rather than invent a specific
+  // model name for the banner, this reflects what's actually known: the
+  // platform-wide figure crossing a threshold.
+  function renderDriftBanner(metrics) {
+    const el = document.getElementById('drift-banner');
+    if ((metrics.drift_score || 0) <= 0.3) { el.innerHTML = ''; return; }
+    el.innerHTML = '<div class="banner-strip is-warning">&#9888; Elevated drift detected across the platform (' +
+      fmtPct(metrics.drift_score) + ' of tracked features) — <a href="/admin/drift">Investigate &rarr;</a></div>';
   }
 
   function renderModelHealth(rows) {
@@ -184,11 +200,112 @@ def admin_overview_page():
       body.innerHTML = '<tr><td colspan="5">' + UI.emptyState('No models deployed yet', 'Deployed models will show up here once available.') + '</td></tr>';
       return;
     }
-    body.innerHTML = rows.map(r =>
-      '<tr><td>' + UI.escapeHtml(r.name) + '</td><td>' + UI.escapeHtml(r.task) + '</td><td>' +
-      UI.badge(r.model_type, 'neutral') + '</td><td>' + UI.statusBadge(r.status) + '</td><td class="text-secondary">' +
-      UI.escapeHtml(r.backing_model ? 'backing model: ' + r.backing_model : '—') + '</td></tr>'
+    body.innerHTML = rows.map((r, idx) =>
+      '<tr><td class="mono">' + UI.escapeHtml(r.name) + '</td><td><span class="chip-mono">' + UI.escapeHtml(r.task) + '</span></td><td class="text-secondary">' +
+      UI.escapeHtml(r.model_type) + '</td><td>' + UI.statusBadge(r.status) + (r.is_active === false ? ' ' + UI.statusDot('Disabled', 'offline') : '') + '</td><td>' +
+      '<button class="link-action" data-toggle-active="' + idx + '" type="button">' + (r.is_active === false ? 'Enable' : 'Disable') + '</button> ' +
+      '<button class="link-action link-danger" data-delete-model="' + idx + '" type="button">Delete</button>' +
+      '</td></tr>'
     ).join('');
+    body.querySelectorAll('[data-toggle-active]').forEach(btn => {
+      btn.addEventListener('click', () => toggleActive(overviewRows[parseInt(btn.dataset.toggleActive, 10)], btn));
+    });
+    body.querySelectorAll('[data-delete-model]').forEach(btn => {
+      btn.addEventListener('click', () => confirmDeleteModel(overviewRows[parseInt(btn.dataset.deleteModel, 10)]));
+    });
+  }
+
+  // Disable/Enable and Delete need an unscoped workspace API key, same as
+  // the Model Registry page — prompted for once, lazily, cached for the
+  // rest of this page's lifetime.
+  function ensureApiKey() {
+    if (managementApiKey) return Promise.resolve(managementApiKey);
+    return new Promise((resolve) => {
+      const overlay = UI.openModal({
+        title: 'API key required',
+        bodyHtml: `
+          <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:.75rem">An unscoped workspace API key is needed to manage models — see API Keys.</p>
+          <div class="field"><label class="field-label" for="ov-api-key">API key</label><input class="input" type="password" id="ov-api-key" placeholder="aodp_your_admin_key"></div>
+        `,
+        footerHtml: `<button class="btn btn-ghost" id="ov-key-cancel" type="button">Cancel</button>
+                     <button class="btn btn-primary" id="ov-key-save" type="button">Continue</button>`,
+      });
+      const finish = (value) => { UI.closeModal(); resolve(value); };
+      overlay.querySelector('#ov-key-cancel').addEventListener('click', () => finish(null));
+      const input = overlay.querySelector('#ov-api-key');
+      const save = () => {
+        const value = input.value.trim();
+        if (!value) return;
+        managementApiKey = value;
+        finish(value);
+      };
+      overlay.querySelector('#ov-key-save').addEventListener('click', save);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
+    });
+  }
+
+  async function toggleActive(row, btn) {
+    const key = await ensureApiKey();
+    if (!key) return;
+    const newActive = !(row.is_active !== false);
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/v1/deployment/' + row.id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+        body: JSON.stringify({ is_active: newActive }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error((data && data.detail) || 'Could not update model');
+      UI.toast(newActive ? 'Model enabled' : 'Model disabled', 'success');
+      loadOverview();
+    } catch (e) {
+      UI.toast(e.message || 'Could not update model', 'danger');
+      btn.disabled = false;
+    }
+  }
+
+  async function confirmDeleteModel(row) {
+    const key = await ensureApiKey();
+    if (!key) return;
+    const overlay = UI.openModal({
+      title: 'Delete ' + row.name,
+      bodyHtml: `
+        <div class="alert alert-danger" style="margin-bottom:.75rem">
+          <div><div class="alert-title">This cannot be undone</div><div class="alert-body">This will remove the model and revoke all team access. Type the model name to confirm.</div></div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="ov-del-confirm-name">Model name</label>
+          <input class="input" id="ov-del-confirm-name" placeholder="${UI.escapeHtml(row.name)}">
+        </div>
+        <div class="field-error" id="ov-del-confirm-error" role="alert"></div>
+      `,
+      footerHtml: `<button class="btn btn-ghost" id="ov-del-cancel" type="button">Cancel</button>
+                   <button class="btn btn-danger" id="ov-del-confirm" type="button" disabled>Delete</button>`,
+    });
+    const input = overlay.querySelector('#ov-del-confirm-name');
+    const confirmBtn = overlay.querySelector('#ov-del-confirm');
+    const errorEl = overlay.querySelector('#ov-del-confirm-error');
+    input.addEventListener('input', () => { confirmBtn.disabled = input.value !== row.name; });
+    overlay.querySelector('#ov-del-cancel').addEventListener('click', UI.closeModal);
+    confirmBtn.addEventListener('click', async () => {
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Deleting…';
+      errorEl.textContent = '';
+      try {
+        const path = row.model_type === 'custom' ? '/api/v1/custom-model/' + row.id : '/api/v1/deployment/' + row.id;
+        const res = await fetch(path, { method: 'DELETE', headers: { 'X-API-Key': key } });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error((data && data.detail) || 'Could not delete model');
+        UI.closeModal();
+        UI.toast('Model deleted', 'success');
+        loadOverview();
+      } catch (e) {
+        errorEl.textContent = e.message || 'Could not delete model.';
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Delete';
+      }
+    });
   }
 
   function renderRecentTickets(tickets) {
@@ -199,12 +316,12 @@ def admin_overview_page():
     }
     const recent = tickets.slice(0, 5);
     card.innerHTML = recent.map(t =>
-      '<div class="row" style="display:flex;justify-content:space-between;align-items:center;gap:.75rem;padding:.5rem 0;border-bottom:1px solid var(--color-border-subtle)">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem;padding:.5rem 0;border-bottom:1px solid var(--color-border-subtle)">' +
       '<div style="min-width:0">' +
       '<div style="font-size:var(--text-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + UI.escapeHtml(t.title) + '</div>' +
-      '<div class="text-muted" style="font-size:var(--text-xs)">' + UI.escapeHtml(t.filed_by_name) + ' &middot; ' + UI.timeAgo(t.filed_at) + '</div>' +
+      '<div class="text-muted" style="font-size:var(--text-xs)">' + UI.timeAgo(t.filed_at) + '</div>' +
       '</div>' +
-      '<div style="display:flex;gap:.4rem;flex-shrink:0">' + UI.severityBadge(t.severity) + UI.statusBadge(t.status) + '</div>' +
+      '<div style="flex-shrink:0">' + UI.severityBadge(t.severity) + '</div>' +
       '</div>'
     ).join('') + '<div style="margin-top:.75rem"><a href="/admin/tickets-page" class="link-secondary" style="font-size:var(--text-sm)">View all tickets &rarr;</a></div>';
   }
@@ -292,18 +409,18 @@ def admin_users_page():
         action = '<span class="text-muted" style="font-size:var(--text-xs)">You</span>';
       } else {
         const toggleBtn = u.is_active
-          ? '<button class="btn btn-danger btn-sm" data-deactivate="' + u.id + '" data-username="' + UI.escapeHtml(u.username) + '" type="button">Deactivate</button>'
-          : '<button class="btn btn-secondary btn-sm" data-reactivate="' + u.id + '" data-username="' + UI.escapeHtml(u.username) + '" type="button">Reactivate</button>';
-        action = toggleBtn + ' <button class="btn btn-ghost btn-sm" data-delete="' + u.id + '" data-username="' + UI.escapeHtml(u.username) + '" type="button">Delete</button>';
+          ? '<button class="link-action link-danger" data-deactivate="' + u.id + '" data-username="' + UI.escapeHtml(u.username) + '" type="button">Deactivate</button>'
+          : '<button class="link-action" data-reactivate="' + u.id + '" data-username="' + UI.escapeHtml(u.username) + '" type="button">Reactivate</button>';
+        action = toggleBtn + ' <button class="link-action link-danger" data-delete="' + u.id + '" data-username="' + UI.escapeHtml(u.username) + '" type="button">Delete</button>';
       }
       return '<tr>' +
-        '<td>' + UI.escapeHtml(u.username) + '</td>' +
+        '<td class="mono">' + UI.escapeHtml(u.username) + '</td>' +
         '<td>' + UI.escapeHtml(u.name) + '</td>' +
         '<td>' + UI.badge(u.is_admin ? 'Admin' : 'Member', u.is_admin ? 'info' : 'neutral') + '</td>' +
         '<td>' + teamBadges + '</td>' +
-        '<td>' + UI.statusBadge(u.is_active ? 'active' : 'inactive') + (u.force_password_change ? ' ' + UI.badge('Pending first login', 'warning') : '') + '</td>' +
+        '<td>' + UI.statusBadge(u.is_active ? 'active' : 'inactive') + (u.force_password_change ? ' ' + UI.statusDot('Pending first login', 'warning') : '') + '</td>' +
         '<td class="text-secondary">' + UI.fmtDate(u.created_at) + '</td>' +
-        '<td>' + action + '</td>' +
+        '<td style="text-align:right">' + action + '</td>' +
         '</tr>';
     }).join('');
 
@@ -503,30 +620,31 @@ def admin_teams_page():
 
   function renderTeamCard(t) {
     const memberIds = new Set((t.members || []).map(m => m.user_id));
-    const memberRows = (t.members || []).length
+    const memberCount = (t.members || []).length;
+    const memberRows = memberCount
       ? t.members.map(m =>
-          '<div class="row" style="display:flex;justify-content:space-between;align-items:center;padding:.35rem 0">' +
-          '<span style="font-size:var(--text-sm)">' + UI.escapeHtml(m.name || m.email || ('User #' + m.user_id)) + ' ' + UI.badge(m.role, m.role === 'lead' ? 'info' : 'neutral') + '</span>' +
-          '<button class="btn btn-ghost btn-sm" data-remove-member="' + t.id + ':' + m.user_id + '" type="button">Remove</button>' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;padding:.3rem 0">' +
+          '<span style="font-size:var(--text-sm)">' + UI.escapeHtml(m.name || m.email || ('User #' + m.user_id)) +
+          (m.role === 'lead' ? ' <span class="text-muted" style="font-size:var(--text-xs)">(lead)</span>' : '') + '</span>' +
+          '<button class="link-action" data-remove-member="' + t.id + ':' + m.user_id + '" type="button">Remove</button>' +
           '</div>'
         ).join('')
-      : '<div class="text-muted" style="font-size:var(--text-sm);padding:.35rem 0">No members yet</div>';
+      : '<div class="text-muted" style="font-size:var(--text-sm);padding:.3rem 0">No members yet</div>';
 
     const availableUsers = cachedUsers.filter(u => u.is_active && !memberIds.has(u.id));
     const userOptions = availableUsers.map(u => '<option value="' + u.id + '">' + UI.escapeHtml(u.name) + ' (' + UI.escapeHtml(u.username) + ')</option>').join('');
 
     const perms = t.permissions || [];
-    const permRows = perms.length
+    const modelCount = perms.length;
+    const permRows = modelCount
       ? perms.map(p =>
-          '<div class="row" style="display:flex;justify-content:space-between;align-items:center;padding:.25rem 0">' +
-          '<span class="text-secondary" style="font-size:var(--text-xs)">' +
-          UI.escapeHtml(p.model_name || p.deployment_name || ('Deployment #' + p.deployment_id)) +
-          (p.can_predict ? ' &middot; predict' : '') + (p.can_view_metrics ? ' &middot; view metrics' : '') +
-          '</span>' +
-          '<button class="btn btn-ghost btn-sm" data-revoke-perm="' + t.id + ':' + p.deployment_id + '" type="button">Revoke</button>' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;padding:.3rem 0">' +
+          '<span style="font-size:var(--text-sm)">' + UI.escapeHtml(p.model_name || p.deployment_name || ('Deployment #' + p.deployment_id)) +
+          '<span class="text-muted" style="font-size:var(--text-xs)">' + (p.can_predict ? ' &middot; predict' : '') + (p.can_view_metrics ? ' &middot; view metrics' : '') + '</span></span>' +
+          '<button class="link-action link-danger" data-revoke-perm="' + t.id + ':' + p.deployment_id + '" type="button">Revoke</button>' +
           '</div>'
         ).join('')
-      : '<div class="text-muted" style="font-size:var(--text-xs)">No model access granted yet</div>';
+      : '<div class="text-muted" style="font-size:var(--text-sm);padding:.3rem 0">No model access granted yet</div>';
 
     // deployment_id is a real FK into the deployments table — GET
     // /deployments (k8s-live) doesn't carry that id at all, so the "add
@@ -541,32 +659,32 @@ def admin_teams_page():
     let addModelRow;
     if (availableDeployments.length) {
       addModelRow =
-        '<div class="row" style="display:flex;gap:.5rem;margin-top:.5rem;flex-wrap:wrap;align-items:center">' +
-        '<select class="select" data-add-deployment="' + t.id + '" style="flex:2">' + deploymentOptions + '</select>' +
+        '<div style="display:flex;gap:.5rem;margin-top:.5rem;flex-wrap:wrap;align-items:center">' +
+        '<select class="select" data-add-deployment="' + t.id + '" style="flex:2;min-width:160px">' + deploymentOptions + '</select>' +
         '<label class="checkbox-row"><input type="checkbox" data-can-predict="' + t.id + '" checked> Can predict</label>' +
-        '<label class="checkbox-row"><input type="checkbox" data-can-view-metrics="' + t.id + '"> Can view metrics</label>' +
-        '<button class="btn btn-secondary btn-sm" data-grant-access="' + t.id + '" type="button">Grant access</button>' +
+        '<button class="btn btn-secondary btn-sm" data-grant-access="' + t.id + '" type="button">Add</button>' +
         '</div>';
     } else if (cachedDeployments.length) {
-      addModelRow = '<div class="text-muted" style="font-size:var(--text-xs);margin-top:.35rem">All available models already granted</div>';
+      addModelRow = '<div class="text-muted" style="font-size:var(--text-xs);margin-top:.5rem">All available models already granted</div>';
     } else {
-      addModelRow = '<div class="text-muted" style="font-size:var(--text-xs);margin-top:.35rem">No models deployed yet</div>';
+      addModelRow = '<div class="text-muted" style="font-size:var(--text-xs);margin-top:.5rem">No models deployed yet</div>';
     }
 
     return '<div class="card" style="margin-bottom:var(--space-3)" data-team-card="' + t.id + '">' +
-      '<div class="card-header"><div><div class="card-title">' + UI.escapeHtml(t.name) + '</div>' +
-      (t.description ? '<div class="card-subtitle">' + UI.escapeHtml(t.description) + '</div>' : '') + '</div></div>' +
-      '<div class="section-label" style="margin-top:.5rem">Members</div>' +
-      memberRows +
+      '<div class="card-title" style="font-size:var(--text-lg)">' + UI.escapeHtml(t.name) + '</div>' +
+      '<div class="card-subtitle">' + (t.description ? UI.escapeHtml(t.description) + ' &middot; ' : '') +
+      memberCount + ' member' + (memberCount === 1 ? '' : 's') + ' &middot; ' + modelCount + ' model' + (modelCount === 1 ? '' : 's') + '</div>' +
+      '<div class="grid-2" style="margin-top:var(--space-4)">' +
+      '<div><div class="section-label" style="margin-top:0">Members</div>' + memberRows +
       (availableUsers.length ? (
-        '<div class="row" style="display:flex;gap:.5rem;margin-top:.5rem;flex-wrap:wrap">' +
-        '<select class="select" data-add-user="' + t.id + '" style="flex:2">' + userOptions + '</select>' +
-        '<select class="select" data-add-role="' + t.id + '" style="flex:1"><option value="member">Member</option><option value="lead">Lead</option></select>' +
+        '<div style="display:flex;gap:.5rem;margin-top:.5rem;flex-wrap:wrap">' +
+        '<select class="select" data-add-user="' + t.id + '" style="flex:2;min-width:120px">' + userOptions + '</select>' +
+        '<select class="select" data-add-role="' + t.id + '" style="flex:1;min-width:90px"><option value="member">Member</option><option value="lead">Lead</option></select>' +
         '<button class="btn btn-secondary btn-sm" data-add-member="' + t.id + '" type="button">Add</button>' +
         '</div>'
-      ) : '') +
-      '<div class="section-label">Model access</div>' + permRows + addModelRow +
-      '</div>';
+      ) : '') + '</div>' +
+      '<div><div class="section-label" style="margin-top:0">Models</div>' + permRows + addModelRow + '</div>' +
+      '</div></div>';
   }
 
   function wireTeamCard(t) {
@@ -594,8 +712,7 @@ def admin_teams_page():
     if (grantBtn) grantBtn.addEventListener('click', () => {
       const depSel = card.querySelector('[data-add-deployment="' + t.id + '"]');
       const predictChk = card.querySelector('[data-can-predict="' + t.id + '"]');
-      const metricsChk = card.querySelector('[data-can-view-metrics="' + t.id + '"]');
-      if (depSel && depSel.value) grantAccess(t.id, depSel.value, predictChk.checked, metricsChk.checked);
+      if (depSel && depSel.value) grantAccess(t.id, depSel.value, predictChk.checked, false);
     });
   }
 
@@ -914,24 +1031,49 @@ def admin_remediation_page():
       Configure automatic actions when model drift exceeds a threshold. When triggered, Vela can open a GitHub issue, call a webhook, or start a retraining workflow.
     </p>
 
-    <div id="remediation-content">
-      <div class="card-header">
-        <div class="section-label" style="margin:0">Remediation configs</div>
-        <button class="btn btn-secondary btn-sm" id="new-config-btn" type="button">New config</button>
-      </div>
-      <div class="table-wrap" style="margin-bottom:var(--space-5)">
-        <table class="table">
-          <thead><tr><th>Deployment</th><th>Threshold</th><th>Action</th><th>Target</th><th>Status</th><th>Last triggered</th><th></th></tr></thead>
-          <tbody id="configs-body"></tbody>
-        </table>
+    <div id="remediation-content" class="grid-split">
+      <div>
+        <div class="section-label" style="margin-top:0">New config</div>
+        <form id="new-config-form" novalidate>
+          <div class="field">
+            <label class="field-label" for="nc-dep">Deployment</label>
+            <select class="select" id="nc-dep" required></select>
+          </div>
+          <div class="field"><label class="field-label" for="nc-threshold">Drift threshold</label><input class="input" type="number" id="nc-threshold" step="0.01" min="0" max="1" value="0.5"></div>
+          <div class="field">
+            <label class="field-label" for="nc-action">Action</label>
+            <select class="select" id="nc-action">
+              <option value="github_issue">GitHub issue</option>
+              <option value="webhook">Webhook</option>
+              <option value="retrain">Retrain</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="field-label" for="nc-target">Target</label>
+            <input class="input" id="nc-target" placeholder="">
+            <div class="field-hint" id="nc-target-hint"></div>
+          </div>
+          <div class="field-error" id="nc-error" role="alert"></div>
+          <button class="btn btn-primary" type="submit" id="nc-submit">Create config</button>
+        </form>
       </div>
 
-      <div class="section-label">Remediation logs</div>
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th>Deployment</th><th>Drift score</th><th>Action</th><th>Status</th><th>Triggered</th></tr></thead>
-          <tbody id="logs-body"></tbody>
-        </table>
+      <div>
+        <div class="section-label" style="margin-top:0">Configured rules</div>
+        <div class="table-wrap" style="margin-bottom:var(--space-5)">
+          <table class="table">
+            <thead><tr><th>Deployment</th><th>Threshold</th><th>Action</th><th>Target</th><th>Status</th><th>Last triggered</th><th></th></tr></thead>
+            <tbody id="configs-body"></tbody>
+          </table>
+        </div>
+
+        <div class="section-label">Remediation logs</div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Deployment</th><th>Drift score</th><th>Action</th><th>Status</th><th>Triggered</th></tr></thead>
+            <tbody id="logs-body"></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -960,6 +1102,7 @@ def admin_remediation_page():
     body.innerHTML = UI.skeletonRows(3, 7);
     try {
       registryDeployments = await Api.get('/admin/deployment-registry');
+      renderDeploymentPicker();
       const workspaceIds = Array.from(new Set(registryDeployments.map(d => d.workspace_id).filter(id => id != null)));
 
       const [configResults, logResults] = await Promise.all([
@@ -976,6 +1119,17 @@ def admin_remediation_page():
     }
   }
 
+  function renderDeploymentPicker() {
+    const sel = document.getElementById('nc-dep');
+    if (!registryDeployments.length) {
+      sel.innerHTML = '<option value="">No deployments found</option>';
+      sel.disabled = true;
+      return;
+    }
+    sel.disabled = false;
+    sel.innerHTML = registryDeployments.map(d => '<option value="' + d.id + '">' + UI.escapeHtml(d.name) + ' (ID ' + d.id + ')</option>').join('');
+  }
+
   function renderConfigs(configs) {
     const body = document.getElementById('configs-body');
     if (!configs.length) {
@@ -984,13 +1138,13 @@ def admin_remediation_page():
     }
     body.innerHTML = configs.map(c =>
       '<tr>' +
-      '<td>' + UI.escapeHtml(deploymentLabel(c.deployment_id)) + '</td>' +
+      '<td class="mono">' + UI.escapeHtml(deploymentLabel(c.deployment_id)) + '</td>' +
       '<td>' + c.drift_threshold + '</td>' +
-      '<td>' + UI.badge(c.action_type, 'neutral') + '</td>' +
+      '<td><span class="chip-mono">' + UI.escapeHtml(c.action_type) + '</span></td>' +
       '<td class="text-secondary" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + UI.escapeHtml(c.target || '—') + '</td>' +
       '<td>' + UI.statusBadge(c.is_active ? 'active' : 'inactive') + '</td>' +
       '<td class="text-secondary">' + (c.last_triggered_at ? UI.timeAgo(c.last_triggered_at) : 'never') + '</td>' +
-      '<td><button class="btn btn-ghost btn-sm" data-test="' + c.id + '" type="button">Test</button></td>' +
+      '<td style="text-align:right"><button class="link-action" data-test="' + c.id + '" type="button">Test</button></td>' +
       '</tr>'
     ).join('');
     body.querySelectorAll('[data-test]').forEach(btn => {
@@ -1006,9 +1160,9 @@ def admin_remediation_page():
     }
     body.innerHTML = logs.map(l =>
       '<tr>' +
-      '<td>' + UI.escapeHtml(deploymentLabel(l.deployment_id)) + '</td>' +
+      '<td class="mono">' + UI.escapeHtml(deploymentLabel(l.deployment_id)) + '</td>' +
       '<td>' + Number(l.drift_score).toFixed(3) + '</td>' +
-      '<td>' + UI.badge(l.action_type, 'neutral') + '</td>' +
+      '<td><span class="chip-mono">' + UI.escapeHtml(l.action_type) + '</span></td>' +
       '<td>' + UI.statusBadge(l.status) + '</td>' +
       '<td class="text-secondary">' + UI.timeAgo(l.triggered_at) + '</td>' +
       '</tr>'
@@ -1033,65 +1187,34 @@ def admin_remediation_page():
     return '';
   }
 
-  function openNewConfigModal() {
-    const depOptionsHtml = registryDeployments.length
-      ? registryDeployments.map(d => '<option value="' + d.id + '">' + UI.escapeHtml(d.name) + ' (ID ' + d.id + ')</option>').join('')
-      : '';
-    const overlay = UI.openModal({
-      title: 'New remediation config',
-      bodyHtml: `
-        <form id="new-config-form" novalidate>
-          <div class="field">
-            <label class="field-label" for="nc-dep">Deployment</label>
-            ${depOptionsHtml
-              ? `<select class="select" id="nc-dep" required>${depOptionsHtml}</select>`
-              : `<input class="input" type="number" id="nc-dep" placeholder="Deployment ID" required>
-                 <div class="field-hint">No deployments found — enter the ID directly.</div>`}
-          </div>
-          <div class="field"><label class="field-label" for="nc-threshold">Drift threshold</label><input class="input" type="number" id="nc-threshold" step="0.01" min="0" max="1" value="0.5"></div>
-          <div class="field">
-            <label class="field-label" for="nc-action">Action</label>
-            <select class="select" id="nc-action">
-              <option value="github_issue">GitHub issue</option>
-              <option value="webhook">Webhook</option>
-              <option value="retrain">Retrain</option>
-            </select>
-          </div>
-          <div class="field">
-            <label class="field-label" for="nc-target">Target</label>
-            <input class="input" id="nc-target" placeholder="">
-            <div class="field-hint" id="nc-target-hint">${targetHintFor('github_issue')}</div>
-          </div>
-          <div class="field-error" id="nc-error" role="alert"></div>
-        </form>`,
-      footerHtml: `<button class="btn btn-ghost" id="nc-cancel" type="button">Cancel</button>
-                   <button class="btn btn-primary" id="nc-submit" type="submit" form="new-config-form">Create config</button>`,
-    });
-    overlay.querySelector('#nc-cancel').addEventListener('click', UI.closeModal);
-    overlay.querySelector('#nc-action').addEventListener('change', (e) => {
-      overlay.querySelector('#nc-target-hint').textContent = targetHintFor(e.target.value);
-    });
-    overlay.querySelector('#new-config-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const errorEl = overlay.querySelector('#nc-error');
-      const deployment_id = parseInt(overlay.querySelector('#nc-dep').value, 10);
-      const drift_threshold = parseFloat(overlay.querySelector('#nc-threshold').value);
-      const action_type = overlay.querySelector('#nc-action').value;
-      const target = overlay.querySelector('#nc-target').value.trim();
-      if (!deployment_id) { errorEl.textContent = 'Deployment is required.'; return; }
-      if (action_type === 'webhook' && !target) { errorEl.textContent = 'Webhook actions require a target URL.'; return; }
-      try {
-        await Api.post('/api/v1/remediations', { deployment_id, drift_threshold, action_type, target });
-        UI.toast('Remediation config created', 'success');
-        UI.closeModal();
-        loadAll();
-      } catch (err) {
-        errorEl.textContent = err.message || 'Could not create config.';
-      }
-    });
-  }
+  document.getElementById('nc-action').addEventListener('change', (e) => {
+    document.getElementById('nc-target-hint').textContent = targetHintFor(e.target.value);
+  });
+  document.getElementById('nc-target-hint').textContent = targetHintFor('github_issue');
 
-  document.getElementById('new-config-btn').addEventListener('click', openNewConfigModal);
+  document.getElementById('new-config-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById('nc-error');
+    const submitBtn = document.getElementById('nc-submit');
+    const deployment_id = parseInt(document.getElementById('nc-dep').value, 10);
+    const drift_threshold = parseFloat(document.getElementById('nc-threshold').value);
+    const action_type = document.getElementById('nc-action').value;
+    const target = document.getElementById('nc-target').value.trim();
+    errorEl.textContent = '';
+    if (!deployment_id) { errorEl.textContent = 'Deployment is required.'; return; }
+    if (action_type === 'webhook' && !target) { errorEl.textContent = 'Webhook actions require a target URL.'; return; }
+    submitBtn.disabled = true;
+    try {
+      await Api.post('/api/v1/remediations', { deployment_id, drift_threshold, action_type, target });
+      UI.toast('Remediation config created', 'success');
+      document.getElementById('new-config-form').reset();
+      loadAll();
+    } catch (err) {
+      errorEl.textContent = err.message || 'Could not create config.';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
 </script>"""
 
     ready = "loadAll();"
@@ -1222,18 +1345,18 @@ def admin_models_page():
     const isActive = r.reg ? r.reg.is_active !== false : true;
 
     const docsHref = '/admin/docs' + (r.reg ? '?deployment_id=' + r.reg.id : '');
-    const actions = ['<a class="link-secondary" style="font-size:var(--text-xs)" href="' + docsHref + '">Look up documentation &rarr;</a>'];
+    const actions = ['<a class="link-action" href="' + docsHref + '">Docs &rarr;</a>'];
     if (r.reg) {
-      actions.push('<button class="btn btn-ghost btn-sm" data-toggle-active="' + idx + '" type="button">' + (isActive ? 'Disable' : 'Enable') + '</button>');
-      actions.push('<button class="btn btn-danger btn-sm" data-delete-model="' + idx + '" type="button">Delete</button>');
+      actions.push('<button class="link-action" data-toggle-active="' + idx + '" type="button">' + (isActive ? 'Disable' : 'Enable') + '</button>');
+      actions.push('<button class="link-action link-danger" data-delete-model="' + idx + '" type="button">Delete</button>');
     }
 
     return '<tr>' +
-      '<td>' + UI.escapeHtml(r.name) + '</td>' +
+      '<td class="mono">' + UI.escapeHtml(r.name) + '</td>' +
       '<td id="task-cell-' + idx + '">' + taskCellHtml(r, idx) + '</td>' +
-      '<td>' + UI.badge(modelType, 'neutral') + '</td>' +
-      '<td>' + UI.statusBadge(r.status) + (isActive ? '' : ' ' + UI.badge('Disabled', 'warning')) + '</td>' +
-      '<td style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">' + actions.join('') + '</td>' +
+      '<td class="text-secondary">' + UI.escapeHtml(modelType) + '</td>' +
+      '<td>' + UI.statusBadge(r.status) + (isActive ? '' : ' ' + UI.statusDot('Disabled', 'offline')) + '</td>' +
+      '<td style="text-align:right;display:flex;gap:var(--space-3);align-items:center;justify-content:flex-end;flex-wrap:wrap">' + actions.join('') + '</td>' +
       '</tr>';
   }
 
@@ -1243,9 +1366,9 @@ def admin_models_page():
   // deployment, just make the label lie about what dispatched it.
   function taskCellHtml(row, idx) {
     const isCustom = (row.reg ? row.reg.model_type : 'huggingface') === 'custom';
-    if (!isCustom) return UI.escapeHtml(row.task);
-    return UI.escapeHtml(row.task) +
-      '<button class="btn btn-ghost btn-sm" data-edit-task="' + idx + '" type="button" style="margin-left:.4rem;padding:0 .3rem" title="Edit task type" aria-label="Edit task type">&#9998;</button>';
+    if (!isCustom) return '<span class="chip-mono">' + UI.escapeHtml(row.task) + '</span>';
+    return '<span class="chip-mono">' + UI.escapeHtml(row.task) + '</span>' +
+      '<button class="link-action" data-edit-task="' + idx + '" type="button" style="margin-left:.4rem" title="Edit task type" aria-label="Edit task type">Edit</button>';
   }
 
   function renderTaskCell(row, idx) {
@@ -1449,14 +1572,9 @@ def admin_deployments_page():
       Operational status of every deployment, and a form to trigger a new one.
     </p>
 
-    <div class="table-wrap" style="margin-bottom:var(--space-5)">
-      <table class="table">
-        <thead><tr><th>Deployment</th><th>Model</th><th>Task</th><th>Status</th><th>Replicas</th><th>Managed by</th></tr></thead>
-        <tbody id="deployments-body"></tbody>
-      </table>
-    </div>
-
-    <div class="section-label">Deploy a model</div>
+    <div class="grid-split">
+    <div>
+    <div class="section-label" style="margin-top:0">Deploy a model</div>
     <div class="card">
       <form id="deploy-form" novalidate>
         <div class="field"><label class="field-label" for="dp-model">HuggingFace model name</label><input class="input" id="dp-model" placeholder="e.g. distilbert-base-uncased-finetuned-sst-2-english" required></div>
@@ -1532,6 +1650,18 @@ def admin_deployments_page():
         <button class="btn btn-primary" type="submit" id="cm-submit">Upload and deploy</button>
       </form>
     </div>
+    </div>
+
+    <div>
+    <div class="section-label" style="margin-top:0">Live deployments</div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Deployment</th><th>Model</th><th>Task</th><th>Status</th><th>Replicas</th><th>Managed by</th></tr></thead>
+        <tbody id="deployments-body"></tbody>
+      </table>
+    </div>
+    </div>
+    </div>
   </div>
 </div>
 <div class="auth-loading" id="loading-root">Loading&hellip;</div>
@@ -1568,8 +1698,8 @@ def admin_deployments_page():
         return;
       }
       body.innerHTML = rows.map(r =>
-        '<tr><td>' + UI.escapeHtml(r.name) + '</td><td class="text-secondary">' + UI.escapeHtml(r.model || '—') + '</td><td>' + UI.escapeHtml(r.task) + '</td>' +
-        '<td>' + UI.statusBadge(r.status) + '</td><td class="text-secondary">' + r.replicas + '</td><td>' + UI.badge(r.model_type, 'neutral') + '</td></tr>'
+        '<tr><td class="mono">' + UI.escapeHtml(r.name) + '</td><td class="text-secondary">' + UI.escapeHtml(r.model || '—') + '</td><td><span class="chip-mono">' + UI.escapeHtml(r.task) + '</span></td>' +
+        '<td>' + UI.statusBadge(r.status) + '</td><td class="text-secondary">' + r.replicas + '</td><td class="text-secondary">' + UI.escapeHtml(r.model_type) + '</td></tr>'
       ).join('');
     } catch (e) {
       body.innerHTML = '<tr><td colspan="6">' + UI.errorState(e.message, loadDeployments) + '</td></tr>';
@@ -1849,7 +1979,7 @@ def admin_infrastructure_page():
         return;
       }
       body.innerHTML = rows.map(r =>
-        '<tr><td>' + UI.escapeHtml(r.name) + '</td><td class="text-secondary">' + r.type + '</td><td>' + UI.statusBadge(r.status) + '</td><td class="text-secondary">' + r.replicas + '</td></tr>'
+        '<tr><td class="mono">' + UI.escapeHtml(r.name) + '</td><td class="text-secondary">' + r.type + '</td><td>' + UI.statusBadge(r.status) + '</td><td class="text-secondary">' + r.replicas + '</td></tr>'
       ).join('');
     } catch (e) {
       body.innerHTML = '<tr><td colspan="4">' + UI.errorState(e.message, loadServices) + '</td></tr>';
@@ -1902,12 +2032,22 @@ def admin_api_keys_page():
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
-    <h1 style="font-size:var(--text-lg);margin-bottom:2px">API Keys</h1>
-    <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)">
-      Workspaces you belong to and their keys. There's no platform-wide workspace list in the API &mdash;
-      this shows workspaces your admin account is a member of.
-    </p>
-    <div id="workspaces-list"></div>
+    <div class="card-header">
+      <div>
+        <h1 style="font-size:var(--text-lg);margin-bottom:2px">API Keys</h1>
+        <p class="text-secondary" style="font-size:var(--text-sm)">
+          Workspaces you belong to and their keys. There's no platform-wide workspace list in the API &mdash;
+          this shows workspaces your admin account is a member of.
+        </p>
+      </div>
+      <button class="btn btn-primary btn-sm" id="new-key-btn" type="button">New key</button>
+    </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Key prefix</th><th>Name</th><th>Scope</th><th>Created</th><th></th></tr></thead>
+        <tbody id="keys-body"></tbody>
+      </table>
+    </div>
   </div>
 </div>
 <div class="auth-loading" id="loading-root">Loading&hellip;</div>
@@ -1915,58 +2055,45 @@ def admin_api_keys_page():
 
     script = """
 <script>
+  let cachedWorkspaces = [];
+
   async function loadWorkspaces() {
-    const list = document.getElementById('workspaces-list');
-    list.innerHTML = '<div class="card"><span class="skeleton skeleton-text" style="display:block;max-width:220px">&nbsp;</span></div>';
+    const body = document.getElementById('keys-body');
+    body.innerHTML = UI.skeletonRows(4, 5);
     try {
-      const workspaces = await Api.get('/workspaces');
-      if (!workspaces.length) {
-        list.innerHTML = UI.emptyState('No workspaces yet', 'Create a team from the Teams page to bootstrap your first workspace.');
+      cachedWorkspaces = await Api.get('/workspaces');
+      if (!cachedWorkspaces.length) {
+        body.innerHTML = '<tr><td colspan="5">' + UI.emptyState('No workspaces yet', 'Create a team from the Teams page to bootstrap your first workspace.') + '</td></tr>';
         return;
       }
-      list.innerHTML = workspaces.map(renderWorkspaceCard).join('');
-      workspaces.forEach(ws => loadKeysFor(ws.id));
+      const perWorkspace = await Promise.allSettled(cachedWorkspaces.map(ws => Api.get('/workspaces/' + ws.id + '/api-keys')));
+      const rows = [];
+      perWorkspace.forEach((r, i) => {
+        if (r.status !== 'fulfilled') return;
+        r.value.forEach(k => rows.push(Object.assign({}, k, { ws_id: cachedWorkspaces[i].id, ws_name: cachedWorkspaces[i].name })));
+      });
+      renderKeys(rows);
     } catch (e) {
-      list.innerHTML = UI.errorState(e.message, loadWorkspaces);
+      body.innerHTML = '<tr><td colspan="5">' + UI.errorState(e.message, loadWorkspaces) + '</td></tr>';
     }
   }
 
-  function renderWorkspaceCard(ws) {
-    return '<div class="card" style="margin-bottom:var(--space-3)">' +
-      '<div class="card-header"><div><div class="card-title">' + UI.escapeHtml(ws.name) + '</div>' +
-      (ws.description ? '<div class="card-subtitle">' + UI.escapeHtml(ws.description) + '</div>' : '') + '</div>' +
-      '<button class="btn btn-secondary btn-sm" data-new-key="' + ws.id + '" type="button">New key</button></div>' +
-      '<div id="keys-for-' + ws.id + '"><span class="skeleton skeleton-text" style="display:block;max-width:180px">&nbsp;</span></div>' +
-      '</div>';
-  }
-
-  async function loadKeysFor(wsId) {
-    const el = document.getElementById('keys-for-' + wsId);
-    try {
-      const keys = await Api.get('/workspaces/' + wsId + '/api-keys');
-      renderKeys(wsId, keys);
-    } catch (e) {
-      el.innerHTML = UI.errorState(e.message);
-    }
-    const btn = document.querySelector('[data-new-key="' + wsId + '"]');
-    if (btn) btn.addEventListener('click', () => openNewKeyModal(wsId));
-  }
-
-  function renderKeys(wsId, keys) {
-    const el = document.getElementById('keys-for-' + wsId);
-    if (!keys.length) {
-      el.innerHTML = '<div class="text-muted" style="font-size:var(--text-sm);padding:.3rem 0">No keys yet</div>';
+  function renderKeys(rows) {
+    const body = document.getElementById('keys-body');
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="5">' + UI.emptyState('No keys yet', 'Generate one with the button above.') + '</td></tr>';
       return;
     }
-    el.innerHTML = keys.map(k =>
-      '<div style="display:flex;justify-content:space-between;align-items:center;padding:.4rem 0;border-bottom:1px solid var(--color-border-subtle)">' +
-      '<div><span style="font-size:var(--text-sm)">' + UI.escapeHtml(k.name) + '</span> <span class="text-muted" style="font-size:var(--text-xs)">' +
-      UI.escapeHtml(k.prefix) + '&hellip; &middot; ' + UI.fmtDate(k.created_at) +
-      (k.last_used_at ? ' &middot; last used ' + UI.timeAgo(k.last_used_at) : ' &middot; never used') + '</span></div>' +
-      '<button class="btn btn-danger btn-sm" data-revoke-key="' + wsId + ':' + k.id + '" data-name="' + UI.escapeHtml(k.name) + '" type="button">Revoke</button>' +
-      '</div>'
+    body.innerHTML = rows.map(k =>
+      '<tr>' +
+      '<td class="mono">' + UI.escapeHtml(k.prefix) + '&hellip;</td>' +
+      '<td>' + UI.escapeHtml(k.name) + '</td>' +
+      '<td class="text-secondary">' + UI.escapeHtml(k.ws_name) + '</td>' +
+      '<td class="text-secondary">' + UI.fmtDate(k.created_at) + (k.last_used_at ? ' &middot; used ' + UI.timeAgo(k.last_used_at) : ' &middot; never used') + '</td>' +
+      '<td style="text-align:right"><button class="link-action link-danger" data-revoke-key="' + k.ws_id + ':' + k.id + '" data-name="' + UI.escapeHtml(k.name) + '" type="button">Revoke</button></td>' +
+      '</tr>'
     ).join('');
-    el.querySelectorAll('[data-revoke-key]').forEach(btn => {
+    body.querySelectorAll('[data-revoke-key]').forEach(btn => {
       btn.addEventListener('click', () => {
         const parts = btn.dataset.revokeKey.split(':');
         revokeKey(parts[0], parts[1], btn.dataset.name);
@@ -1979,17 +2106,19 @@ def admin_api_keys_page():
     try {
       await Api.del('/workspaces/' + wsId + '/api-keys/' + keyId);
       UI.toast('Key revoked', 'success');
-      loadKeysFor(wsId);
+      loadWorkspaces();
     } catch (e) {
       UI.toast(e.message || 'Could not revoke key', 'danger');
     }
   }
 
-  function openNewKeyModal(wsId) {
+  function openNewKeyModal() {
+    const wsOptions = cachedWorkspaces.map(ws => '<option value="' + ws.id + '">' + UI.escapeHtml(ws.name) + '</option>').join('');
     const overlay = UI.openModal({
       title: 'New API key',
       bodyHtml: `
         <form id="new-key-form" novalidate>
+          ${cachedWorkspaces.length > 1 ? `<div class="field"><label class="field-label" for="nk-ws">Workspace</label><select class="select" id="nk-ws">${wsOptions}</select></div>` : ''}
           <div class="field"><label class="field-label" for="nk-name">Key name</label><input class="input" id="nk-name" placeholder="e.g. production, ci-cd" required></div>
           <div class="field-error" id="nk-error" role="alert"></div>
         </form>`,
@@ -1999,6 +2128,8 @@ def admin_api_keys_page():
     overlay.querySelector('#nk-cancel').addEventListener('click', UI.closeModal);
     overlay.querySelector('#new-key-form').addEventListener('submit', async (e) => {
       e.preventDefault();
+      const wsSel = overlay.querySelector('#nk-ws');
+      const wsId = wsSel ? wsSel.value : cachedWorkspaces[0].id;
       const errorEl = overlay.querySelector('#nk-error');
       const name = overlay.querySelector('#nk-name').value.trim();
       if (!name) { errorEl.textContent = 'Give the key a name.'; return; }
@@ -2006,7 +2137,7 @@ def admin_api_keys_page():
         const result = await Api.post('/workspaces/' + wsId + '/api-keys', { name });
         UI.closeModal();
         showRawKey(result);
-        loadKeysFor(wsId);
+        loadWorkspaces();
       } catch (err) {
         errorEl.textContent = err.message || 'Could not create key.';
       }
@@ -2039,6 +2170,8 @@ def admin_api_keys_page():
       }
     });
   }
+
+  document.getElementById('new-key-btn').addEventListener('click', openNewKeyModal);
 </script>"""
 
     ready = "loadWorkspaces();"

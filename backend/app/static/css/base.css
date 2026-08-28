@@ -1,6 +1,6 @@
 /*
  * Vela base styles: reset, typography defaults, focus handling, scrollbars.
- * Loaded after tokens.css on every page.
+ * Loaded after tokens.css on every admin/member page.
  */
 
 *,
@@ -17,7 +17,9 @@ body {
   margin: 0;
   background: var(--color-bg);
   color: var(--color-text);
-  font-family: var(--font-mono);
+  /* Body copy is sans-serif here — monospace is reserved for model names,
+     IDs and code (see .mono below), not the whole app. */
+  font-family: var(--font-sans);
   font-size: var(--text-base);
   line-height: var(--leading-normal);
   -webkit-font-smoothing: antialiased;
@@ -90,11 +92,11 @@ table {
 
 /* ---- Selection ------------------------------------------------------*/
 ::selection {
-  background: var(--color-accent-bg-hover);
+  background: var(--color-accent-surface);
   color: var(--color-text);
 }
 
-/* ---- Scrollbars (webkit) — subtle, matches dark surface -------------*/
+/* ---- Scrollbars (webkit) — subtle, matches light surface ------------*/
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -140,4 +142,69 @@ table {
 
 .text-muted {
   color: var(--color-text-muted);
+}
+
+/* Model names, deployment names, IDs, keys, JSON/code — monospace, the
+   only place it appears now that body copy is sans-serif. */
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* A code-style inline chip — light bg, monospace text. Used for task-type
+   labels (Model Registry) and similar short technical values that read
+   better as "code" than as a colored status badge. */
+.chip-mono {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  color: var(--color-text-secondary);
+}
+
+/* Text-only action links (table row actions, inline "view more" links) —
+   no button chrome, just colored text that underlines on hover. Muted by
+   default; add .link-danger for a destructive action. */
+.link-action,
+.link-secondary {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.link-action:hover,
+.link-secondary:hover {
+  color: var(--color-text);
+  text-decoration: underline;
+}
+
+.link-primary {
+  color: var(--color-accent);
+}
+.link-primary:hover {
+  color: var(--color-accent-hover, var(--color-accent-strong));
+}
+
+.link-danger {
+  color: var(--color-danger);
+}
+.link-danger:hover {
+  color: var(--color-danger);
+}
+
+/* Pre-shell "Loading…" placeholder, shown briefly before Shell.mount()
+   replaces the whole document body. */
+.auth-loading {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }

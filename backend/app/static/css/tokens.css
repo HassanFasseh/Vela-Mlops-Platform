@@ -1,86 +1,100 @@
 /*
- * Vela design tokens.
- * Single source of truth for color, type, spacing, radius, shadow and motion.
- * Formalizes the palette already documented in CLAUDE.md — do not fork new
- * ad-hoc values in component CSS, extend this file instead.
+ * Vela design tokens — authenticated app (admin/member) only.
+ * Single source of truth for color, type, spacing, radius, shadow and
+ * motion across every /admin/* and /app/* page. The landing page and the
+ * login/change-password pages (backend/app/main.py) are fully
+ * self-contained with their own inline <style> blocks and never load this
+ * file — editing it has no effect on them.
+ *
+ * Redesign (2026-08): clean/professional light theme — Linear/Vercel-style
+ * slate + blue, flat surfaces, minimal shadow. Replaces the earlier dark
+ * "glass + glow" theme. light-theme.css (a second override layer that used
+ * to exist for this) has been retired — this file IS the light theme now,
+ * there's nothing left for it to override.
  */
 
 :root {
-  /* ---- Surfaces -----------------------------------------------------
-     Deep navy instead of flat near-black, with translucent "glass"
-     surfaces layered on top (cards/tiles show the particle background
-     faintly through them) rather than opaque panels. */
-  --color-bg: #020818;
-  --color-bg-elevated: #050f1f;
-  --color-surface: rgba(255, 255, 255, 0.03);
-  --color-surface-2: rgba(255, 255, 255, 0.05);
-  --color-surface-hover: rgba(255, 255, 255, 0.07);
+  /* ---- Surfaces ------------------------------------------------------*/
+  --color-bg: #f8fafc;           /* slate-50 */
+  --color-bg-elevated: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-2: #f8fafc;
+  --color-surface-hover: #f1f5f9;
 
-  --color-border: rgba(99, 179, 237, 0.1);
-  --color-border-subtle: rgba(99, 179, 237, 0.06);
-  --color-border-strong: rgba(99, 179, 237, 0.15);
+  --color-border: #e2e8f0;       /* slate-200 */
+  --color-border-subtle: #eef2f6;
+  --color-border-strong: #cbd5e1;
 
-  /* ---- Text --------------------------------------------------------*/
-  --color-text: #e0e0e0;
-  --color-text-secondary: #8a8a9a;
-  --color-text-muted: #85858f;
-  --color-text-inverse: #020818;
+  /* ---- Text ------------------------------------------------------------*/
+  --color-text: #0f172a;         /* slate-900 */
+  --color-text-secondary: #475569;
+  --color-text-muted: #64748b;   /* slate-500 */
+  --color-text-inverse: #ffffff;
 
-  /* ---- Accent — blue stays primary, teal is the secondary accent used
-     for gradients/glows (spec: "keep #7eb8f7 blue but add a secondary
-     teal #38bdf8") — still one restrained *family*, not a rainbow. ---*/
-  --color-accent: #7eb8f7;
-  --color-accent-strong: #a8d4ff;
-  --color-accent-bg: #16283d;
-  --color-accent-bg-hover: #1c3350;
-  --color-accent-border: #2a5a8c;
+  /* ---- Accent / primary — one restrained blue, no secondary teal ------*/
+  --color-accent: #2563eb;       /* blue-600 */
+  --color-accent-strong: #1d4ed8;
+  --color-accent-bg: #2563eb;
+  --color-accent-bg-hover: #1d4ed8;
+  --color-accent-border: #2563eb;
+  --color-accent-surface: #eff6ff;
 
-  --color-accent-teal: #38bdf8;
-  --color-accent-teal-strong: #7dd3fc;
+  /* Literal aliases for the palette as specced — same values as the
+     --color-accent-* family above, kept as first-class names since other
+     tooling/specs refer to them this way. */
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-surface: #eff6ff;
 
-  /* ---- Glow shadows — used sparingly: metric values, active nav item,
-     badge auras, card hover. Not a replacement for --shadow-*, which
-     stay pure drop-shadows for layering (modals, dropdowns). ---------*/
-  --glow-accent: 0 0 12px rgba(126, 184, 247, 0.35);
-  --glow-teal: 0 0 12px rgba(56, 189, 248, 0.3);
-  --glow-accent-sm: 0 0 8px rgba(126, 184, 247, 0.25);
+  --glow-accent: none;
+  --glow-teal: none;
+  --glow-accent-sm: none;
 
-  /* ---- Semantic status ---------------------------------------------*/
-  --color-success: #7ef7a0;
-  --color-success-bg: #14261a;
-  --color-success-border: #285c37;
+  /* ---- Semantic status — functional only, not decorative -------------*/
+  --color-success: #059669;
+  --color-success-bg: #ecfdf5;
+  --color-success-border: #a7f3d0;
 
-  --color-warning: #f7c97e;
-  --color-warning-bg: #2a2214;
-  --color-warning-border: #6b4f1f;
+  --color-warning: #d97706;
+  --color-warning-bg: #fffbeb;
+  --color-warning-border: #fde68a;
 
-  --color-danger: #f77e7e;
-  --color-danger-bg: #2a1616;
-  --color-danger-border: #6b2b2b;
+  --color-danger: #dc2626;
+  --color-danger-bg: #fef2f2;
+  --color-danger-border: #fecaca;
 
-  --color-info: #7eb8f7;
-  --color-info-bg: #16283d;
-  --color-info-border: #2a5a8c;
+  --color-info: #2563eb;
+  --color-info-bg: #eff6ff;
+  --color-info-border: #bfdbfe;
 
-  --color-neutral: #9a9aa8;
-  --color-neutral-bg: #1a1a24;
-  --color-neutral-border: #2a2a38;
+  --color-neutral: #64748b;
+  --color-neutral-bg: #f1f5f9;
+  --color-neutral-border: #e2e8f0;
 
-  /* ---- Typography ----------------------------------------------------*/
-  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas,
+  /* Status-dot colors (spec names) — running/warning/error/offline. These
+     back UI.statusBadge()/severityBadge()'s dot+label rendering (ui.js),
+     not a colored chip. */
+  --color-running: #059669;
+  --color-offline: #94a3b8;
+
+  /* ---- Typography --------------------------------------------------------
+     Body copy is sans-serif; monospace is reserved for model names, IDs,
+     and code/JSON (the .mono utility in base.css, applied selectively). */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, "SFMono-Regular", Menlo, Consolas,
     "Liberation Mono", monospace;
 
-  --text-xs: 0.72rem;
-  --text-sm: 0.82rem;
-  --text-base: 0.92rem;
-  --text-md: 1.05rem;
-  --text-lg: 1.3rem;
-  --text-xl: 1.7rem;
-  --text-2xl: 2.2rem;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 13px;
+  --text-lg: 15px;
+  --text-xl: 18px;
+  --text-2xl: 22px;
 
-  --leading-tight: 1.25;
-  --leading-normal: 1.55;
-  --tracking-label: 0.08em;
+  --leading-tight: 1.2;
+  --leading-normal: 1.4;
+  --tracking-label: 0.04em;
 
   /* ---- Spacing scale --------------------------------------------------*/
   --space-1: 4px;
@@ -92,35 +106,39 @@
   --space-7: 48px;
   --space-8: 64px;
 
-  /* ---- Radius -----------------------------------------------------*/
+  /* ---- Radius -----------------------------------------------------
+     Capped at 8px anywhere on the authenticated app — nothing bubbly.
+     sm: inputs. md: cards (6px, per spec — less rounded than the old
+     8px). lg: modals/dropdowns/the command palette, capped at 8px. */
   --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
   --radius-full: 999px;
 
-  /* ---- Elevation ----------------------------------------------------*/
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
-  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
-  --shadow-focus: 0 0 0 3px rgba(126, 184, 247, 0.35);
+  /* ---- Elevation — one flat shadow only, no heavier variants ----------*/
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-focus: 0 0 0 3px rgba(37, 99, 235, 0.25);
 
   /* ---- Layout ------------------------------------------------------*/
-  --sidebar-width: 240px;
+  --sidebar-width: 220px;
   --sidebar-width-collapsed: 60px;
   --topbar-height: 56px;
-  --content-max-width: 1200px;
+  --content-max-width: 1100px;
 
-  /* The app shell's sidebar is always dark, on every page, regardless of
-     whether the content area is dark (default, below) or light
-     (light-theme.css, admin/member pages only) — kept as its own token
-     rather than --color-bg/--color-surface so it never gets repointed. */
-  --color-sidebar-bg: #0a0f1e;
+  /* Sidebar is always dark, regardless of the light content area. */
+  --color-sidebar: #0f172a;      /* slate-900 */
+  --color-sidebar-bg: #0f172a;
+  --color-sidebar-text: #94a3b8;
+  --color-sidebar-active: #ffffff;
+  --color-sidebar-active-bg: rgba(255, 255, 255, 0.08);
 
   /* ---- Motion -------------------------------------------------------*/
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
   --duration-fast: 120ms;
-  --duration-base: 200ms;
-  --duration-slow: 500ms;
+  --duration-base: 160ms;
+  --duration-slow: 400ms;
 
   /* ---- Z-index scale --------------------------------------------------*/
   --z-sidebar: 90;
@@ -138,9 +156,3 @@
     --duration-slow: 0ms;
   }
 }
-
-/* The dashboard's light content-area theme lives in light-theme.css, not
-   here — it's a separate stylesheet loaded only by admin/member pages
-   (after this file, so its plain :root block wins by source order,
-   no class or specificity trick involved), rather than a class-scoped
-   override block in this shared file. See light-theme.css. */

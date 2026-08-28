@@ -30,15 +30,14 @@ from backend.app.routers._page_fragments import (
 
 router = APIRouter()
 
-_ASSETS = """<link rel="stylesheet" href="/static/css/tokens.css">
-<link rel="stylesheet" href="/static/css/base.css">
-<link rel="stylesheet" href="/static/css/components.css">
-<link rel="stylesheet" href="/static/css/shell.css">
-<link rel="stylesheet" href="/static/css/light-theme.css">"""
+_ASSETS = """<link rel="stylesheet" href="/static/css/tokens.css?v=8">
+<link rel="stylesheet" href="/static/css/base.css?v=8">
+<link rel="stylesheet" href="/static/css/components.css?v=8">
+<link rel="stylesheet" href="/static/css/shell.css?v=8">"""
 
-_SCRIPTS = f"""<script src="/static/js/api.js"></script>
-<script src="/static/js/shell.js"></script>
-<script src="/static/js/ui.js"></script>
+_SCRIPTS = f"""<script src="/static/js/api.js?v={_STATIC_V}"></script>
+<script src="/static/js/shell.js?v={_STATIC_V}"></script>
+<script src="/static/js/ui.js?v={_STATIC_V}"></script>
 <script src="/static/js/predictor.js?v={_STATIC_V}"></script>"""
 
 
@@ -72,23 +71,28 @@ def member_overview_page():
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
-    <h1 id="greeting" style="font-size:var(--text-lg);margin-bottom:var(--space-5)">Loading…</h1>
+    <h1 id="greeting" style="font-size:var(--text-xl);font-weight:400;margin-bottom:var(--space-5)">Loading…</h1>
 
     <div class="section-label" style="margin-top:0">My Teams</div>
-    <div class="card-grid" id="teams-grid" style="margin-bottom:var(--space-6)"></div>
+    <div id="teams-grid" style="margin-bottom:var(--space-6)"></div>
 
     <div class="card-header">
       <div class="section-label" style="margin:0">My Models</div>
       <a href="/app/models" class="link-secondary" style="font-size:var(--text-sm)">View all &rarr;</a>
     </div>
-    <div class="card-grid" id="models-preview" style="margin-bottom:var(--space-6)"></div>
+    <div class="table-wrap" style="margin-bottom:var(--space-6)">
+      <table class="table">
+        <thead><tr><th>Model</th><th>Team</th><th>Status</th><th></th></tr></thead>
+        <tbody id="models-preview"></tbody>
+      </table>
+    </div>
 
     <div class="card-header">
       <div class="section-label" style="margin:0">My tickets</div>
       <a href="/app/tickets" class="link-secondary" style="font-size:var(--text-sm)">View all &rarr;</a>
     </div>
     <div class="metric-row" id="ticket-metrics" style="margin-bottom:var(--space-5)"></div>
-    <div class="card" id="recent-tickets-card" style="margin-bottom:var(--space-6)"></div>
+    <div id="recent-tickets-card" style="margin-bottom:var(--space-6)"></div>
   </div>
 </div>
 <div class="auth-loading" id="loading-root">Loading…</div>
@@ -141,11 +145,12 @@ def member_overview_page():
       el.innerHTML = UI.emptyState('No teams yet', 'Ask your admin to add you to a team.');
       return;
     }
+    // Simple rows, not large cards (spec) — team name | N models | N members.
     el.innerHTML = teams.map(t =>
-      '<a class="card" href="/app/teams/' + t.id + '" style="display:block;text-decoration:none;color:inherit">' +
-      '<div class="card-title">' + UI.escapeHtml(t.name) + '</div>' +
-      '<div class="card-subtitle">' + (t.description ? UI.escapeHtml(t.description) : '<span class="text-muted">No description</span>') + '</div>' +
-      '<div class="text-secondary" style="font-size:var(--text-xs);margin-top:.6rem">' +
+      '<a href="/app/teams/' + t.id + '" style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);padding:var(--space-3) 0;border-bottom:1px solid var(--color-border);color:inherit">' +
+      '<div><div style="font-size:var(--text-sm);font-weight:600">' + UI.escapeHtml(t.name) + '</div>' +
+      (t.description ? '<div class="text-muted" style="font-size:var(--text-xs)">' + UI.escapeHtml(t.description) + '</div>' : '') + '</div>' +
+      '<div class="text-secondary" style="font-size:var(--text-sm);flex-shrink:0">' +
       t.model_count + ' model' + (t.model_count === 1 ? '' : 's') + ' &middot; ' + t.member_count + ' member' + (t.member_count === 1 ? '' : 's') +
       '</div></a>'
     ).join('');
@@ -205,19 +210,14 @@ def member_overview_page():
     const rows = Array.from(byDeployment.values());
 
     if (!rows.length) {
-      el.innerHTML = UI.emptyState("Your team hasn't been granted model access yet.", "Contact your admin.");
+      el.innerHTML = '<tr><td colspan="4">' + UI.emptyState("Your team hasn't been granted model access yet.", "Contact your admin.") + '</td></tr>';
       return;
     }
-    el.innerHTML = rows.slice(0, 3).map(r =>
-      '<div class="card">' +
-      '<div class="card-title">' + UI.escapeHtml(r.model_name) + '</div>' +
-      '<div class="card-subtitle">' + UI.escapeHtml(r.team_name) + '</div>' +
-      '<div style="margin:.5rem 0">' + UI.statusBadge(r.status) + '</div>' +
-      (r.can_predict
-        ? '<a class="link-secondary" style="font-size:var(--text-xs)" href="/app/teams/' + r.team_id + '">Get API key &rarr;</a>'
-        : UI.badge('View only', 'neutral')
-      ) +
-      '</div>'
+    el.innerHTML = rows.slice(0, 5).map(r =>
+      '<tr><td class="mono">' + UI.escapeHtml(r.model_name) + '</td><td class="text-secondary">' + UI.escapeHtml(r.team_name) + '</td>' +
+      '<td>' + UI.statusBadge(r.status) + '</td><td style="text-align:right">' +
+      (r.can_predict ? '<a class="link-action" href="/app/teams/' + r.team_id + '">Get API key &rarr;</a>' : '<span class="text-muted" style="font-size:var(--text-xs)">View only</span>') +
+      '</td></tr>'
     ).join('');
   }
 </script>"""
@@ -259,12 +259,7 @@ def member_team_detail_page(team_id: int):
     <p id="team-description" class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)"></p>
 
     <div class="section-label" style="margin-top:0">Models</div>
-    <div class="table-wrap">
-      <table class="table">
-        <thead><tr><th>Model</th><th>Task</th><th>Status</th><th></th></tr></thead>
-        <tbody id="models-body"></tbody>
-      </table>
-    </div>
+    <div id="models-body"></div>
   </div>
 </div>
 <div class="auth-loading" id="loading-root">Loading&hellip;</div>
@@ -303,21 +298,25 @@ def member_team_detail_page(team_id: int):
     teamPerms = perms;
     const body = document.getElementById('models-body');
     if (!perms.length) {
-      body.innerHTML = '<tr><td colspan="4">' + UI.emptyState('No models yet', 'This team has not been granted access to any models.') + '</td></tr>';
+      body.innerHTML = UI.emptyState('No models yet', 'This team has not been granted access to any models.');
       return;
     }
+    // Each model is a contained section (thin left border), not a table
+    // row — name+task+status in the header, tester directly below, "Get
+    // API key" a small right-aligned link (spec).
     body.innerHTML = perms.map((p, idx) => {
       const uid = 'd' + p.deployment_id;
-      const lastCell = p.can_predict
-        ? '<button class="btn btn-secondary btn-sm" data-get-key="' + idx + '" type="button">Get API key</button>' +
-          '<div style="margin-top:.6rem;max-width:280px">' + Predictor.render(uid, TEAM_ID, p.deployment_id, p.input_type, p.input_schema) + '</div>'
-        : UI.badge('View only', 'neutral');
-      return '<tr>' +
-        '<td>' + UI.escapeHtml(p.model_name) + '</td>' +
-        '<td>' + UI.escapeHtml(p.task_type) + '</td>' +
-        '<td>' + UI.statusBadge(p.status) + '</td>' +
-        '<td>' + lastCell + '</td>' +
-        '</tr>';
+      return '<div class="model-section">' +
+        '<div class="model-section-header">' +
+        '<span class="model-section-name">' + UI.escapeHtml(p.model_name) + '</span>' +
+        '<span class="model-section-task">' + UI.escapeHtml(p.task_type) + '</span>' +
+        UI.statusBadge(p.status) +
+        (p.can_predict ? '<span style="flex:1"></span><button class="link-action" data-get-key="' + idx + '" type="button">Get API key &rarr;</button>' : '') +
+        '</div>' +
+        (p.can_predict
+          ? Predictor.render(uid, TEAM_ID, p.deployment_id, p.input_type, p.input_schema)
+          : '<span class="text-muted" style="font-size:var(--text-xs)">View only</span>') +
+        '</div>';
     }).join('');
     body.querySelectorAll('[data-get-key]').forEach(btn => {
       const idx = parseInt(btn.dataset.getKey, 10);
@@ -518,17 +517,47 @@ def member_tickets_page():
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
-    <div class="card-header">
-      <h1 style="font-size:var(--text-lg)">My tickets</h1>
-      <button class="btn btn-primary" id="new-ticket-btn" type="button">New ticket</button>
-    </div>
+    <h1 style="font-size:var(--text-lg);margin-bottom:var(--space-5)">My tickets</h1>
+    <div class="grid-split">
+    <div>
     <div class="table-wrap">
       <table class="table">
         <thead>
-          <tr><th>Title</th><th>Type</th><th>Severity</th><th>Status</th><th>Filed</th><th></th></tr>
+          <tr><th>Title</th><th>Severity</th><th>Status</th><th>Filed</th></tr>
         </thead>
         <tbody id="tickets-body">""" + "" + """</tbody>
       </table>
+    </div>
+    </div>
+
+    <div>
+    <div class="section-label" style="margin-top:0">New ticket</div>
+    <form id="new-ticket-form" novalidate>
+      <div class="field"><label class="field-label" for="nt-title">Title</label><input class="input" id="nt-title" required></div>
+      <div class="field"><label class="field-label" for="nt-desc">Description</label><textarea class="textarea" id="nt-desc" rows="3" required></textarea></div>
+      <div class="field">
+        <label class="field-label" for="nt-type">Type</label>
+        <select class="select" id="nt-type">
+          <option value="bug">Bug</option>
+          <option value="anomaly">Anomaly</option>
+          <option value="feedback">Feedback</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="nt-severity">Severity</label>
+        <select class="select" id="nt-severity">
+          <option value="low">Low</option>
+          <option value="medium" selected>Medium</option>
+          <option value="high">High</option>
+          <option value="critical">Critical</option>
+        </select>
+      </div>
+      <div class="field"><label class="field-label" for="nt-evidence">Evidence (optional)</label><textarea class="textarea" id="nt-evidence" rows="2" placeholder="Logs, example inputs, screenshots described…"></textarea></div>
+      <div class="field-error" id="nt-error" role="alert"></div>
+      <button class="btn btn-primary" type="submit" id="nt-submit">File ticket</button>
+    </form>
+    </div>
     </div>
   </div>
 </div>
@@ -541,29 +570,27 @@ def member_tickets_page():
 
   async function loadTickets() {
     const body = document.getElementById('tickets-body');
-    body.innerHTML = UI.skeletonRows(6, 4);
+    body.innerHTML = UI.skeletonRows(4, 4);
     try {
       myTickets = await Api.get('/tickets/my');
       renderTickets();
     } catch (e) {
-      body.innerHTML = '<tr><td colspan="6">' + UI.errorState(e.message, loadTickets) + '</td></tr>';
+      body.innerHTML = '<tr><td colspan="4">' + UI.errorState(e.message, loadTickets) + '</td></tr>';
     }
   }
 
   function renderTickets() {
     const body = document.getElementById('tickets-body');
     if (!myTickets.length) {
-      body.innerHTML = '<tr><td colspan="6">' + UI.emptyState('No tickets filed yet', 'Run into a problem with a model? File a ticket and track it here.') + '</td></tr>';
+      body.innerHTML = '<tr><td colspan="4">' + UI.emptyState('No tickets filed yet', 'Run into a problem with a model? File a ticket and track it here.') + '</td></tr>';
       return;
     }
     body.innerHTML = myTickets.map(t =>
       '<tr class="is-interactive" data-open-ticket="' + t.id + '">' +
-      '<td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + UI.escapeHtml(t.title) + '</td>' +
-      '<td>' + UI.badge(t.ticket_type, 'neutral') + '</td>' +
+      '<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + UI.escapeHtml(t.title) + '</td>' +
       '<td>' + UI.severityBadge(t.severity) + '</td>' +
       '<td>' + UI.statusBadge(t.status) + '</td>' +
       '<td class="text-secondary">' + UI.timeAgo(t.filed_at) + '</td>' +
-      '<td><button class="btn btn-ghost btn-sm" type="button">View</button></td>' +
       '</tr>'
     ).join('');
     body.querySelectorAll('[data-open-ticket]').forEach(row => {
@@ -577,7 +604,7 @@ def member_tickets_page():
     const overlay = UI.openModal({
       title: t.title,
       bodyHtml: `
-        <div style="margin-bottom:.75rem">${UI.severityBadge(t.severity)} ${UI.statusBadge(t.status)} ${UI.badge(t.ticket_type, 'neutral')}</div>
+        <div style="margin-bottom:.75rem">${UI.severityBadge(t.severity)} ${UI.statusBadge(t.status)} <span class="text-muted" style="font-size:var(--text-xs)">${UI.escapeHtml(t.ticket_type)}</span></div>
         <div class="text-secondary" style="font-size:var(--text-sm);white-space:pre-wrap;margin-bottom:.75rem">${UI.escapeHtml(t.description)}</div>
         ${t.evidence ? '<div class="section-label">Evidence</div><div class="text-secondary" style="font-size:var(--text-xs);white-space:pre-wrap;margin-bottom:.75rem">' + UI.escapeHtml(t.evidence) + '</div>' : ''}
         <div class="text-muted" style="font-size:var(--text-xs);margin-bottom:.75rem">Filed ${UI.fmtDate(t.filed_at)}</div>
@@ -588,69 +615,41 @@ def member_tickets_page():
     overlay.querySelector('#tk-close').addEventListener('click', UI.closeModal);
   }
 
-  function openNewTicketModal(prefill) {
-    const overlay = UI.openModal({
-      title: 'New ticket',
-      bodyHtml: `
-        <form id="new-ticket-form" novalidate>
-          <div class="field"><label class="field-label" for="nt-title">Title</label><input class="input" id="nt-title" required></div>
-          <div class="field"><label class="field-label" for="nt-desc">Description</label><textarea class="textarea" id="nt-desc" rows="3" required>${prefill ? 'Regarding model: ' + UI.escapeHtml(prefill) + '\\n\\n' : ''}</textarea></div>
-          <div class="field">
-            <label class="field-label" for="nt-type">Type</label>
-            <select class="select" id="nt-type">
-              <option value="bug">Bug</option>
-              <option value="anomaly">Anomaly</option>
-              <option value="feedback">Feedback</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-          <div class="field">
-            <label class="field-label" for="nt-severity">Severity</label>
-            <select class="select" id="nt-severity">
-              <option value="low">Low</option>
-              <option value="medium" selected>Medium</option>
-              <option value="high">High</option>
-              <option value="critical">Critical</option>
-            </select>
-          </div>
-          <div class="field"><label class="field-label" for="nt-evidence">Evidence (optional)</label><textarea class="textarea" id="nt-evidence" rows="2" placeholder="Logs, example inputs, screenshots described…"></textarea></div>
-          <div class="field-error" id="nt-error" role="alert"></div>
-        </form>`,
-      footerHtml: `<button class="btn btn-ghost" id="nt-cancel" type="button">Cancel</button>
-                   <button class="btn btn-primary" id="nt-submit" type="submit" form="new-ticket-form">File ticket</button>`,
-    });
-    overlay.querySelector('#nt-cancel').addEventListener('click', UI.closeModal);
-    overlay.querySelector('#new-ticket-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const errorEl = overlay.querySelector('#nt-error');
-      const title = overlay.querySelector('#nt-title').value.trim();
-      const description = overlay.querySelector('#nt-desc').value.trim();
-      const ticket_type = overlay.querySelector('#nt-type').value;
-      const severity = overlay.querySelector('#nt-severity').value;
-      const evidence = overlay.querySelector('#nt-evidence').value.trim();
-      if (!title || !description) {
-        errorEl.textContent = 'Title and description are required.';
-        return;
-      }
-      try {
-        await Api.post('/tickets', { title, description, ticket_type, severity, evidence });
-        UI.toast('Ticket filed', 'success');
-        UI.closeModal();
-        loadTickets();
-      } catch (err) {
-        errorEl.textContent = err.message || 'Could not file ticket.';
-      }
-    });
-  }
-
-  document.getElementById('new-ticket-btn').addEventListener('click', () => openNewTicketModal());
-
-  // Deep link from a model card: /app/tickets?model=NAME opens the form pre-filled.
+  // Inline form (spec: right column, no card/modal) — deep link from a
+  // model card (/app/tickets?model=NAME) pre-fills the description
+  // instead of opening anything.
   const params = new URLSearchParams(location.search);
   const modelParam = params.get('model');
   if (modelParam) {
-    setTimeout(() => openNewTicketModal(modelParam), 0);
+    document.getElementById('nt-desc').value = 'Regarding model: ' + modelParam + '\\n\\n';
   }
+
+  document.getElementById('new-ticket-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById('nt-error');
+    const submitBtn = document.getElementById('nt-submit');
+    const title = document.getElementById('nt-title').value.trim();
+    const description = document.getElementById('nt-desc').value.trim();
+    const ticket_type = document.getElementById('nt-type').value;
+    const severity = document.getElementById('nt-severity').value;
+    const evidence = document.getElementById('nt-evidence').value.trim();
+    errorEl.textContent = '';
+    if (!title || !description) {
+      errorEl.textContent = 'Title and description are required.';
+      return;
+    }
+    submitBtn.disabled = true;
+    try {
+      await Api.post('/tickets', { title, description, ticket_type, severity, evidence });
+      UI.toast('Ticket filed', 'success');
+      document.getElementById('new-ticket-form').reset();
+      loadTickets();
+    } catch (err) {
+      errorEl.textContent = err.message || 'Could not file ticket.';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
 </script>"""
 
     ready = "loadTickets();"

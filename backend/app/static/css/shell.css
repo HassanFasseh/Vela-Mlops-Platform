@@ -16,20 +16,15 @@ body.has-shell {
   width: 100vw;
 }
 
-/* ---- Sidebar ----------------------------------------------------------*/
+/* ---- Sidebar — always dark, regardless of the light content area ------*/
 
-/* Sidebar background is its own dedicated token (--color-sidebar-bg,
-   tokens.css), not the shared --color-bg/--color-surface tokens light-
-   theme.css repoints for the rest of the shell — it must stay dark on
-   every page (spec: "light content area, dark sidebar only"). */
 .shell-sidebar {
   flex-shrink: 0;
   width: var(--sidebar-width);
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--color-sidebar-bg);
-  border-right: 1px solid rgba(148, 163, 184, 0.12);
+  background: var(--color-sidebar);
   z-index: var(--z-sidebar);
   transition: width var(--duration-base) var(--ease);
 }
@@ -42,87 +37,79 @@ body.has-shell {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  height: var(--topbar-height);
-  padding: 0 var(--space-4);
+  padding: 20px;
   flex-shrink: 0;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 }
 
 .shell-brand-mark {
-  color: #38bdf8;
-  width: 18px;
-  height: 18px;
+  color: #ffffff;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
 }
 
 .shell-brand-name {
-  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: var(--tracking-label);
-  color: #38bdf8;
+  letter-spacing: 0.1em;
+  color: #ffffff;
 }
 
 .shell.is-collapsed .shell-brand-name,
 .shell.is-collapsed .shell-nav-section-label,
-.shell.is-collapsed .shell-nav-label {
+.shell.is-collapsed .shell-nav-label,
+.shell.is-collapsed .shell-sidebar-footer-text {
   display: none;
 }
 
 .shell-nav {
   flex: 1;
   overflow-y: auto;
-  padding: var(--space-3) var(--space-2);
+  padding: var(--space-2) var(--space-2);
 }
 
 .shell-nav-section-label {
-  font-size: var(--text-xs);
-  color: #475569;
+  font-size: 10px;
+  color: var(--color-sidebar-text);
+  opacity: 0.5;
   text-transform: uppercase;
-  letter-spacing: var(--tracking-label);
-  padding: var(--space-3) var(--space-3) var(--space-1);
+  letter-spacing: 0.1em;
+  padding: var(--space-3) var(--space-3) var(--space-1) 12px;
 }
 
 .shell-nav-item {
   position: relative;
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
+  gap: 4px;
+  height: 36px;
+  padding: 0 var(--space-3) 0 12px;
   border-radius: var(--radius-sm);
-  color: #94a3b8;
+  color: var(--color-sidebar-text);
   font-size: var(--text-sm);
   margin: 1px 0;
 }
 
+/* Text goes white on hover — no background change (spec). */
 .shell-nav-item:hover {
-  background: rgba(148, 163, 184, 0.08);
-  color: #e2e8f0;
+  color: var(--color-sidebar-active);
   text-decoration: none;
 }
 
 .shell-nav-item.is-active {
-  background: rgba(56, 189, 248, 0.12);
-  color: #38bdf8;
-}
-
-/* Left border glow on the active item — a running-light/instrument feel
-   rather than a flat highlight block. */
-.shell-nav-item.is-active::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 4px;
-  bottom: 4px;
-  width: 3px;
-  border-radius: var(--radius-full);
-  background: #38bdf8;
-  box-shadow: 0 0 12px rgba(56, 189, 248, 0.3);
+  background: var(--color-sidebar-active-bg);
+  color: var(--color-sidebar-active);
 }
 
 .shell-nav-item-icon {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   flex-shrink: 0;
+}
+.shell-nav-item-icon svg {
+  width: 100%;
+  height: 100%;
 }
 
 .shell-collapse-btn {
@@ -131,19 +118,70 @@ body.has-shell {
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  height: 44px;
+  height: 36px;
   border: none;
-  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   background: none;
-  color: #94a3b8;
+  color: var(--color-sidebar-text);
   cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
 }
 .shell-collapse-btn:hover {
-  color: #e2e8f0;
-  background: rgba(148, 163, 184, 0.08);
+  color: var(--color-sidebar-active);
 }
 
-/* ---- Body / topbar / main ----------------------------------------------*/
+/* ---- Sidebar footer — username + role + a settings gear (spec) --------*/
+
+.shell-sidebar-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--color-sidebar-text);
+  background: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+.shell-sidebar-footer:hover {
+  color: var(--color-sidebar-active);
+  text-decoration: none;
+}
+
+.shell-sidebar-footer-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.shell-sidebar-footer-name {
+  font-size: var(--text-sm);
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-sidebar-footer-role {
+  font-size: 10px;
+  opacity: 0.6;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+}
+
+.shell-sidebar-footer-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+.shell-sidebar-footer-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* ---- Body / topbar (page header) / main --------------------------------*/
 
 .shell-body {
   flex: 1;
@@ -159,9 +197,9 @@ body.has-shell {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: 0 var(--space-4);
-  border-bottom: 1px solid #e2e8f0;
-  background: #ffffff;
+  padding: 0 var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
   z-index: var(--z-topbar);
 }
 
@@ -185,7 +223,7 @@ body.has-shell {
 }
 
 .shell-breadcrumbs a {
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
 }
 .shell-breadcrumbs a:hover {
   color: var(--color-text);
@@ -203,17 +241,17 @@ body.has-shell {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-strong);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
   color: var(--color-text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: var(--text-xs);
   padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
 .shell-search-btn:hover {
-  border-color: var(--color-text-secondary);
+  border-color: var(--color-border-strong);
   color: var(--color-text-secondary);
 }
 .shell-search-btn kbd {
@@ -234,11 +272,11 @@ body.has-shell {
   background: none;
   border: none;
   border-radius: var(--radius-sm);
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
   cursor: pointer;
 }
 .shell-icon-btn:hover {
-  background: var(--color-surface-2);
+  background: var(--color-bg);
   color: var(--color-text);
 }
 
@@ -250,7 +288,7 @@ body.has-shell {
   height: 7px;
   border-radius: 50%;
   background: var(--color-danger);
-  border: 1.5px solid var(--color-bg);
+  border: 1.5px solid var(--color-surface);
 }
 
 .shell-user-menu {
@@ -269,15 +307,15 @@ body.has-shell {
   color: var(--color-text);
 }
 .shell-user-btn:hover {
-  background: var(--color-surface-2);
+  background: var(--color-bg);
 }
 
 .shell-avatar {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: var(--color-accent-bg);
-  color: var(--color-accent);
+  background: var(--color-primary-surface);
+  color: var(--color-primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -319,7 +357,7 @@ body.has-shell {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: var(--space-6);
+  padding: var(--space-5) var(--space-6);
 }
 
 /* Skip-link (spec §24) — visually hidden until keyboard-focused, lets
@@ -329,9 +367,9 @@ body.has-shell {
   top: -100px;
   left: var(--space-3);
   z-index: var(--z-command);
-  background: var(--color-accent-bg);
-  color: var(--color-accent);
-  border: 1px solid var(--color-accent-border);
+  background: var(--color-primary);
+  color: #ffffff;
+  border: 1px solid var(--color-primary);
   border-radius: var(--radius-sm);
   padding: var(--space-2) var(--space-4);
   font-size: var(--text-sm);
@@ -352,7 +390,7 @@ body.has-shell {
 .shell-command-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(4, 4, 8, 0.6);
+  background: rgba(15, 23, 42, 0.4);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -372,9 +410,9 @@ body.has-shell {
   width: 100%;
   max-width: 520px;
   background: var(--color-surface);
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-md);
   overflow: hidden;
 }
 
@@ -384,7 +422,7 @@ body.has-shell {
   border-bottom: 1px solid var(--color-border);
   background: none;
   color: var(--color-text);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: var(--text-md);
   padding: var(--space-4);
 }
@@ -410,8 +448,8 @@ body.has-shell {
   cursor: pointer;
 }
 .shell-command-result.is-active {
-  background: var(--color-accent-bg);
-  color: var(--color-accent);
+  background: var(--color-primary-surface);
+  color: var(--color-primary);
 }
 
 .shell-command-empty {
@@ -429,8 +467,8 @@ body.has-shell {
     position: fixed;
     left: 0;
     top: 0;
+    box-shadow: var(--shadow-md);
     transform: translateX(-100%);
-    box-shadow: var(--shadow-lg);
   }
   .shell.is-mobile-open .shell-sidebar {
     transform: translateX(0);

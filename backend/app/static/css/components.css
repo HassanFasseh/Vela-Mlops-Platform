@@ -3,6 +3,9 @@
  * tabs, modals, dropdowns, and the loading/empty/error states every page
  * needs (spec §21–22). Class-based, no build step: compose these classes
  * directly in server-rendered HTML.
+ *
+ * Flat, restrained visual language: no blur, no glow, no gradients, no
+ * shadow heavier than --shadow-sm (a 1px hairline), radius capped at 8px.
  */
 
 /* =====================================================================
@@ -14,14 +17,15 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: var(--text-sm);
   font-weight: 500;
-  padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-sm);
+  height: 32px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
   border: 1px solid transparent;
   cursor: pointer;
-  transition: background var(--duration-fast) var(--ease), border-color var(--duration-fast) var(--ease);
+  transition: background var(--duration-fast) var(--ease), border-color var(--duration-fast) var(--ease), color var(--duration-fast) var(--ease);
   white-space: nowrap;
   line-height: 1;
 }
@@ -32,35 +36,37 @@
 
 .btn:disabled,
 .btn[aria-disabled="true"] {
-  opacity: 0.45;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
 .btn-primary {
-  background: var(--color-accent-bg);
-  border-color: var(--color-accent-border);
-  color: var(--color-accent);
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #ffffff;
 }
 .btn-primary:hover:not(:disabled) {
-  background: var(--color-accent-bg-hover);
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
 }
 
 .btn-secondary {
-  background: var(--color-surface-2);
-  border-color: var(--color-border-strong);
+  background: var(--color-surface);
+  border-color: var(--color-border);
   color: var(--color-text);
 }
 .btn-secondary:hover:not(:disabled) {
-  border-color: var(--color-text-secondary);
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-2);
 }
 
 .btn-ghost {
   background: transparent;
   border-color: transparent;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
 }
 .btn-ghost:hover:not(:disabled) {
-  background: var(--color-surface-2);
+  background: var(--color-bg);
   color: var(--color-text);
 }
 
@@ -70,11 +76,12 @@
   color: var(--color-danger);
 }
 .btn-danger:hover:not(:disabled) {
-  background: #351c1c;
+  background: #fee2e2;
 }
 
 .btn-sm {
-  padding: var(--space-1) var(--space-3);
+  height: 28px;
+  padding: 0 var(--space-2);
   font-size: var(--text-xs);
 }
 
@@ -114,14 +121,20 @@
 .input,
 .select,
 .textarea {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: var(--text-sm);
   color: var(--color-text);
-  background: var(--color-bg);
-  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  padding: var(--space-2) var(--space-3);
+  height: 36px;
+  padding: 0 var(--space-3);
   width: 100%;
+}
+
+.textarea {
+  height: auto;
+  padding: var(--space-2) var(--space-3);
 }
 
 .input::placeholder,
@@ -132,7 +145,7 @@
 .input:hover,
 .select:hover,
 .textarea:hover {
-  border-color: var(--color-text-secondary);
+  border-color: var(--color-border-strong);
 }
 
 .input:focus-visible,
@@ -161,7 +174,8 @@
 }
 
 /* =====================================================================
-   Cards
+   Cards — flat, thin border, minimal shadow. Radius capped at 6px (spec:
+   "less bubbly" than the platform-wide 8px default).
    ===================================================================== */
 
 .card {
@@ -169,8 +183,7 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: var(--space-4);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-sm);
 }
 
 .card-elevated {
@@ -209,7 +222,10 @@
 }
 
 /* =====================================================================
-   Badges / status pills — never color-only, always paired with a label
+   Badges — a light chip for generic, non-status labels (role, ticket
+   type, model source, team name). Status/severity themselves render as a
+   dot + plain text via .status-dot below (ui.js's statusBadge/
+   severityBadge), never a colored background.
    ===================================================================== */
 
 .badge {
@@ -219,7 +235,7 @@
   padding: 2px var(--space-2);
   border-radius: var(--radius-sm);
   font-size: var(--text-xs);
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.6;
   white-space: nowrap;
 }
@@ -232,13 +248,47 @@
   flex-shrink: 0;
 }
 
-/* Subtle glow per variant — currentColor at low alpha, so it always
-   matches the badge's own status color without new per-variant tokens. */
-.badge-success { background: var(--color-success-bg); color: var(--color-success); box-shadow: 0 0 8px rgba(126, 247, 160, 0.2); }
-.badge-warning { background: var(--color-warning-bg); color: var(--color-warning); box-shadow: 0 0 8px rgba(247, 201, 126, 0.2); }
-.badge-danger  { background: var(--color-danger-bg);  color: var(--color-danger);  box-shadow: 0 0 8px rgba(247, 126, 126, 0.2); }
-.badge-info    { background: var(--color-info-bg);    color: var(--color-info);    box-shadow: 0 0 8px rgba(126, 184, 247, 0.2); }
-.badge-neutral { background: var(--color-neutral-bg); color: var(--color-neutral); box-shadow: 0 0 6px rgba(154, 154, 168, 0.12); }
+.badge-success { background: var(--color-success-bg); color: var(--color-success); }
+.badge-warning { background: var(--color-warning-bg); color: var(--color-warning); }
+.badge-danger  { background: var(--color-danger-bg);  color: var(--color-danger); }
+.badge-info    { background: var(--color-info-bg);    color: var(--color-info); }
+.badge-neutral { background: var(--color-neutral-bg); color: var(--color-text-secondary); }
+
+/* ---- Status dot — small colored dot + plain-text label, no chip
+   background. This is what UI.statusBadge()/severityBadge() render now
+   (see ui.js); .badge above stays reserved for actual non-status chips. */
+
+.status-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.status-dot-mark {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* The dot itself carries the status color; the label text stays muted
+   (spec: "Running" in --color-text-muted, not colored) except for the
+   states that are actively asking for attention. */
+.status-dot-running .status-dot-mark  { color: var(--color-running); }
+.status-dot-warning .status-dot-mark  { color: var(--color-warning); }
+.status-dot-error .status-dot-mark    { color: var(--color-danger); }
+.status-dot-info .status-dot-mark     { color: var(--color-primary); }
+.status-dot-offline .status-dot-mark  { color: var(--color-offline); }
+.status-dot-neutral .status-dot-mark  { color: var(--color-text-muted); }
+
+.status-dot-warning,
+.status-dot-error {
+  color: var(--color-text);
+}
 
 /* =====================================================================
    Alerts / banners
@@ -273,20 +323,43 @@
 .alert-warning { background: var(--color-warning-bg); border-color: var(--color-warning-border); color: var(--color-warning); }
 .alert-danger  { background: var(--color-danger-bg);  border-color: var(--color-danger-border);  color: var(--color-danger); }
 
+/* Thin banner variant — a one-line strip above a table (spec: the /admin
+   drift-warning banner), not a boxed alert card. */
+.banner-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-3);
+}
+.banner-strip.is-warning {
+  background: var(--color-warning-bg);
+  color: #92400e;
+}
+.banner-strip.is-neutral {
+  background: var(--color-surface-2);
+  color: var(--color-text-secondary);
+}
+.banner-strip a { font-weight: 600; }
+
 /* =====================================================================
-   Tables — responsive: horizontal scroll in a bounded wrapper (spec §23)
+   Tables — no card wrapper; the table sits directly on the page
+   background (spec: "let them breathe"). .table-wrap only provides the
+   bounded horizontal scroll responsive tables need (spec §23), not a
+   card border any more.
    ===================================================================== */
 
 .table-wrap {
   overflow-x: auto;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
 }
 
 .table {
   width: 100%;
   min-width: 560px;
   font-size: var(--text-sm);
+  border-collapse: collapse;
 }
 
 .table thead th {
@@ -295,16 +368,17 @@
   font-weight: 600;
   color: var(--color-text-muted);
   text-transform: uppercase;
-  letter-spacing: var(--tracking-label);
-  padding: var(--space-3) var(--space-4);
-  background: var(--color-bg-elevated);
+  letter-spacing: 0.08em;
+  padding: 0 var(--space-3);
+  height: 36px;
   border-bottom: 1px solid var(--color-border);
   white-space: nowrap;
 }
 
 .table tbody td {
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--color-border-subtle);
+  height: 44px;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--color-border);
   color: var(--color-text);
   vertical-align: middle;
 }
@@ -313,11 +387,12 @@
   border-bottom: none;
 }
 
+.table tbody tr:hover {
+  background: var(--color-bg);
+}
+
 .table tbody tr.is-interactive {
   cursor: pointer;
-}
-.table tbody tr.is-interactive:hover {
-  background: var(--color-surface-2);
 }
 
 /* =====================================================================
@@ -336,8 +411,8 @@
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
-  color: var(--color-text-secondary);
-  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+  font-family: var(--font-sans);
   font-size: var(--text-sm);
   padding: var(--space-3) var(--space-3);
   cursor: pointer;
@@ -361,8 +436,8 @@
   position: absolute;
   min-width: 200px;
   background: var(--color-surface);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   padding: var(--space-2);
   z-index: var(--z-dropdown);
@@ -378,14 +453,14 @@
   background: none;
   border: none;
   color: var(--color-text);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: var(--text-sm);
   text-align: left;
   cursor: pointer;
 }
 
 .dropdown-item:hover {
-  background: var(--color-surface-2);
+  background: var(--color-bg);
   text-decoration: none;
 }
 
@@ -402,7 +477,7 @@
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(4, 4, 8, 0.6);
+  background: rgba(15, 23, 42, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -416,9 +491,9 @@
   max-height: 85vh;
   overflow-y: auto;
   background: var(--color-surface);
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-md);
 }
 
 .modal-header {
@@ -487,7 +562,7 @@
 .skeleton {
   position: relative;
   overflow: hidden;
-  background: var(--color-surface-2);
+  background: var(--color-border);
   border-radius: var(--radius-sm);
   color: transparent !important;
 }
@@ -497,7 +572,7 @@
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.8), transparent);
   animation: skeleton-shimmer 1.4s infinite;
 }
 
@@ -549,6 +624,7 @@
   font-size: var(--text-sm);
   box-shadow: var(--shadow-md);
   animation: toast-in var(--duration-base) var(--ease);
+  background: var(--color-surface);
 }
 
 @keyframes toast-in {
@@ -556,12 +632,12 @@
   to { transform: translateY(0); opacity: 1; }
 }
 
-.toast-success { background: var(--color-success-bg); border-color: var(--color-success-border); color: var(--color-success); }
-.toast-danger  { background: var(--color-danger-bg);  border-color: var(--color-danger-border);  color: var(--color-danger); }
-.toast-info    { background: var(--color-info-bg);    border-color: var(--color-info-border);    color: var(--color-info); }
+.toast-success { border-color: var(--color-success-border); color: var(--color-success); }
+.toast-danger  { border-color: var(--color-danger-border);  color: var(--color-danger); }
+.toast-info    { border-color: var(--color-info-border);    color: var(--color-info); }
 
 /* =====================================================================
-   Meter / gauge — CPU, memory and similar bounded usage indicators
+   Meter / gauge — CPU, memory, and confidence-bar indicators
    ===================================================================== */
 
 .meter-label {
@@ -575,9 +651,9 @@
 }
 
 .meter-track {
-  background: var(--color-surface-2);
+  background: var(--color-border);
   border-radius: var(--radius-full);
-  height: 8px;
+  height: 6px;
   overflow: hidden;
   margin-bottom: var(--space-2);
 }
@@ -598,7 +674,7 @@
 }
 
 /* =====================================================================
-   Chart card — a card wrapping a Chart.js canvas
+   Chart card — a Chart.js canvas on the page background
    ===================================================================== */
 
 .chart-card canvas {
@@ -633,6 +709,19 @@
   align-items: end;
 }
 
+/* Split layout — a form/detail column beside a list column (Deployments,
+   Remediation). Left column is the fixed-width "do a thing" side. */
+.grid-split {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: var(--space-6);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .grid-split { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 700px) {
   .grid-2 { grid-template-columns: 1fr; }
 }
@@ -642,7 +731,45 @@
 }
 
 /* =====================================================================
-   Metric tiles — restrained, not giant cards (spec §8)
+   Metric strip — a plain-text row of N stats separated by dividers, used
+   instead of a KPI card grid (spec: "no big KPI cards"). Each stat is
+   just a number + label, no card/background/border.
+   ===================================================================== */
+
+.metric-strip {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.metric-strip-item {
+  padding: 0 var(--space-5);
+  border-left: 1px solid var(--color-border);
+}
+.metric-strip-item:first-child {
+  padding-left: 0;
+  border-left: none;
+}
+
+.metric-strip-value {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--color-text);
+  line-height: 1.2;
+}
+
+.metric-strip-value.is-warning { color: var(--color-warning); }
+.metric-strip-value.is-danger  { color: var(--color-danger); }
+
+.metric-strip-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+/* =====================================================================
+   Metric tiles — kept for pages that still use a small tile grid
+   (Infrastructure, member ticket counts) — flat, thin border, no
+   gradient/glow. Prefer .metric-strip for anything KPI-wall-shaped.
    ===================================================================== */
 
 .metric-row {
@@ -652,38 +779,17 @@
 }
 
 .metric-tile {
-  position: relative;
-  overflow: hidden;
-  background: var(--color-bg-elevated);
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: var(--space-3) var(--space-4);
-  transition: transform var(--duration-base) var(--ease), border-color var(--duration-base) var(--ease);
-}
-
-/* Gradient top border, blue -> teal — an instrument-panel accent line
-   rather than a full border, so it reads as a highlight, not a frame. */
-.metric-tile::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, var(--color-accent), var(--color-accent-teal));
-}
-
-.metric-tile:hover {
-  transform: translateY(-2px);
-  border-color: var(--color-border-strong);
 }
 
 .metric-tile-value {
   font-size: var(--text-xl);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--color-text);
   line-height: 1.1;
-  text-shadow: var(--glow-accent-sm);
 }
 
 .metric-tile-label {
@@ -694,9 +800,9 @@
   margin-top: var(--space-1);
 }
 
-.metric-tile-value.is-warning { color: var(--color-warning); text-shadow: 0 0 8px rgba(247, 201, 126, 0.3); }
-.metric-tile-value.is-danger  { color: var(--color-danger);  text-shadow: 0 0 8px rgba(247, 126, 126, 0.3); }
-.metric-tile-value.is-success { color: var(--color-success); text-shadow: 0 0 8px rgba(126, 247, 160, 0.3); }
+.metric-tile-value.is-warning { color: var(--color-warning); }
+.metric-tile-value.is-danger  { color: var(--color-danger); }
+.metric-tile-value.is-success { color: var(--color-running); }
 
 /* =====================================================================
    Permission-denied (spec §22) — explain without leaking protected info
@@ -713,4 +819,42 @@
 }
 .denied-state-icon {
   color: var(--color-warning);
+}
+
+/* =====================================================================
+   Inline prediction tester (predictor.js) — plain, no card chrome; it
+   already sits inside a bordered model section or a card that provides
+   its own boundary.
+   ===================================================================== */
+
+.predict-tester {
+  display: block;
+}
+
+/* A model's contained section on the team detail page — thin left
+   border in primary blue, no full card chrome (spec). */
+.model-section {
+  border-left: 3px solid var(--color-primary);
+  padding: var(--space-2) 0 var(--space-2) var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.model-section-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
+.model-section-name {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.model-section-task {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
 }
