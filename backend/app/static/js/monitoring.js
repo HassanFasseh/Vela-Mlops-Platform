@@ -40,6 +40,7 @@ const Monitoring = (() => {
   let driftScoreChart = null;
   let confidenceChart = null;
   let performanceBuiltFor = null; // entry.key, or "no-data:<key>" — see loadPerformance()
+  let verdictState = { status: null, drifted: null, rate: null }; // see renderVerdict()
 
   function fmtN(n, dec = 1) {
     return n == null || isNaN(n) ? "—" : Number(n).toFixed(dec);
@@ -145,7 +146,7 @@ const Monitoring = (() => {
     if (!ctx || !window.Chart) return null;
     return new Chart(ctx.getContext("2d"), {
       type: "line",
-      data: { labels: [], datasets: [{ label: "Drift share", data: [], borderColor: "#f77e7e", backgroundColor: "rgba(247,126,126,0.1)", borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.25 }] },
+      data: { labels: [], datasets: [{ label: "Drift share", data: [], borderColor: "#dc2626", backgroundColor: "rgba(220,38,38,0.08)", borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.25 }] },
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -188,8 +189,8 @@ const Monitoring = (() => {
   }
 
   function ensureCharts() {
-    if (!predictionsChart) predictionsChart = makeLineChart("chart-predictions", "#7eb8f7");
-    if (!latencyChart) latencyChart = makeLineChart("chart-latency", "#38bdf8");
+    if (!predictionsChart) predictionsChart = makeLineChart("chart-predictions", "#2563eb");
+    if (!latencyChart) latencyChart = makeLineChart("chart-latency", "#7c3aed");
     if (!driftScoreChart) driftScoreChart = makeDriftScoreChart("chart-driftscore");
     // model-runner/custom-runner set prediction_confidence (see their
     // main.py); model-service predates that instrumentation and doesn't
@@ -197,7 +198,7 @@ const Monitoring = (() => {
     // readout for that one job — same makeLineChart shape (value +
     // baseline) as predictions/latency, since a typical-confidence
     // baseline is exactly what makes a confidence *drop* visible.
-    if (!confidenceChart) confidenceChart = makeLineChart("chart-confidence", "#7ef7a0");
+    if (!confidenceChart) confidenceChart = makeLineChart("chart-confidence", "#059669");
   }
 
   function chartPanelHtml(canvasId, title, metaId, color, legendLabel, withBaseline) {
@@ -205,10 +206,13 @@ const Monitoring = (() => {
       '<div class="chart-legend-note"><span><span class="legend-swatch" style="color:' + color + ';background:' + color + '"></span>' + legendLabel + "</span>" +
       (withBaseline ? '<span><span class="legend-swatch is-dashed" style="color:#8a8a9a"></span>baseline</span>' : "") +
       "</div>";
+    // Label above (small, uppercase, muted), chart, then the current
+    // value below it — not a title+value pair on one header row.
     return (
       '<div class="chart-panel-compact evidence-panel">' +
-      '<div class="chart-panel-head"><div class="chart-panel-title">' + title + '</div><div class="chart-panel-meta" id="' + metaId + '">&mdash;</div></div>' +
+      '<div class="chart-panel-label">' + title + '</div>' +
       '<div class="chart-canvas-wrap"><canvas id="' + canvasId + '"></canvas></div>' +
+      '<div class="chart-panel-value" id="' + metaId + '">&mdash;</div>' +
       legend +
       "</div>"
     );
@@ -217,10 +221,10 @@ const Monitoring = (() => {
   function perfGridHtml() {
     return (
       '<div class="metric-grid" style="margin-bottom:var(--space-5)">' +
-      chartPanelHtml("chart-predictions", "Predictions", "perf-rate-val", "#7eb8f7", "predictions/min", true) +
-      chartPanelHtml("chart-latency", "Latency (p95)", "perf-latency-val", "#38bdf8", "p95, 5min window", true) +
-      chartPanelHtml("chart-driftscore", "Drift score", "perf-drift-val", "#f77e7e", "share of features drifted", false) +
-      chartPanelHtml("chart-confidence", "Confidence", "perf-confidence-val", "#7ef7a0", "avg. prediction confidence", true) +
+      chartPanelHtml("chart-predictions", "Predictions", "perf-rate-val", "#2563eb", "predictions/min", true) +
+      chartPanelHtml("chart-latency", "Latency (p95)", "perf-latency-val", "#7c3aed", "p95, 5min window", true) +
+      chartPanelHtml("chart-driftscore", "Drift score", "perf-drift-val", "#dc2626", "share of features drifted", false) +
+      chartPanelHtml("chart-confidence", "Confidence", "perf-confidence-val", "#059669", "avg. prediction confidence", true) +
       "</div>"
     );
   }
@@ -234,11 +238,8 @@ const Monitoring = (() => {
   // selected model is, and clears itself on the next poll once data
   // shows up — no page reload needed.
   function noDataHtml() {
-    return (
-      '<div class="evidence-panel" style="margin-bottom:var(--space-5)">' +
-      '<div class="not-instrumented"><div class="not-instrumented-title">No telemetry data available yet</div>' +
-      "<div>Make some predictions and check back in 30 seconds.</div></div></div>"
-    );
+    // Spec: no bordered empty-state card here — just a quiet message.
+    return '<p class="text-muted" style="font-size:var(--text-sm);margin-bottom:var(--space-5)">No telemetry data available yet — make some predictions and check back in 30 seconds.</p>';
   }
 
   function metricsHaveData(d) {
@@ -283,6 +284,7 @@ const Monitoring = (() => {
   function onSelect(key) {
     selectedKey = key;
     ModelCatalog.setSelected(key);
+    verdictState = { status: null, drifted: null, rate: null };
     renderModel();
   }
 
@@ -300,22 +302,56 @@ const Monitoring = (() => {
         const phase = (s && s.phase) || "unknown";
         badgeEl.innerHTML = UI.badge(customPhaseLabel(phase), customPhaseVariant(phase), true);
         statsEl.innerHTML = statLine(customPhaseLabel(phase), "Phase") + (s && s.detail ? statLine(s.detail, "Detail") : "");
+        verdictState.status = phase === "running" ? "running" : phase === "failed" ? "failed" : "starting";
       } else {
         const deployments = await Api.get("/deployments");
         const d = deployments.find((x) => x.name === entry.deploymentName);
-        badgeEl.innerHTML = UI.statusBadge(d ? d.status : entry.status || "unknown");
+        const status = d ? d.status : entry.status || "unknown";
+        badgeEl.innerHTML = UI.statusBadge(status);
         statsEl.innerHTML = statLine(d ? d.ready + "/" + d.desired : "—", "Replicas ready");
+        verdictState.status = status;
       }
     } catch (e) {
       statsEl.innerHTML = UI.errorState(e.message);
       badgeEl.innerHTML = "";
+      verdictState.status = null;
     }
+    renderVerdict();
+  }
+
+  // One-line synthesis of health + drift + traffic (spec: "● Running
+  // normally — no drift detected — 142 req/min" / "⚠ Drift detected —
+  // confidence score dropped — investigate below"). Each piece updates
+  // verdictState independently (loadHealth sets status, loadPerformance
+  // sets drifted/rate) and re-renders through this shared function so
+  // whichever one resolves last still produces a complete line.
+  function renderVerdict() {
+    const el = document.getElementById("mh-verdict");
+    if (!el) return;
+    const s = String(verdictState.status || "").toLowerCase();
+    const isRunning = s === "online" || s === "running" || s === "healthy" || s === "active";
+    const isKnown = s && s !== "unknown";
+    if (verdictState.drifted) {
+      el.innerHTML = "&#9888; Drift detected — investigate below.";
+      return;
+    }
+    if (!isKnown) {
+      el.textContent = "Status unknown for this model.";
+      return;
+    }
+    const rateText = verdictState.rate == null ? "no traffic yet" : fmtN(verdictState.rate, 1) + " req/min";
+    el.innerHTML =
+      UI.statusDot(isRunning ? "Running normally" : "Needs attention", isRunning ? "running" : "warning") +
+      ' <span class="text-secondary">— ' + (verdictState.drifted === false ? "no drift detected" : "drift status unknown") +
+      " — " + rateText + "</span>";
   }
 
   function renderDriftTeaser(entry, metrics) {
     const el = document.getElementById("mh-drift-teaser");
     if (!metrics || metrics.drift_score == null) {
       el.innerHTML = '<span class="text-secondary" style="font-size:var(--text-sm)">No drift computation available for this model.</span>';
+      verdictState.drifted = null;
+      renderVerdict();
       return;
     }
     const pct = (metrics.drift_score * 100).toFixed(1) + "%";
@@ -323,8 +359,10 @@ const Monitoring = (() => {
     const drifted = columns.some((c) => c.drifted);
     el.innerHTML =
       '<div style="display:flex;align-items:center;gap:var(--space-3)">' +
-      UI.badge(drifted ? "Drift detected" : "Stable", drifted ? "warning" : "success", true) +
+      UI.statusDot(drifted ? "Drift detected" : "Stable", drifted ? "warning" : "running") +
       '<span style="font-size:var(--text-sm)">' + pct + " of tracked features drifted</span></div>";
+    verdictState.drifted = drifted;
+    renderVerdict();
   }
 
   // job alone identifies model-service; every model-runner/custom-runner
@@ -449,6 +487,9 @@ const Monitoring = (() => {
       ensureCharts();
       performanceBuiltFor = entry.key;
     }
+
+    verdictState.rate = d.prediction_rate_5m;
+    renderVerdict();
 
     const rateVal = d.prediction_rate_5m == null ? "no data" : fmtN(d.prediction_rate_5m, 1) + "/min";
     const latVal = d.latency_p95 == null ? "no data" : fmtN(d.latency_p95 * 1000, 0) + "ms";

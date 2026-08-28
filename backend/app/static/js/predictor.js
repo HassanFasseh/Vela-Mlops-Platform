@@ -172,8 +172,8 @@ const Predictor = (() => {
 
   function sentimentVariant(label) {
     const l = String(label || "").toLowerCase();
-    if (l.indexOf("pos") !== -1) return "success";
-    if (l.indexOf("neg") !== -1) return "danger";
+    if (l.indexOf("pos") !== -1) return "running";
+    if (l.indexOf("neg") !== -1) return "error";
     return "neutral"; // grey — neutral, or any label this app doesn't specifically color
   }
 
@@ -198,7 +198,7 @@ const Predictor = (() => {
       // Sentiment — colored label badge + confidence bar.
       const pct = result.score != null ? Math.round(result.score * 1000) / 10 : null;
       return (
-        '<div style="margin-bottom:.4rem">' + UI.badge(result.label, sentimentVariant(result.label), true) + "</div>" +
+        '<div style="margin-bottom:.4rem">' + UI.statusDot(result.label, sentimentVariant(result.label)) + "</div>" +
         (pct != null ? meterRow("Confidence", pct) : "")
       );
     }

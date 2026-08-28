@@ -69,7 +69,7 @@ const Drift = (() => {
     if (!ctx || !window.Chart || driftChart) return;
     driftChart = new Chart(ctx.getContext("2d"), {
       type: "line",
-      data: { labels: [], datasets: [{ label: "Drift share", data: [], borderColor: "#f77e7e", backgroundColor: "rgba(247,126,126,0.08)", borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.25 }] },
+      data: { labels: [], datasets: [{ label: "Drift share", data: [], borderColor: "#dc2626", backgroundColor: "rgba(220,38,38,0.08)", borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.25 }] },
       options: {
         responsive: true,
         animation: false,
@@ -102,7 +102,7 @@ const Drift = (() => {
           '<div class="feature-row">' +
           '<div class="feature-name">' + UI.escapeHtml(c.column) + "</div>" +
           '<div class="feature-bar-track"><div class="feature-bar-fill' + (c.drifted ? " is-drifted" : "") + '" style="width:' + magnitude + '%"></div></div>' +
-          '<div class="feature-meta">' + UI.badge(c.drifted ? "Drifted" : "Stable", c.drifted ? "danger" : "success") +
+          '<div class="feature-meta">' + UI.statusDot(c.drifted ? "Drifted" : "Stable", c.drifted ? "error" : "running") +
           "<span>p=" + c.p_value + "</span><span>" + UI.escapeHtml(c.method || "unknown") + " test</span></div>" +
           "</div>"
         );
@@ -190,8 +190,7 @@ const Drift = (() => {
   function renderNoData(entry) {
     document.getElementById("d-instrumented").hidden = true;
     document.getElementById("d-not-instrumented").innerHTML =
-      '<div class="evidence-panel"><div class="not-instrumented"><div class="not-instrumented-title">No drift computation yet</div>' +
-      "<div>Make some predictions and check back — this refreshes automatically.</div></div></div>";
+      '<p class="text-muted" style="font-size:var(--text-sm)">No drift computation yet — make some predictions and check back, this refreshes automatically.</p>';
   }
 
   async function renderModel() {
@@ -228,13 +227,18 @@ const Drift = (() => {
     const share = metrics.drift_score;
 
     document.getElementById("d-status-badge").innerHTML = !columns.length
-      ? UI.badge("No data yet", "neutral", true)
+      ? UI.statusDot("No data yet", "neutral")
       : columns.some((c) => c.drifted)
-      ? UI.badge("Drift detected", "warning", true)
-      : UI.badge("Stable", "success", true);
+      ? UI.statusDot("Drift detected", "warning")
+      : UI.statusDot("Stable", "running");
 
     document.getElementById("d-share").textContent = share == null ? "—" : (share * 100).toFixed(1) + "%";
     document.getElementById("d-computed").textContent = details.computed_at ? fmtEpoch(details.computed_at) + " (" + timeAgoEpoch(details.computed_at) + ")" : "No computation yet";
+
+    // Amber surface if drifted, grey if normal (spec) — same signal the
+    // status dot above already reflects.
+    const surface = document.getElementById("ai-analysis-surface");
+    surface.className = "banner-strip " + (columns.some((c) => c.drifted) ? "is-warning" : "is-neutral");
 
     const history = metrics.drift_history || [];
     const since = driftSince(history);

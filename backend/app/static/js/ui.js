@@ -147,30 +147,43 @@ const UI = (() => {
     modalReturnFocusEl = null;
   }
 
-  /* ---- Badges ----------------------------------------------------------*/
+  /* ---- Badges ------------------------------------------------------------
+     .badge stays a light chip for generic, non-status labels (role,
+     ticket type, model source). Status and severity render as a plain
+     dot + text instead (statusBadge/severityBadge below) — no colored
+     background chip (spec: "status badges ... no colored background
+     chips — just dot + text"). */
   const STATUS_VARIANT = {
-    online: "success", running: "success", healthy: "success", active: "success",
+    online: "running", running: "running", healthy: "running", active: "running",
     starting: "warning", pending: "warning", uploaded: "warning", investigating: "warning",
-    offline: "danger", failed: "danger", critical: "danger",
-    open: "info", closed: "neutral", inactive: "neutral", resolved: "success",
+    offline: "offline", failed: "error", critical: "error",
+    open: "info", closed: "offline", inactive: "offline", resolved: "running",
   };
 
-  const SEVERITY_VARIANT = { low: "neutral", medium: "info", high: "warning", critical: "danger" };
+  const SEVERITY_VARIANT = { low: "offline", medium: "info", high: "warning", critical: "error" };
 
   function badge(label, variant = "neutral", withDot = false) {
     const dot = withDot ? '<span class="badge-dot"></span>' : "";
     return `<span class="badge badge-${variant}">${dot}${escapeHtml(label)}</span>`;
   }
 
+  // Dot + plain-text label — the status/severity rendering used
+  // everywhere (tables, headers, tickets). `variant` is one of the
+  // .status-dot-* modifiers defined in components.css: running, warning,
+  // error, info, offline, neutral.
+  function statusDot(label, variant = "neutral") {
+    return `<span class="status-dot status-dot-${variant}"><span class="status-dot-mark"></span>${escapeHtml(label)}</span>`;
+  }
+
   function statusBadge(status) {
     const s = String(status || "unknown").toLowerCase();
     const variant = STATUS_VARIANT[s] || "neutral";
-    return badge(s.charAt(0).toUpperCase() + s.slice(1), variant, true);
+    return statusDot(s.charAt(0).toUpperCase() + s.slice(1), variant);
   }
 
   function severityBadge(sev) {
     const s = String(sev || "medium").toLowerCase();
-    return badge(s.charAt(0).toUpperCase() + s.slice(1), SEVERITY_VARIANT[s] || "info");
+    return statusDot(s.charAt(0).toUpperCase() + s.slice(1), SEVERITY_VARIANT[s] || "info");
   }
 
   /* ---- Formatters --------------------------------------------------------*/
@@ -232,7 +245,7 @@ const UI = (() => {
 
   return {
     escapeHtml, toast, copyText, openModal, closeModal,
-    badge, statusBadge, severityBadge,
+    badge, statusDot, statusBadge, severityBadge,
     fmtDate, timeAgo, skeletonRows, emptyState, errorState,
   };
 })();

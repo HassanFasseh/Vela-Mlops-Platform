@@ -198,6 +198,13 @@ const Shell = (() => {
         <button class="shell-collapse-btn" id="shell-collapse-btn" type="button" aria-label="Toggle sidebar width">
           ${icon("menu")}<span class="shell-nav-label">Collapse</span>
         </button>
+        <a class="shell-sidebar-footer" href="${role === "admin" ? "/admin/settings" : "/app/settings"}">
+          <span class="shell-sidebar-footer-text">
+            <div class="shell-sidebar-footer-name">${escapeHtml(user.name || user.username)}</div>
+            <div class="shell-sidebar-footer-role">${role === "admin" ? "Administrator" : "Member"}</div>
+          </span>
+          <span class="shell-sidebar-footer-icon" aria-hidden="true">${ICONS.settings}</span>
+        </a>
       </aside>
       <div class="shell-body">
         <header class="shell-topbar">

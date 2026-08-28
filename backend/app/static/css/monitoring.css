@@ -93,6 +93,16 @@
   }
 }
 
+/* Charts sit directly on the page background (spec: "no card borders —
+   just charts on page background"), even though the shared .evidence-
+   panel class also present on these elements is bordered everywhere
+   else on this page (model picker, model header, summary, timeline). */
+.chart-panel-compact.evidence-panel {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
 .chart-panel-compact {
   display: flex;
   flex-direction: column;
@@ -117,7 +127,8 @@
   height: 100% !important;
 }
 
-/* ---- Chart panel ---------------------------------------------------- */
+/* ---- Chart panel — label above (small, uppercase, muted), chart, then
+   the current value below it (spec). ------------------------------------ */
 
 .chart-panel-head {
   display: flex;
@@ -137,6 +148,22 @@
 .chart-panel-meta {
   font-size: var(--text-xs);
   color: var(--color-text-muted);
+}
+
+.chart-panel-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  margin-bottom: var(--space-2);
+}
+
+.chart-panel-value {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  margin-top: var(--space-2);
 }
 
 .chart-legend-note {

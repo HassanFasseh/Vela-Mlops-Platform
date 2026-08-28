@@ -23,7 +23,7 @@ CHART_JS_CDN = '<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4
 # HTML (fresh, since FastAPI never caches it), stale JS silently doing
 # nothing with the new page's element ids. Bump this string on every
 # change to these files.
-_STATIC_V = "7"
+_STATIC_V = "8"
 MONITORING_CSS = f'<link rel="stylesheet" href="/static/css/monitoring.css?v={_STATIC_V}">'
 MODEL_CATALOG_JS = f'<script src="/static/js/models.js?v={_STATIC_V}"></script>'
 
@@ -48,8 +48,10 @@ MONITORING_BODY = """
           <span id="mh-status-badge"></span>
         </div>
         <div class="model-header-task" id="mh-task"></div>
-        <div class="stat-line-row" id="mh-status-stats" style="margin-top:var(--space-3)"></div>
       </div>
+
+      <div id="mh-verdict" style="font-size:var(--text-lg);margin-bottom:var(--space-4)">&mdash;</div>
+      <div class="stat-line-row" id="mh-status-stats" style="margin-bottom:var(--space-4)"></div>
 
       <div id="mh-performance"></div>
 
@@ -111,15 +113,15 @@ DRIFT_BODY = """
       <div id="d-not-instrumented"></div>
 
       <div id="d-instrumented" hidden>
-        <div class="evidence-panel" style="margin-bottom:var(--space-4)">
-          <div class="stat-line-row">
-            <div class="stat-line"><div class="stat-line-value" id="d-share">&mdash;</div><div class="stat-line-label">Share of tracked features drifted</div></div>
-            <div class="stat-line"><div class="stat-line-value" id="d-computed" style="font-size:var(--text-sm)">&mdash;</div><div class="stat-line-label">Last computed</div></div>
-          </div>
-          <div class="since-strip" id="d-since"></div>
-        </div>
+        <!-- Plain text line, not a stat card — the signal bars below are
+             the primary element on this page (spec). -->
+        <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-1)">
+          <span id="d-share" class="mono" style="font-weight:600;color:var(--color-text)">&mdash;</span> of tracked features drifted &middot;
+          last computed <span id="d-computed">&mdash;</span>
+        </p>
+        <div class="since-strip" id="d-since" style="margin-bottom:var(--space-5)"></div>
 
-        <div class="evidence-panel" style="margin-bottom:var(--space-4)">
+        <div class="evidence-panel" style="margin-bottom:var(--space-5)">
           <div class="chart-panel-head">
             <div class="chart-panel-title">Drift share over time</div>
             <div class="chart-panel-meta">last 2 hours &middot; recomputed every 30 new predictions</div>
@@ -127,23 +129,23 @@ DRIFT_BODY = """
           <canvas id="drift-chart" height="80"></canvas>
         </div>
 
-        <div class="section-label">Feature / distribution breakdown</div>
-        <div class="evidence-panel" style="margin-bottom:var(--space-5)" id="breakdown-list"></div>
+        <div class="section-label" style="margin-top:0">Feature / distribution breakdown</div>
+        <div id="breakdown-list" style="margin-bottom:var(--space-5)"></div>
 
         <div class="section-label">AI explanation</div>
-        <div class="evidence-panel" style="border-left:3px solid var(--color-accent);margin-bottom:var(--space-5)">
-          <div id="ai-analysis-box" class="text-secondary" style="font-size:var(--text-sm);line-height:1.6">Loading&hellip;</div>
+        <div id="ai-analysis-surface" class="banner-strip" style="display:block;margin-bottom:var(--space-5)">
+          <div id="ai-analysis-box" style="font-size:var(--text-sm);line-height:1.6">Loading&hellip;</div>
         </div>
 
         <div class="grid-2">
-          <div class="evidence-panel">
+          <div>
             <div class="section-label" style="margin-top:0">What changed</div>
             <ul id="what-changed-list" style="font-size:var(--text-sm);line-height:1.8;padding-left:1.1rem;list-style:disc"></ul>
           </div>
-          <div class="evidence-panel">
+          <div>
             <div class="section-label" style="margin-top:0">Recommended action</div>
             <ul id="recommended-list" style="font-size:var(--text-sm);line-height:1.8;padding-left:1.1rem;list-style:disc;margin-bottom:.75rem"></ul>
-            <a class="btn btn-primary btn-sm" id="action-btn" href="#">Loading&hellip;</a>
+            <a class="link-action link-primary" id="action-btn" href="#">Loading&hellip;</a>
           </div>
         </div>
       </div>
