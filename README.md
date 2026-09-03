@@ -3,6 +3,7 @@
 Open-source MLOps for regulated industries. Deploy any model, detect drift, understand why, on your infrastructure, under your control.
 
 ![Dashboard](docs/screenshots/dashboard.png)
+![Dashboard](docs/screenshots/dashboard.png)
 
 ## The problem
 
