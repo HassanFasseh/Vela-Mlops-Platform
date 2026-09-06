@@ -1,11 +1,6 @@
 name: Build and Deploy Model Service
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'model-service/**'
-      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 env:

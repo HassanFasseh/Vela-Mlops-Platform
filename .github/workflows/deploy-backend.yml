@@ -1,12 +1,6 @@
 name: Build and Deploy Backend App
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'backend/**'
-      - 'Dockerfile.backend'
-      - '.github/workflows/deploy-backend.yml'
   workflow_dispatch:
 
 env:
