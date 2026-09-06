@@ -1,0 +1,158 @@
+/*
+ * Vela design tokens - authenticated app (admin/member) only.
+ * Single source of truth for color, type, spacing, radius, shadow and
+ * motion across every /admin/* and /app/* page. The landing page and the
+ * login/change-password pages (backend/app/main.py) are fully
+ * self-contained with their own inline <style> blocks and never load this
+ * file - editing it has no effect on them.
+ *
+ * Redesign (2026-08): clean/professional light theme - Linear/Vercel-style
+ * slate + blue, flat surfaces, minimal shadow. Replaces the earlier dark
+ * "glass + glow" theme. light-theme.css (a second override layer that used
+ * to exist for this) has been retired - this file IS the light theme now,
+ * there's nothing left for it to override.
+ */
+
+:root {
+  /* ---- Surfaces ------------------------------------------------------*/
+  --color-bg: #f8fafc;           /* slate-50 */
+  --color-bg-elevated: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-2: #f8fafc;
+  --color-surface-hover: #f1f5f9;
+
+  --color-border: #e2e8f0;       /* slate-200 */
+  --color-border-subtle: #eef2f6;
+  --color-border-strong: #cbd5e1;
+
+  /* ---- Text ------------------------------------------------------------*/
+  --color-text: #0f172a;         /* slate-900 */
+  --color-text-secondary: #475569;
+  --color-text-muted: #64748b;   /* slate-500 */
+  --color-text-inverse: #ffffff;
+
+  /* ---- Accent / primary - one restrained blue, no secondary teal ------*/
+  --color-accent: #2563eb;       /* blue-600 */
+  --color-accent-strong: #1d4ed8;
+  --color-accent-bg: #2563eb;
+  --color-accent-bg-hover: #1d4ed8;
+  --color-accent-border: #2563eb;
+  --color-accent-surface: #eff6ff;
+
+  /* Literal aliases for the palette as specced - same values as the
+     --color-accent-* family above, kept as first-class names since other
+     tooling/specs refer to them this way. */
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-surface: #eff6ff;
+
+  --glow-accent: none;
+  --glow-teal: none;
+  --glow-accent-sm: none;
+
+  /* ---- Semantic status - functional only, not decorative -------------*/
+  --color-success: #059669;
+  --color-success-bg: #ecfdf5;
+  --color-success-border: #a7f3d0;
+
+  --color-warning: #d97706;
+  --color-warning-bg: #fffbeb;
+  --color-warning-border: #fde68a;
+
+  --color-danger: #dc2626;
+  --color-danger-bg: #fef2f2;
+  --color-danger-border: #fecaca;
+
+  --color-info: #2563eb;
+  --color-info-bg: #eff6ff;
+  --color-info-border: #bfdbfe;
+
+  --color-neutral: #64748b;
+  --color-neutral-bg: #f1f5f9;
+  --color-neutral-border: #e2e8f0;
+
+  /* Status-dot colors (spec names) - running/warning/error/offline. These
+     back UI.statusBadge()/severityBadge()'s dot+label rendering (ui.js),
+     not a colored chip. */
+  --color-running: #059669;
+  --color-offline: #94a3b8;
+
+  /* ---- Typography --------------------------------------------------------
+     Body copy is sans-serif; monospace is reserved for model names, IDs,
+     and code/JSON (the .mono utility in base.css, applied selectively). */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, "SFMono-Regular", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 13px;
+  --text-lg: 15px;
+  --text-xl: 18px;
+  --text-2xl: 22px;
+
+  --leading-tight: 1.2;
+  --leading-normal: 1.4;
+  --tracking-label: 0.04em;
+
+  /* ---- Spacing scale --------------------------------------------------*/
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* ---- Radius -----------------------------------------------------
+     Capped at 8px anywhere on the authenticated app - nothing bubbly.
+     sm: inputs. md: cards (6px, per spec - less rounded than the old
+     8px). lg: modals/dropdowns/the command palette, capped at 8px. */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-full: 999px;
+
+  /* ---- Elevation - one flat shadow only, no heavier variants ----------*/
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-focus: 0 0 0 3px rgba(37, 99, 235, 0.25);
+
+  /* ---- Layout ------------------------------------------------------*/
+  --sidebar-width: 220px;
+  --sidebar-width-collapsed: 60px;
+  --topbar-height: 56px;
+  --content-max-width: 1100px;
+
+  /* Sidebar is always dark, regardless of the light content area. */
+  --color-sidebar: #0f172a;      /* slate-900 */
+  --color-sidebar-bg: #0f172a;
+  --color-sidebar-text: #94a3b8;
+  --color-sidebar-active: #ffffff;
+  --color-sidebar-active-bg: rgba(255, 255, 255, 0.08);
+
+  /* ---- Motion -------------------------------------------------------*/
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast: 120ms;
+  --duration-base: 160ms;
+  --duration-slow: 400ms;
+
+  /* ---- Z-index scale --------------------------------------------------*/
+  --z-sidebar: 90;
+  --z-topbar: 100;
+  --z-dropdown: 200;
+  --z-modal: 300;
+  --z-command: 350;
+  --z-toast: 400;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+    --duration-slow: 0ms;
+  }
+}

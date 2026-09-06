@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+sqlalchemy
+requests
+groq
+# trigger rebuild
+kubernetes
+passlib[bcrypt]
+python-jose[cryptography]
+minio
+python-multipart
+bcrypt==4.0.1
+psycopg2-binary
+alembic
+redis
+evidently==0.7.21
+pandas

@@ -1,0 +1,492 @@
+/*
+ * Vela application shell - persistent sidebar + top bar wrapping the
+ * authenticated admin and team-member experiences (spec §6).
+ * Structure is produced at runtime by /static/js/shell.js; this file only
+ * styles it.
+ */
+
+body.has-shell {
+  overflow: hidden;
+  height: 100vh;
+}
+
+.shell {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* ---- Sidebar - always dark, regardless of the light content area ------*/
+
+.shell-sidebar {
+  flex-shrink: 0;
+  width: var(--sidebar-width);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-sidebar);
+  z-index: var(--z-sidebar);
+  transition: width var(--duration-base) var(--ease);
+}
+
+.shell.is-collapsed .shell-sidebar {
+  width: var(--sidebar-width-collapsed);
+}
+
+.shell-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 20px;
+  flex-shrink: 0;
+}
+
+.shell-brand-mark {
+  color: #ffffff;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.shell-brand-name {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #ffffff;
+}
+
+.shell.is-collapsed .shell-brand-name,
+.shell.is-collapsed .shell-nav-section-label,
+.shell.is-collapsed .shell-nav-label,
+.shell.is-collapsed .shell-sidebar-footer-text {
+  display: none;
+}
+
+.shell-nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-2);
+}
+
+.shell-nav-section-label {
+  font-size: 10px;
+  color: var(--color-sidebar-text);
+  opacity: 0.5;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: var(--space-3) var(--space-3) var(--space-1) 12px;
+}
+
+.shell-nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 var(--space-3) 0 12px;
+  border-radius: var(--radius-sm);
+  color: var(--color-sidebar-text);
+  font-size: var(--text-sm);
+  margin: 1px 0;
+}
+
+/* Text goes white on hover - no background change (spec). */
+.shell-nav-item:hover {
+  color: var(--color-sidebar-active);
+  text-decoration: none;
+}
+
+.shell-nav-item.is-active {
+  background: var(--color-sidebar-active-bg);
+  color: var(--color-sidebar-active);
+}
+
+.shell-nav-item-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+.shell-nav-item-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.shell-collapse-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 36px;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: none;
+  color: var(--color-sidebar-text);
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+}
+.shell-collapse-btn:hover {
+  color: var(--color-sidebar-active);
+}
+
+/* ---- Sidebar footer - username + role + a settings gear (spec) --------*/
+
+.shell-sidebar-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--color-sidebar-text);
+  background: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+.shell-sidebar-footer:hover {
+  color: var(--color-sidebar-active);
+  text-decoration: none;
+}
+
+.shell-sidebar-footer-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.shell-sidebar-footer-name {
+  font-size: var(--text-sm);
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-sidebar-footer-role {
+  font-size: 10px;
+  opacity: 0.6;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+}
+
+.shell-sidebar-footer-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+.shell-sidebar-footer-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* ---- Body / topbar (page header) / main --------------------------------*/
+
+.shell-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.shell-topbar {
+  flex-shrink: 0;
+  height: var(--topbar-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  z-index: var(--z-topbar);
+}
+
+.shell-mobile-toggle {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: var(--space-1);
+}
+
+.shell-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.shell-breadcrumbs a {
+  color: var(--color-text-muted);
+}
+.shell-breadcrumbs a:hover {
+  color: var(--color-text);
+}
+
+.shell-breadcrumb-current {
+  color: var(--color-text);
+}
+
+.shell-topbar-spacer {
+  flex: 1;
+}
+
+.shell-search-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.shell-search-btn:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-secondary);
+}
+.shell-search-btn kbd {
+  font-family: inherit;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 0.65rem;
+}
+
+.shell-icon-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.shell-icon-btn:hover {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.shell-notif-dot {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-danger);
+  border: 1.5px solid var(--color-surface);
+}
+
+.shell-user-menu {
+  position: relative;
+}
+
+.shell-user-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  color: var(--color-text);
+}
+.shell-user-btn:hover {
+  background: var(--color-bg);
+}
+
+.shell-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-primary-surface);
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.shell-user-name {
+  font-size: var(--text-sm);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shell-user-dropdown {
+  right: 0;
+  top: calc(100% + 6px);
+}
+
+.shell-user-dropdown-header {
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  margin-bottom: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+}
+.shell-user-dropdown-name {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+.shell-user-dropdown-role {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.shell-main {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-5) var(--space-6);
+}
+
+/* Skip-link (spec §24) - visually hidden until keyboard-focused, lets
+   keyboard/screen-reader users jump past the sidebar straight to content. */
+.shell-skip-link {
+  position: fixed;
+  top: -100px;
+  left: var(--space-3);
+  z-index: var(--z-command);
+  background: var(--color-primary);
+  color: #ffffff;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  transition: top var(--duration-fast) var(--ease);
+}
+
+.shell-skip-link:focus-visible {
+  top: var(--space-3);
+}
+
+.shell-main > .page-max {
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+}
+
+/* ---- Command palette (Ctrl/Cmd+K) --------------------------------------*/
+
+.shell-command-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.4);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  z-index: var(--z-command);
+}
+
+/* `display: flex` above otherwise beats the browser's default
+   `[hidden] { display: none }` at equal specificity (author CSS wins
+   ties over the UA stylesheet regardless of specificity) - without this,
+   the palette shows on page load instead of only on Cmd/Ctrl+K. */
+.shell-command-overlay[hidden] {
+  display: none;
+}
+
+.shell-command-palette {
+  width: 100%;
+  max-width: 520px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+
+.shell-command-input {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  background: none;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  padding: var(--space-4);
+}
+.shell-command-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.shell-command-results {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: var(--space-2);
+}
+
+.shell-command-result {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.shell-command-result.is-active {
+  background: var(--color-primary-surface);
+  color: var(--color-primary);
+}
+
+.shell-command-empty {
+  padding: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+/* ---- Responsive: collapse sidebar off-canvas below content breakpoints
+   (spec §23 - deliberate behavior, not a naive shrink) -------------------*/
+
+@media (max-width: 900px) {
+  .shell-sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    box-shadow: var(--shadow-md);
+    transform: translateX(-100%);
+  }
+  .shell.is-mobile-open .shell-sidebar {
+    transform: translateX(0);
+  }
+  .shell-mobile-toggle {
+    display: flex;
+  }
+  .shell-collapse-btn {
+    display: none;
+  }
+  .shell-user-name {
+    display: none;
+  }
+  .shell-search-btn span,
+  .shell-search-btn kbd {
+    display: none;
+  }
+  .shell-main {
+    padding: var(--space-4);
+  }
+}
