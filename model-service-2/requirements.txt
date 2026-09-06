@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+transformers
+evidently==0.7.21
+pandas
+prometheus-client
+torch
