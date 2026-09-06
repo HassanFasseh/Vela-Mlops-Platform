@@ -1,0 +1,34 @@
+alertmanager:
+  enabled: false
+
+grafana:
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 200m
+
+prometheus:
+  prometheusSpec:
+    retention: 6h
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 512Mi
+        cpu: 300m
+
+kube-state-metrics:
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 50m
+
+nodeExporter:
+  resources:
+    requests:
+      memory: 32Mi
+      cpu: 50m
