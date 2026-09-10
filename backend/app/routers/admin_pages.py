@@ -1312,22 +1312,48 @@ def admin_settings_page():
 
 @router.get("/admin/models", response_class=HTMLResponse)
 def admin_models_page():
+    # Phase 2: migrated to the ds/* design system (see admin_overview_page /
+    # admin_deployments_page for the reference pattern). ds/* bundle for
+    # this route only; every other admin page still uses _ASSETS. Shared JS
+    # (_SCRIPTS) is theme-agnostic and unchanged.
+    ds_assets = (
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds5">'
+    )
+
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
-    <h1 style="font-size:var(--text-lg);margin-bottom:2px">Model Registry</h1>
-    <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)">
-      Every model deployed on the platform.
-    </p>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Model Registry</h1>
+        <div class="page-description">Every model deployed on the platform.</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-secondary btn-sm" id="refresh-btn" type="button">Refresh</button>
+        <a class="btn btn-secondary btn-sm" href="/admin/deployments">Deploy model &rarr;</a>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <span class="input-group" style="flex:1 1 220px">
+        <svg class="input-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m11 11 3 3"/></svg>
+        <input class="input" id="reg-filter" type="text" placeholder="Filter by name, task, source or status" autocomplete="off" style="flex:1;min-width:0">
+      </span>
+      <span class="toolbar-spacer"></span>
+      <span class="text-muted" id="reg-count" style="font-size:var(--text-xs);flex-shrink:0"></span>
+    </div>
     <div class="table-wrap">
-      <table class="table">
-        <thead><tr><th>Model</th><th>Task</th><th>Source</th><th>Status</th><th></th></tr></thead>
+      <table class="table" style="min-width:720px">
+        <thead><tr><th>Model</th><th>Task</th><th>Source</th><th>Status</th><th class="num">Actions</th></tr></thead>
         <tbody id="registry-body"></tbody>
       </table>
     </div>
   </div>
 </div>
-<div class="auth-loading" id="loading-root">Loading&hellip;</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
 """
 
     script = """
@@ -1340,6 +1366,14 @@ def admin_models_page():
   let registryRows = [];
   let managementApiKey = '';
 
+  function initModels() {
+    const refreshBtn = document.getElementById('refresh-btn');
+    if (refreshBtn) refreshBtn.addEventListener('click', () => loadRegistry());
+    const filterInput = document.getElementById('reg-filter');
+    if (filterInput) filterInput.addEventListener('input', renderRegistryTable);
+    loadRegistry();
+  }
+
   async function loadRegistry() {
     const body = document.getElementById('registry-body');
     body.innerHTML = UI.skeletonRows(5, 5);
@@ -1349,21 +1383,61 @@ def admin_models_page():
       ]);
       const liveById = new Map(live.map(m => [m.id, m]));
 
-      const rows = registry.map(reg => {
+      registryRows = registry.map(reg => {
         const l = liveById.get(reg.id);
         return { name: reg.name, task: reg.task_type, status: l ? l.status : reg.status, reg };
       });
-      registryRows = rows;
-
-      if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="5">' + UI.emptyState('No models registered yet', 'Deploy a model from the Deployments page to see it here.') + '</td></tr>';
-        return;
-      }
-      body.innerHTML = rows.map(renderRegistryRow).join('');
-      wireRegistryRows();
+      renderRegistryTable();
     } catch (e) {
+      registryRows = [];
       body.innerHTML = '<tr><td colspan="5">' + UI.errorState(e.message, loadRegistry) + '</td></tr>';
+      const countEl = document.getElementById('reg-count');
+      if (countEl) countEl.textContent = '';
     }
+  }
+
+  // Client-side only: narrows the already-loaded rows by name / task /
+  // source / status. CRITICAL: each visible row is rendered with its
+  // ORIGINAL index into registryRows (registryRows itself is never
+  // filtered), so the data-toggle-active / data-delete-model /
+  // data-edit-task attributes and the registryRows[idx] lookups in
+  // wireRegistryRows() always resolve to the right model regardless of
+  // what the filter is showing.
+  function renderRegistryTable() {
+    const body = document.getElementById('registry-body');
+    const countEl = document.getElementById('reg-count');
+    const q = (document.getElementById('reg-filter').value || '').trim().toLowerCase();
+
+    if (!registryRows.length) {
+      body.innerHTML = '<tr><td colspan="5">' + UI.emptyState('No models registered yet', 'Deploy a model from the Deployments page to see it here.') + '</td></tr>';
+      if (countEl) countEl.textContent = '';
+      return;
+    }
+
+    const matches = registryRows
+      .map((r, idx) => ({ r, idx }))
+      .filter(({ r }) => {
+        if (!q) return true;
+        const source = r.reg ? r.reg.model_type : 'huggingface';
+        return (r.name || '').toLowerCase().includes(q)
+          || (r.task || '').toLowerCase().includes(q)
+          || (source || '').toLowerCase().includes(q)
+          || (r.status || '').toLowerCase().includes(q);
+      });
+
+    if (countEl) {
+      countEl.textContent = q
+        ? matches.length + ' of ' + registryRows.length
+        : registryRows.length + (registryRows.length === 1 ? ' model' : ' models');
+    }
+
+    if (!matches.length) {
+      body.innerHTML = '<tr><td colspan="5">' + UI.emptyState('No matches', 'No model matches that filter.') + '</td></tr>';
+      return;
+    }
+
+    body.innerHTML = matches.map(({ r, idx }) => renderRegistryRow(r, idx)).join('');
+    wireRegistryRows();
   }
 
   function renderRegistryRow(r, idx) {
@@ -1382,7 +1456,7 @@ def admin_models_page():
       '<td id="task-cell-' + idx + '">' + taskCellHtml(r, idx) + '</td>' +
       '<td class="text-secondary">' + UI.escapeHtml(modelType) + '</td>' +
       '<td>' + UI.statusBadge(r.status) + (isActive ? '' : ' ' + UI.statusDot('Disabled', 'offline')) + '</td>' +
-      '<td style="text-align:right;display:flex;gap:var(--space-3);align-items:center;justify-content:flex-end;flex-wrap:wrap">' + actions.join('') + '</td>' +
+      '<td class="num"><span style="display:inline-flex;gap:var(--space-3);align-items:center;justify-content:flex-end;flex-wrap:wrap">' + actions.join('') + '</span></td>' +
       '</tr>';
   }
 
@@ -1394,7 +1468,7 @@ def admin_models_page():
     const isCustom = (row.reg ? row.reg.model_type : 'huggingface') === 'custom';
     if (!isCustom) return '<span class="chip-mono">' + UI.escapeHtml(row.task) + '</span>';
     return '<span class="chip-mono">' + UI.escapeHtml(row.task) + '</span>' +
-      '<button class="link-action" data-edit-task="' + idx + '" type="button" style="margin-left:.4rem" title="Edit task type" aria-label="Edit task type">Edit</button>';
+      '<button class="link-action" data-edit-task="' + idx + '" type="button" style="margin-left:var(--space-2)" title="Edit task type" aria-label="Edit task type">Edit</button>';
   }
 
   function renderTaskCell(row, idx) {
@@ -1410,9 +1484,11 @@ def admin_models_page():
     const cell = document.getElementById('task-cell-' + idx);
     if (!cell) return;
     cell.innerHTML =
-      '<input class="input" id="task-edit-' + idx + '" style="font-size:var(--text-sm);padding:2px 6px;width:11rem;display:inline-block" value="' + UI.escapeHtml(row.task) + '">' +
-      '<button class="btn btn-primary btn-sm" id="task-save-' + idx + '" type="button" style="margin-left:.3rem">Save</button>' +
-      '<button class="btn btn-ghost btn-sm" id="task-cancel-' + idx + '" type="button">Cancel</button>';
+      '<span style="display:inline-flex;gap:var(--space-2);align-items:center;flex-wrap:wrap">' +
+      '<input class="input" id="task-edit-' + idx + '" style="height:26px;font-size:var(--text-sm);width:11rem" value="' + UI.escapeHtml(row.task) + '">' +
+      '<button class="btn btn-primary btn-sm" id="task-save-' + idx + '" type="button">Save</button>' +
+      '<button class="btn btn-ghost btn-sm" id="task-cancel-' + idx + '" type="button">Cancel</button>' +
+      '</span>';
 
     const input = document.getElementById('task-edit-' + idx);
     const saveBtn = document.getElementById('task-save-' + idx);
@@ -1472,7 +1548,7 @@ def admin_models_page():
       const overlay = UI.openModal({
         title: 'API key required',
         bodyHtml: `
-          <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:.75rem">An unscoped workspace API key is needed to manage models - see API Keys.</p>
+          <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-3)">An unscoped workspace API key is needed to manage models - see API Keys.</p>
           <div class="field"><label class="field-label" for="reg-api-key">API key</label><input class="input" type="password" id="reg-api-key" placeholder="aodp_your_admin_key"></div>
         `,
         footerHtml: `<button class="btn btn-ghost" id="reg-key-cancel" type="button">Cancel</button>
@@ -1526,8 +1602,8 @@ def admin_models_page():
     const overlay = UI.openModal({
       title: 'Delete ' + row.name,
       bodyHtml: `
-        <div class="alert alert-danger" style="margin-bottom:.75rem">
-          <div><div class="alert-title">This cannot be undone</div><div class="alert-body">This will remove the model and revoke all team access. Type the model name to confirm.</div></div>
+        <div class="alert alert-danger" style="margin-bottom:var(--space-3)">
+          <div><div class="alert-title">This cannot be undone</div><div>This will remove the model and revoke all team access. Type the model name to confirm.</div></div>
         </div>
         <div class="field">
           <label class="field-label" for="del-confirm-name">Model name</label>
@@ -1570,12 +1646,12 @@ def admin_models_page():
   }
 </script>"""
 
-    ready = "loadRegistry();"
+    ready = "initModels();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Model Registry - Vela Admin</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        "<title>Model Registry - Vela Admin</title>\n" + ds_assets + "\n</head>\n<body>\n"
         + body
         + "\n" + _SCRIPTS + "\n" + script
         + _boot_script("/admin/models", "Model Registry", ready)
