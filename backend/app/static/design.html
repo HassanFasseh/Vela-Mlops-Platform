@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vela — Design System</title>
+<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds3">
+<link rel="stylesheet" href="/static/css/ds/base.css?v=ds3">
+<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds3">
+<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds3">
+<style>
+  /* Catalog scaffolding only — not part of the design system. */
+  body { background: var(--bg); }
+  .ds-wrap { max-width: 1080px; margin: 0 auto; padding: 0 var(--space-6) var(--space-10); }
+
+  .ds-topbar {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; gap: var(--space-2) var(--space-3);
+    flex-wrap: wrap;
+    min-height: 52px; padding: var(--space-2) var(--space-6);
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: var(--space-8);
+  }
+  .ds-topbar-title { font-size: var(--text-md); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-tight); }
+  .ds-tag {
+    font-size: var(--text-xs); font-weight: var(--fw-medium);
+    color: var(--text-muted); border: 1px solid var(--border);
+    border-radius: var(--radius-xs); padding: 1px 6px;
+  }
+
+  .ds-section { margin-bottom: var(--space-10); scroll-margin-top: 64px; }
+  .ds-section > h2 {
+    font-size: var(--text-lg); letter-spacing: var(--tracking-tight);
+    padding-bottom: var(--space-2); margin-bottom: var(--space-5);
+    border-bottom: 1px solid var(--border);
+  }
+  .ds-section > h3 {
+    font-size: var(--text-xs); font-weight: var(--fw-medium);
+    text-transform: uppercase; letter-spacing: var(--tracking-label);
+    color: var(--text-muted); margin: var(--space-7) 0 var(--space-3);
+  }
+  .ds-lede { color: var(--text-secondary); max-width: 70ch; margin-bottom: var(--space-6); }
+
+  .ds-row { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+  .ds-stack { display: flex; flex-direction: column; gap: var(--space-3); }
+  .ds-grid { display: grid; gap: var(--space-3); }
+  .ds-grid.cols-swatch { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+  .ds-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+  .ds-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 860px) { .ds-grid.cols-3 { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 720px) { .ds-grid.cols-2, .ds-grid.cols-3 { grid-template-columns: 1fr; } }
+
+  .ds-swatch { border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
+  .ds-swatch .chip { height: 56px; border-bottom: 1px solid var(--border-subtle); }
+  .ds-swatch .meta { padding: var(--space-2) var(--space-3); background: var(--surface); }
+  .ds-swatch .name { font-size: var(--text-sm); font-weight: var(--fw-medium); }
+  .ds-swatch .val { font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+  .ds-swatch .use { font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px; }
+
+  .ds-demo {
+    border: 1px solid var(--border); border-radius: var(--radius-md);
+    background: var(--surface); padding: var(--space-5);
+  }
+  .ds-note { font-size: var(--text-xs); color: var(--text-muted); margin-top: var(--space-2); }
+
+  .ds-type-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-2) var(--space-4); padding: var(--space-3) 0; border-bottom: 1px solid var(--border-subtle); }
+  .ds-type-row:last-child { border-bottom: none; }
+  .ds-type-row .spec { flex-shrink: 0; width: 128px; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); }
+
+  .ds-space-row { display: flex; align-items: center; gap: var(--space-3); padding: 4px 0; }
+  .ds-space-row .lbl { width: 96px; flex-shrink: 0; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); }
+  .ds-space-row .bar { height: 12px; background: var(--border-strong); border-radius: 2px; }
+
+  .ds-radii-box { width: 84px; height: 56px; background: var(--surface-raised); border: 1px solid var(--border-strong); display: flex; align-items: center; justify-content: center; font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+
+  .ds-shadow-box { height: 72px; background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; font-size: var(--text-xs); color: var(--text-muted); font-family: var(--font-mono); }
+
+  .ds-motion-box { padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); font-size: var(--text-sm); transition: transform var(--dur-2) var(--ease-out), background var(--dur-2) var(--ease); cursor: default; }
+  .ds-motion-box:hover { transform: translateY(-2px); background: var(--surface-hover); }
+
+  /* Contained shell demo — neutralise the shell's 100vh sizing. */
+  .shell-demo { height: 520px; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; position: relative; }
+  .shell-demo .shell,
+  .shell-demo .shell-sidebar,
+  .shell-demo .shell-body { height: 100%; }
+  .shell-demo .shell { width: 100%; }
+  .shell-demo .shell-main { padding: var(--space-6); }
+  .shell-demo .shell-sidebar { position: static; transform: none; }
+
+  /* The demo is a contained box, so the shell's own viewport-width media
+     queries don't fire for it — drive the narrow states off the demo's
+     own toggle instead so the icon rail / stacked layout stay visible. */
+  .shell-demo.is-narrow .shell-sidebar { width: var(--sidebar-w-collapsed); }
+  .shell-demo.is-narrow .shell-brand-name,
+  .shell-demo.is-narrow .shell-nav-section-label,
+  .shell-demo.is-narrow .shell-nav-label,
+  .shell-demo.is-narrow .shell-sidebar-footer-text { display: none; }
+  .shell-demo.is-narrow .shell-collapse-btn { display: none; }
+  .shell-demo.is-narrow .shell-main { padding: var(--space-4); }
+  .shell-demo.is-narrow .page-header { flex-direction: column; align-items: stretch; }
+
+  @media (max-width: 560px) {
+    .ds-wrap { padding-left: var(--space-4); padding-right: var(--space-4); }
+    .ds-topbar { padding-left: var(--space-4); padding-right: var(--space-4); }
+    .ds-section > h2 { font-size: var(--text-md); }
+    .ds-demo { padding: var(--space-4); }
+    .ds-type-row .spec { width: 100%; }
+    .shell-demo { height: 460px; }
+    .shell-demo .shell-sidebar { width: var(--sidebar-w-collapsed); }
+    .shell-demo .shell-brand-name,
+    .shell-demo .shell-nav-section-label,
+    .shell-demo .shell-nav-label,
+    .shell-demo .shell-sidebar-footer-text { display: none; }
+    .shell-demo .shell-collapse-btn { display: none; }
+    .shell-demo .shell-main { padding: var(--space-4); }
+  }
+
+  .ds-viewport-note {
+    font-size: var(--text-xs); color: var(--text-muted);
+    margin-top: var(--space-3);
+  }
+</style>
+</head>
+<body>
+
+<div class="ds-topbar">
+  <span class="ds-topbar-title">Vela — Design System</span>
+  <span class="ds-tag">Phase 1</span>
+  <span class="toolbar-spacer" style="flex:1"></span>
+  <button class="btn btn-secondary btn-sm" id="theme-toggle" type="button">Toggle theme</button>
+</div>
+
+<div class="ds-wrap">
+
+  <p class="ds-lede">
+    A calm, dense, near-black developer console — hairline borders carry the structure,
+    type is small and sharp with obvious hierarchy, and color appears only to report
+    status (deploys, health, drift, errors), never for decoration. Dark is the
+    designed-for theme; light is provisional.
+  </p>
+
+  <!-- ============================================================ -->
+  <section class="ds-section" id="color">
+    <h2>Color</h2>
+
+    <div class="alert alert-info" style="margin-bottom:var(--space-6)">
+      <svg class="alert-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 7v4M8 5h.01"/></svg>
+      <div>
+        <div class="alert-title">Color carries meaning, never decoration</div>
+        The interface is neutral by default. A hue appears only when a value has crossed a
+        threshold or an element reports a real state — a failed deploy, a drifting feature,
+        an endpoint that is down. A meter at 38%, a count of 24 deployed models, a request
+        rate: all neutral. Blue is navigational only (links, focus, active nav) and never
+        fills a button.
+      </div>
+    </div>
+
+    <h3>Neutral surfaces</h3>
+    <p class="ds-note">Elevation comes from surface lightness plus a border — never a heavy shadow.</p>
+    <div class="ds-grid cols-swatch" style="margin-top:var(--space-3)">
+      <div class="ds-swatch"><div class="chip" style="background:var(--bg)"></div><div class="meta"><div class="name">bg</div><div class="val">#0a0a0b</div><div class="use">app background</div></div></div>
+      <div class="ds-swatch"><div class="chip" style="background:var(--surface-sunken)"></div><div class="meta"><div class="name">surface-sunken</div><div class="val">#0e0e10</div><div class="use">sidebar, code wells</div></div></div>
+      <div class="ds-swatch"><div class="chip" style="background:var(--surface)"></div><div class="meta"><div class="name">surface</div><div class="val">#141417</div><div class="use">card, panel, modal</div></div></div>
+      <div class="ds-swatch"><div class="chip" style="background:var(--surface-raised)"></div><div class="meta"><div class="name">surface-raised</div><div class="val">#1a1a1e</div><div class="use">input, popover</div></div></div>
+      <div class="ds-swatch"><div class="chip" style="background:var(--surface-hover)"></div><div class="meta"><div class="name">surface-hover</div><div class="val">#202024</div><div class="use">row / ghost hover</div></div></div>
+      <div class="ds-swatch"><div class="chip" style="background:var(--surface-active)"></div><div class="meta"><div class="name">surface-active</div><div class="val">#26262b</div><div class="use">pressed / selected</div></div></div>
+    </div>
+
+    <h3>Borders</h3>
+    <div class="ds-grid cols-3" style="margin-top:var(--space-3)">
+      <div class="ds-demo" style="border-color:var(--border-subtle)"><div class="name" style="font-size:var(--text-sm)">border-subtle</div><div class="val" style="font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted)">#202024 · row dividers</div></div>
+      <div class="ds-demo" style="border-color:var(--border)"><div class="name" style="font-size:var(--text-sm)">border</div><div class="val" style="font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted)">#2a2a30 · default</div></div>
+      <div class="ds-demo" style="border-color:var(--border-strong)"><div class="name" style="font-size:var(--text-sm)">border-strong</div><div class="val" style="font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted)">#3a3a42 · hover / focus</div></div>
+    </div>
+
+    <h3>Text</h3>
+    <div class="ds-demo ds-stack">
+      <div style="color:var(--text);font-size:var(--text-md)">text — primary body and headings <span class="val" style="font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted)">#ededef · ~15:1</span></div>
+      <div style="color:var(--text-secondary);font-size:var(--text-md)">text-secondary — supporting copy, descriptions <span class="val" style="font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted)">#9b9ba4 · ~6.9:1</span></div>
+      <div style="color:var(--text-muted);font-size:var(--text-md)">text-muted — meta, hints, placeholders <span class="val" style="font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted)">#767680 · ~4.6:1</span></div>
+      <div style="color:var(--text-disabled);font-size:var(--text-md)">text-disabled — inert controls <span class="val" style="font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-muted)">#4a4a52</span></div>
+    </div>
+
+    <h3>Accent — navigational / semantic only</h3>
+    <p class="ds-note">
+      Links, focus rings, the active-nav indicator, text selection, and the
+      <span class="mono">info</span> semantic state — nothing else. It never fills a
+      control: buttons, toggles, checkboxes and the selected-card indicator are all
+      monochrome (near-white), matching the primary button.
+    </p>
+    <div class="ds-grid cols-swatch" style="margin-top:var(--space-3)">
+      <div class="ds-swatch"><div class="chip" style="background:var(--accent)"></div><div class="meta"><div class="name">accent</div><div class="val">#4c8dff</div></div></div>
+      <div class="ds-swatch"><div class="chip" style="background:var(--accent-hover)"></div><div class="meta"><div class="name">accent-hover</div><div class="val">#6ba1ff</div></div></div>
+      <div class="ds-swatch"><div class="chip" style="background:var(--accent-bg)"></div><div class="meta"><div class="name">accent-bg</div><div class="val">rgba(...,0.14)</div><div class="use">active row</div></div></div>
+      <div class="ds-swatch"><div class="chip" style="background:var(--btn-primary-bg)"></div><div class="meta"><div class="name">btn-primary-bg</div><div class="val">#ededef</div><div class="use">monochrome primary</div></div></div>
+    </div>
+
+    <h3>Semantic status — the only place color is allowed</h3>
+    <div class="table-wrap" style="margin-top:var(--space-3)">
+      <table class="table" style="min-width:640px">
+        <thead><tr><th>State</th><th>Dot + text</th><th>Filled pill</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">healthy</td><td><span class="status-dot status-dot-healthy"><span class="status-dot-mark"></span>Healthy</span></td><td><span class="pill pill-healthy">Deployed</span></td><td class="text-secondary">Deployed and serving normally</td></tr>
+          <tr><td class="mono">warning</td><td><span class="status-dot status-dot-warning"><span class="status-dot-mark"></span>Warning</span></td><td><span class="pill pill-warning">Warning</span></td><td class="text-secondary">Needs attention soon</td></tr>
+          <tr><td class="mono">error</td><td><span class="status-dot status-dot-error"><span class="status-dot-mark"></span>Failed</span></td><td><span class="pill pill-error">Failed</span></td><td class="text-secondary">Deploy failed / endpoint down</td></tr>
+          <tr><td class="mono">degraded</td><td><span class="status-dot status-dot-degraded"><span class="status-dot-mark"></span>Degraded</span></td><td><span class="pill pill-degraded">Degraded</span></td><td class="text-secondary">Partial failure / reduced capacity now</td></tr>
+          <tr><td class="mono">drift</td><td><span class="status-dot status-dot-drift"><span class="status-dot-mark"></span>Drifting</span></td><td><span class="pill pill-drift">Drift</span></td><td class="text-secondary">Input / output distribution has shifted</td></tr>
+          <tr><td class="mono">idle</td><td><span class="status-dot status-dot-idle"><span class="status-dot-mark"></span>Idle</span></td><td><span class="pill pill-idle">Idle</span></td><td class="text-secondary">Scaled to zero / paused / no traffic</td></tr>
+          <tr><td class="mono">info</td><td><span class="status-dot status-dot-info"><span class="status-dot-mark"></span>Info</span></td><td><span class="pill pill-info">Queued</span></td><td class="text-secondary">Neutral informational state</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="ds-section" id="typography">
+    <h2>Typography</h2>
+    <p class="ds-lede">System sans for everything; JetBrains Mono for model names, IDs, keys and code. Weights 400 / 500 / 600 only.</p>
+    <div class="ds-demo">
+      <div class="ds-type-row"><span class="spec">2xl · 24/1.25 · 600</span><span style="font-size:var(--text-2xl);font-weight:var(--fw-semibold);letter-spacing:var(--tracking-tight)">Big numeric callout</span></div>
+      <div class="ds-type-row"><span class="spec">xl · 20/1.25 · 600</span><span style="font-size:var(--text-xl);font-weight:var(--fw-semibold);letter-spacing:var(--tracking-tight)">Page title</span></div>
+      <div class="ds-type-row"><span class="spec">lg · 16/1.25 · 600</span><span style="font-size:var(--text-lg);font-weight:var(--fw-semibold)">Section heading</span></div>
+      <div class="ds-type-row"><span class="spec">md · 14/1.5 · 500</span><span style="font-size:var(--text-md);font-weight:var(--fw-medium)">Card title, input text, buttons</span></div>
+      <div class="ds-type-row"><span class="spec">base · 13/1.5 · 400</span><span style="font-size:var(--text-base)">Body copy — the default reading size for everything on a page.</span></div>
+      <div class="ds-type-row"><span class="spec">sm · 12/1.5 · 400</span><span style="font-size:var(--text-sm)">Secondary text, meta, dense table cells</span></div>
+      <div class="ds-type-row"><span class="spec">xs · 11/1.25 · 500</span><span style="font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--tracking-label);color:var(--text-muted)">Micro-label / table header</span></div>
+      <div class="ds-type-row"><span class="spec">mono · base</span><span class="mono" style="font-size:var(--text-sm)">fraud-detector-v3 · dpl_8fA2c1 · {"score": 0.94}</span></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="ds-section" id="spacing">
+    <h2>Spacing, radii, elevation, motion</h2>
+
+    <h3>Spacing scale — 4px base</h3>
+    <div class="ds-demo">
+      <div class="ds-space-row"><span class="lbl">space-1 · 4</span><span class="bar" style="width:4px"></span></div>
+      <div class="ds-space-row"><span class="lbl">space-2 · 8</span><span class="bar" style="width:8px"></span></div>
+      <div class="ds-space-row"><span class="lbl">space-3 · 12</span><span class="bar" style="width:12px"></span></div>
+      <div class="ds-space-row"><span class="lbl">space-4 · 16</span><span class="bar" style="width:16px"></span></div>
+      <div class="ds-space-row"><span class="lbl">space-5 · 20</span><span class="bar" style="width:20px"></span></div>
+      <div class="ds-space-row"><span class="lbl">space-6 · 24</span><span class="bar" style="width:24px"></span></div>
+      <div class="ds-space-row"><span class="lbl">space-7 · 32</span><span class="bar" style="width:32px"></span></div>
+      <div class="ds-space-row"><span class="lbl">space-8 · 40</span><span class="bar" style="width:40px"></span></div>
+      <div class="ds-space-row"><span class="lbl">space-9 · 48</span><span class="bar" style="width:48px"></span></div>
+      <div class="ds-space-row"><span class="lbl">space-10 · 64</span><span class="bar" style="width:64px"></span></div>
+    </div>
+
+    <h3>Radii</h3>
+    <div class="ds-row">
+      <div class="ds-radii-box" style="border-radius:var(--radius-xs)">xs 3</div>
+      <div class="ds-radii-box" style="border-radius:var(--radius-sm)">sm 5</div>
+      <div class="ds-radii-box" style="border-radius:var(--radius-md)">md 6</div>
+      <div class="ds-radii-box" style="border-radius:var(--radius-lg)">lg 8</div>
+      <div class="ds-radii-box" style="border-radius:var(--radius-full)">full</div>
+    </div>
+
+    <h3>Elevation — barely used, only for true overlays</h3>
+    <div class="ds-grid cols-3">
+      <div class="ds-shadow-box" style="box-shadow:var(--shadow-sm)">shadow-sm</div>
+      <div class="ds-shadow-box" style="box-shadow:var(--shadow-md)">shadow-md</div>
+      <div class="ds-shadow-box" style="box-shadow:var(--shadow-lg)">shadow-lg</div>
+    </div>
+
+    <h3>Motion — feedback only (hover the tiles)</h3>
+    <div class="ds-row">
+      <div class="ds-motion-box">dur-1 · 100ms</div>
+      <div class="ds-motion-box">dur-2 · 150ms</div>
+      <div class="ds-motion-box">dur-3 · 240ms</div>
+    </div>
+    <p class="ds-note">Eases: <span class="mono">--ease cubic-bezier(.4,0,.2,1)</span> · <span class="mono">--ease-out cubic-bezier(.16,1,.3,1)</span>. <code>prefers-reduced-motion</code> zeroes all durations.</p>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="ds-section" id="buttons">
+    <h2>Buttons</h2>
+    <p class="ds-lede">Primary is monochrome high-contrast — blue stays navigational. One size step down (<span class="mono">sm</span>) for toolbars and table rows.</p>
+
+    <h3>Variants</h3>
+    <div class="ds-demo ds-stack">
+      <div class="ds-row">
+        <button class="btn btn-primary">Deploy model</button>
+        <button class="btn btn-secondary">Cancel</button>
+        <button class="btn btn-ghost">Dismiss</button>
+        <button class="btn btn-danger">Delete deployment</button>
+      </div>
+      <div class="ds-row">
+        <button class="btn btn-primary" disabled>Deploy model</button>
+        <button class="btn btn-secondary" disabled>Cancel</button>
+        <button class="btn btn-primary is-loading">Deploy model</button>
+        <button class="btn btn-secondary is-loading">Saving</button>
+      </div>
+    </div>
+
+    <h3>Sizes &amp; icon-only</h3>
+    <div class="ds-demo ds-row">
+      <button class="btn btn-secondary btn-sm">Small</button>
+      <button class="btn btn-secondary">Default</button>
+      <button class="btn btn-secondary btn-lg">Large</button>
+      <button class="btn btn-secondary btn-icon" aria-label="More">
+        <svg class="btn-glyph" viewBox="0 0 16 16" fill="currentColor"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg>
+      </button>
+      <button class="btn btn-primary btn-sm">
+        <svg class="btn-glyph" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3v10M3 8h10"/></svg>
+        New
+      </button>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="ds-section" id="forms">
+    <h2>Forms</h2>
+    <p class="ds-lede">
+      Labels sit above the control in sentence case, spacing is generous, and inputs are a
+      light 1px hairline that firms on hover and sharpens to an accent ring on focus — no
+      filled or boxy fields. Validation is inline: the border carries the state, a short
+      message below spells it out. A clean form shows no color at all.
+    </p>
+
+    <div class="ds-grid cols-2">
+      <div class="ds-demo">
+        <h3 style="margin-top:0">Deploy a model</h3>
+        <form class="form" onsubmit="return false">
+          <div class="field">
+            <label class="field-label" for="f1">Model name</label>
+            <input class="input" id="f1" placeholder="fraud-detector-v3">
+            <span class="field-hint">Lowercase letters, numbers and hyphens. This becomes the endpoint slug.</span>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label class="field-label" for="f3">Runtime</label>
+              <select class="select" id="f3"><option>Python 3.12</option><option>Python 3.11</option><option>Custom image</option></select>
+            </div>
+            <div class="field">
+              <label class="field-label" for="f7">Replicas</label>
+              <input class="input" id="f7" type="number" value="3" min="1">
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="f2">Search datasets <span class="field-optional">optional</span></label>
+            <span class="input-group">
+              <svg class="input-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m11 11 3 3"/></svg>
+              <input class="input" id="f2" placeholder="Filter by name or tag">
+            </span>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="f4">Deployment notes <span class="field-optional">optional</span></label>
+            <textarea class="textarea" id="f4" placeholder="What changed in this version?"></textarea>
+          </div>
+
+          <div class="field" style="margin-bottom:0">
+            <span class="field-label" style="margin-bottom:var(--space-1)">Update strategy</span>
+            <label class="checkbox-row" style="margin-bottom:var(--space-2)">
+              <input type="radio" name="r" checked> Rolling update — replace replicas gradually
+            </label>
+            <label class="checkbox-row">
+              <input type="radio" name="r"> Recreate — stop all, then start the new version
+            </label>
+          </div>
+
+          <div class="form-actions">
+            <button class="btn btn-primary">Deploy model</button>
+            <button class="btn btn-ghost">Cancel</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="ds-demo">
+        <h3 style="margin-top:0">States</h3>
+        <div class="field">
+          <label class="field-label" for="f8">Endpoint name</label>
+          <input class="input is-valid" id="f8" value="fraud-detector-v3">
+          <span class="field-success">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m3 8 3.5 3.5L13 5"/></svg>
+            Available.
+          </span>
+        </div>
+        <div class="field">
+          <label class="field-label" for="f5">API key</label>
+          <input class="input" id="f5" value="key_live_8fA2c1" aria-invalid="true">
+          <span class="field-error">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v4M8 11h.01"/></svg>
+            This key has been revoked. Generate a new one in Settings.
+          </span>
+        </div>
+        <div class="field">
+          <label class="field-label" for="f6">Workspace ID</label>
+          <input class="input" id="f6" value="ws_payments_prod" disabled>
+          <span class="field-hint">Managed by your organization owner.</span>
+        </div>
+        <div class="field">
+          <span class="field-label" style="margin-bottom:var(--space-1)">Checkbox &amp; radio — checked fill is monochrome</span>
+          <label class="checkbox-row" style="margin-bottom:var(--space-2)">
+            <input type="checkbox" checked> Notify my team on deploy failure <span class="text-muted">(checked)</span>
+          </label>
+          <label class="checkbox-row" style="margin-bottom:var(--space-2)">
+            <input type="checkbox"> Page me for drift <span class="text-muted">(unchecked)</span>
+          </label>
+          <label class="checkbox-row" style="margin-bottom:var(--space-2)">
+            <input type="radio" name="notif" checked> Digest email <span class="text-muted">(selected)</span>
+          </label>
+          <label class="checkbox-row">
+            <input type="radio" name="notif"> Real-time email
+          </label>
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <span class="field-label" style="margin-bottom:var(--space-1)">Toggle — ON fill is monochrome</span>
+          <label class="toggle" style="margin-bottom:var(--space-2)">
+            <input type="checkbox" checked>
+            <span class="toggle-track"></span><span class="toggle-thumb"></span>
+            Auto-remediation <span class="text-muted">(on)</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox">
+            <span class="toggle-track"></span><span class="toggle-thumb"></span>
+            Shadow mode <span class="text-muted">(off)</span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <p class="ds-note" style="margin-top:var(--space-4)">
+      Every "on / checked / selected" fill above is near-white
+      (<span class="mono">--btn-primary-bg</span>) with a dark mark, exactly like the
+      primary button. No interactive control fills with blue — that stays for links,
+      focus rings, active nav and the info state only.
+    </p>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="ds-section" id="badges">
+    <h2>Badges &amp; status</h2>
+    <div class="ds-demo ds-stack">
+      <div class="ds-row">
+        <span class="badge">admin</span>
+        <span class="badge">team: payments</span>
+        <span class="badge">source: huggingface</span>
+        <span class="chip-mono">classification</span>
+      </div>
+      <div class="ds-row">
+        <span class="status-dot status-dot-healthy"><span class="status-dot-mark"></span>Healthy</span>
+        <span class="status-dot status-dot-warning"><span class="status-dot-mark"></span>Warning</span>
+        <span class="status-dot status-dot-error"><span class="status-dot-mark"></span>Failed</span>
+        <span class="status-dot status-dot-degraded"><span class="status-dot-mark"></span>Degraded</span>
+        <span class="status-dot status-dot-drift"><span class="status-dot-mark"></span>Drifting</span>
+        <span class="status-dot status-dot-idle"><span class="status-dot-mark"></span>Idle</span>
+      </div>
+      <div class="ds-row">
+        <span class="pill pill-healthy">Deployed</span>
+        <span class="pill pill-warning">Warning</span>
+        <span class="pill pill-error">Failed</span>
+        <span class="pill pill-degraded">Degraded</span>
+        <span class="pill pill-drift">Drift</span>
+        <span class="pill pill-idle">Idle</span>
+        <span class="pill pill-info">Queued</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="ds-section" id="cards">
+    <h2>Cards &amp; panels</h2>
+    <p class="ds-lede">
+      A plain card is a surface plus a 1px border — no left accent bar. Selection
+      (<span class="mono">.is-selected</span>) reads as a firmer border plus a crisp
+      near-white 2px rule — monochrome, matching the primary button, never blue —
+      rendered as an inset so selecting a card never shifts its contents.
+    </p>
+    <div class="ds-grid cols-2">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">fraud-detector-v3</div>
+            <div class="card-subtitle">Deployed 4h ago · payments</div>
+          </div>
+          <span class="status-dot status-dot-healthy"><span class="status-dot-mark"></span>Healthy</span>
+        </div>
+        <p class="text-secondary" style="font-size:var(--text-sm)">p95 latency 42ms · 1.2k req/min · 3 replicas</p>
+      </div>
+      <div class="card is-selected">
+        <div class="card-header">
+          <div>
+            <div class="card-title">churn-predictor</div>
+            <div class="card-subtitle">Selected · viewing details</div>
+          </div>
+          <span class="status-dot status-dot-drift"><span class="status-dot-mark"></span>Drifting</span>
+        </div>
+        <p class="text-secondary" style="font-size:var(--text-sm)">p95 latency 88ms · 312 req/min · 2 replicas</p>
+      </div>
+    </div>
+
+    <h3>Interactive cards &amp; nested blocks</h3>
+    <div class="ds-grid cols-2">
+      <div class="card is-interactive">
+        <div class="card-title" style="margin-bottom:var(--space-1)">price-optimizer</div>
+        <div class="text-muted" style="font-size:var(--text-sm)">Hover firms the border — nothing more. Click to open.</div>
+      </div>
+      <div class="panel">
+        <div class="inset-block">
+          <div class="mono" style="font-weight:var(--fw-semibold)">churn-predictor</div>
+          <div class="text-muted" style="font-size:var(--text-xs)">Reference window: last 7 days</div>
+        </div>
+        <div class="inset-block is-selected" style="margin-top:var(--space-3)">
+          <div class="mono" style="font-weight:var(--fw-semibold)">fraud-detector-v3</div>
+          <div class="text-muted" style="font-size:var(--text-xs)">Selected block — near-white rule</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="ds-section" id="tables">
+    <h2>Tables</h2>
+    <p class="ds-lede">No card wrapper — the table sits on the page. Uppercase micro-header, hairline rows, numeric columns right-aligned with tabular figures.</p>
+    <div class="table-wrap">
+      <table class="table" style="min-width:680px">
+        <thead>
+          <tr>
+            <th class="sortable" aria-sort="ascending">Model</th>
+            <th>Task</th>
+            <th>Status</th>
+            <th class="num">p95 (ms)</th>
+            <th class="num">Req/min</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="is-interactive"><td class="mono">fraud-detector-v3</td><td>classification</td><td><span class="pill pill-healthy">Deployed</span></td><td class="num">42</td><td class="num">1,204</td><td class="text-muted">4h ago</td></tr>
+          <tr class="is-interactive"><td class="mono">churn-predictor</td><td>classification</td><td><span class="pill pill-drift">Drift</span></td><td class="num">88</td><td class="num">312</td><td class="text-muted">1d ago</td></tr>
+          <tr class="is-interactive"><td class="mono">price-optimizer</td><td>regression</td><td><span class="pill pill-degraded">Degraded</span></td><td class="num">156</td><td class="num">47</td><td class="text-muted">2d ago</td></tr>
+          <tr class="is-interactive"><td class="mono">doc-classifier</td><td>classification</td><td><span class="pill pill-idle">Idle</span></td><td class="num">—</td><td class="num">0</td><td class="text-muted">6d ago</td></tr>
+          <tr class="is-interactive"><td class="mono">sentiment-v2</td><td>classification</td><td><span class="pill pill-error">Failed</span></td><td class="num">—</td><td class="num">0</td><td class="text-muted">just now</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="ds-section" id="feedback">
+    <h2>Alerts, banners &amp; toasts</h2>
+
+    <h3>Alerts</h3>
+    <div class="ds-stack">
+      <div class="alert alert-info"><svg class="alert-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 7v4M8 5h.01"/></svg><div><div class="alert-title">Reference window updated</div>Drift is now computed against the last 7 days of predictions.</div></div>
+      <div class="alert alert-success"><svg class="alert-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m3 8 3.5 3.5L13 5"/></svg><div><div class="alert-title">Deployment succeeded</div>fraud-detector-v3 is live on 3 replicas.</div></div>
+      <div class="alert alert-warning"><svg class="alert-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2 15 14H1Z"/><path d="M8 6v4M8 12h.01"/></svg><div><div class="alert-title">Drift detected on 3 features</div>Prediction quality may be affected. Review the drift breakdown.</div></div>
+      <div class="alert alert-danger"><svg class="alert-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="m5.5 5.5 5 5M10.5 5.5l-5 5"/></svg><div><div class="alert-title">Endpoint unreachable</div>The model service has not responded to health checks for 6 minutes.</div></div>
+    </div>
+
+    <h3>Banner strips</h3>
+    <div class="ds-stack">
+      <div class="banner-strip is-warning">Drift detected on churn-predictor — <a href="#tables">review</a></div>
+      <div class="banner-strip is-drift">7 of 24 tracked features have drifted since the reference window.</div>
+      <div class="banner-strip">Metrics last refreshed 30s ago.</div>
+    </div>
+
+    <h3>Toasts</h3>
+    <div class="toast-stack" style="position:static;max-width:360px">
+      <div class="toast toast-success"><svg class="toast-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m3 8 3.5 3.5L13 5"/></svg>API key copied to clipboard</div>
+      <div class="toast toast-danger"><svg class="toast-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="m5.5 5.5 5 5M10.5 5.5l-5 5"/></svg>Could not reach the deployment API</div>
+      <div class="toast toast-info"><svg class="toast-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 7v4M8 5h.01"/></svg>Rollout in progress — 1 of 3 replicas updated</div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="ds-section" id="tabs-menus">
+    <h2>Tabs, menus &amp; modal</h2>
+
+    <h3>Tabs</h3>
+    <div class="tabs" style="margin-bottom:var(--space-4)">
+      <button class="tab" aria-selected="true">Overview</button>
+      <button class="tab">Performance</button>
+      <button class="tab">Drift</button>
+      <button class="tab">Events</button>
+      <button class="tab">Config</button>
+    </div>
+
+    <div class="ds-grid cols-2">
+      <div>
+        <h3 style="margin-top:0">Dropdown</h3>
+        <div class="dropdown-menu" style="position:static;box-shadow:none">
+          <button class="dropdown-item">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v12M2 8h12"/></svg>
+            Redeploy
+          </button>
+          <button class="dropdown-item">View logs</button>
+          <button class="dropdown-item">Edit config</button>
+          <div class="dropdown-divider"></div>
+          <button class="dropdown-item is-danger">Delete deployment</button>
+        </div>
+      </div>
+      <div>
+        <h3 style="margin-top:0">Modal</h3>
+        <div class="modal" style="animation:none;max-width:none">
+          <div class="modal-header">
+            <div class="modal-title">Delete deployment</div>
+            <button class="btn btn-ghost btn-sm btn-icon" aria-label="Close">✕</button>
+          </div>
+          <div class="modal-body text-secondary" style="font-size:var(--text-sm)">
+            This permanently removes <span class="mono">fraud-detector-v3</span> and its endpoint. In-flight requests will fail.
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary">Cancel</button>
+            <button class="btn btn-danger">Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="ds-section" id="states">
+    <h2>Empty, loading &amp; error states</h2>
+    <div class="ds-grid cols-3">
+      <div class="ds-demo">
+        <div class="empty-state" style="padding:var(--space-6) 0">
+          <div class="empty-state-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg></div>
+          <div class="empty-state-title">No deployments yet</div>
+          <div class="empty-state-body">Deploy your first model to see it here.</div>
+          <button class="btn btn-primary btn-sm" style="margin-top:var(--space-2)">Deploy a model</button>
+        </div>
+      </div>
+      <div class="ds-demo">
+        <div class="error-state" style="padding:var(--space-6) 0">
+          <div class="error-state-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/></svg></div>
+          <div class="error-state-title">Couldn't load models</div>
+          <div class="error-state-body">The API returned a 503.</div>
+          <button class="btn btn-secondary btn-sm" style="margin-top:var(--space-2)">Retry</button>
+        </div>
+      </div>
+      <div class="ds-demo">
+        <div class="skeleton skeleton-text" style="width:60%"></div>
+        <div class="skeleton skeleton-text"></div>
+        <div class="skeleton skeleton-text" style="width:80%"></div>
+        <div class="skeleton skeleton-block" style="margin-top:var(--space-3)"></div>
+      </div>
+    </div>
+
+    <h3>Meters</h3>
+    <p class="ds-note">
+      Fill is neutral gray until the value crosses a threshold. There is no "healthy"
+      green — a normal reading simply isn't colored. Only <span class="mono">.is-warning</span>
+      and <span class="mono">.is-error</span> paint the bar, and the read-out follows
+      the bar (add <span class="mono">.is-warning</span> / <span class="mono">.is-error</span>
+      to <span class="mono">.meter-label</span>).
+    </p>
+    <div class="ds-demo ds-grid cols-2">
+      <div><div class="meter-label"><span>CPU</span><span class="meter-value">38%</span></div><div class="meter-track"><div class="meter-fill" style="width:38%"></div></div></div>
+      <div><div class="meter-label"><span>Memory</span><span class="meter-value">61%</span></div><div class="meter-track"><div class="meter-fill" style="width:61%"></div></div></div>
+      <div><div class="meter-label"><span>Drift share</span><span class="meter-value">29%</span></div><div class="meter-track"><div class="meter-fill" style="width:29%"></div></div></div>
+      <div><div class="meter-label"><span>Confidence</span><span class="meter-value">82%</span></div><div class="meter-track"><div class="meter-fill" style="width:82%"></div></div></div>
+      <div><div class="meter-label is-warning"><span>Disk</span><span class="meter-value">88%</span></div><div class="meter-track"><div class="meter-fill is-warning" style="width:88%"></div></div></div>
+      <div><div class="meter-label is-error"><span>Error rate</span><span class="meter-value">91%</span></div><div class="meter-track"><div class="meter-fill is-error" style="width:91%"></div></div></div>
+    </div>
+
+    <h3>Metric strip — instead of a KPI card wall</h3>
+    <p class="ds-note">
+      Numbers are neutral. Only the value that <em>is</em> the exception being reported
+      takes color — "3 drifting", "1 failed". Counts and rates stay neutral no matter
+      how large.
+    </p>
+    <div class="ds-demo">
+      <div class="metric-strip">
+        <div class="metric-strip-item"><div class="metric-strip-value">24</div><div class="metric-strip-label">Deployed models</div></div>
+        <div class="metric-strip-item"><div class="metric-strip-value">1.9k</div><div class="metric-strip-label">Req/min</div></div>
+        <div class="metric-strip-item"><div class="metric-strip-value">42<span class="text-muted" style="font-size:var(--text-sm)">ms</span></div><div class="metric-strip-label">p95 latency</div></div>
+        <div class="metric-strip-item"><div class="metric-strip-value is-warning">3</div><div class="metric-strip-label">Drifting</div></div>
+        <div class="metric-strip-item"><div class="metric-strip-value is-error">1</div><div class="metric-strip-label">Failed</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <section class="ds-section" id="shell">
+    <h2>Layout shell</h2>
+    <p class="ds-lede">
+      Sidebar (one shade off the content area, 2px accent indicator on the active item), a
+      48px top bar with breadcrumbs and a command trigger, then the canonical page header +
+      toolbar + table. Below 900px the sidebar becomes an off-canvas drawer with a scrim;
+      below 560px the top bar tightens, the toolbar and page actions stack, and tables
+      scroll inside their container.
+    </p>
+    <div class="ds-row" style="margin-bottom:var(--space-3)">
+      <button class="btn btn-secondary btn-sm" id="shell-demo-narrow" type="button">Preview icon rail / narrow</button>
+    </div>
+    <div class="shell-demo" id="shell-demo">
+      <div class="shell">
+        <aside class="shell-sidebar">
+          <div class="shell-brand">
+            <svg class="shell-brand-mark" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2h5l1 9 1-9h5L10 15H6Z"/></svg>
+            <span class="shell-brand-name">VELA</span>
+          </div>
+          <nav class="shell-nav">
+            <div class="shell-nav-section">
+              <a class="shell-nav-item is-active" href="#shell"><span class="shell-nav-item-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2" width="5" height="5"/><rect x="9" y="2" width="5" height="5"/><rect x="2" y="9" width="5" height="5"/><rect x="9" y="9" width="5" height="5"/></svg></span><span class="shell-nav-label">Overview</span></a>
+            </div>
+            <div class="shell-nav-section">
+              <div class="shell-nav-section-label">Models</div>
+              <a class="shell-nav-item" href="#shell"><span class="shell-nav-item-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 1 2 4v8l6 3 6-3V4Z"/></svg></span><span class="shell-nav-label">Registry</span></a>
+              <a class="shell-nav-item" href="#shell"><span class="shell-nav-item-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2 2 5l6 3 6-3ZM2 11l6 3 6-3M2 8l6 3 6-3"/></svg></span><span class="shell-nav-label">Deployments</span></a>
+            </div>
+            <div class="shell-nav-section">
+              <div class="shell-nav-section-label">Monitoring</div>
+              <a class="shell-nav-item" href="#shell"><span class="shell-nav-item-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1 8h3l2-5 3 10 2-5h3"/></svg></span><span class="shell-nav-label">Model Health</span></a>
+              <a class="shell-nav-item" href="#shell"><span class="shell-nav-item-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1 12 6 7l3 3 6-7"/></svg></span><span class="shell-nav-label">Drift</span></a>
+            </div>
+          </nav>
+          <button class="shell-collapse-btn" type="button">‹ Collapse</button>
+          <button class="shell-sidebar-footer" type="button">
+            <span class="shell-avatar">HF</span>
+            <span class="shell-sidebar-footer-text">
+              <span class="shell-sidebar-footer-name">Hassan Fasseh</span>
+              <span class="shell-sidebar-footer-role">Admin</span>
+            </span>
+          </button>
+        </aside>
+        <div class="shell-body">
+          <header class="shell-topbar">
+            <div class="shell-breadcrumbs"><a href="#shell">Admin</a><span class="shell-breadcrumb-sep">/</span><span class="shell-breadcrumb-current">Deployments</span></div>
+            <span class="shell-topbar-spacer"></span>
+            <button class="shell-search-btn" type="button"><span>Search</span><span class="kbd">⌘K</span></button>
+            <button class="shell-icon-btn" aria-label="Notifications"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 6a4 4 0 0 1 8 0c0 3 1 4 1 4H3s1-1 1-4M6.5 13a1.5 1.5 0 0 0 3 0"/></svg><span class="shell-notif-dot"></span></button>
+          </header>
+          <main class="shell-main">
+            <div class="page-header">
+              <div>
+                <div class="page-title">Deployments</div>
+                <div class="page-description">Every model currently running in the payments workspace.</div>
+              </div>
+              <div class="page-actions">
+                <button class="btn btn-secondary btn-sm">Filter</button>
+                <button class="btn btn-primary btn-sm">Deploy model</button>
+              </div>
+            </div>
+            <div class="toolbar">
+              <span class="input-group">
+                <svg class="input-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m11 11 3 3"/></svg>
+                <input class="input" placeholder="Filter" style="width:200px">
+              </span>
+              <select class="select"><option>All statuses</option></select>
+              <span class="toolbar-spacer"></span>
+              <span class="text-muted" style="font-size:var(--text-xs)">5 models</span>
+            </div>
+            <div class="table-wrap">
+              <table class="table" style="min-width:0">
+                <thead><tr><th>Model</th><th>Status</th><th class="num">p95 (ms)</th><th>Updated</th></tr></thead>
+                <tbody>
+                  <tr class="is-interactive"><td class="mono">fraud-detector-v3</td><td><span class="pill pill-healthy">Deployed</span></td><td class="num">42</td><td class="text-muted">4h ago</td></tr>
+                  <tr class="is-interactive"><td class="mono">churn-predictor</td><td><span class="pill pill-drift">Drift</span></td><td class="num">88</td><td class="text-muted">1d ago</td></tr>
+                  <tr class="is-interactive"><td class="mono">price-optimizer</td><td><span class="pill pill-degraded">Degraded</span></td><td class="num">156</td><td class="text-muted">2d ago</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </main>
+        </div>
+      </div>
+    </div>
+    <p class="ds-viewport-note">Resize the window under 900px to see the real drawer + scrim behavior; the button above simulates the collapsed icon rail inside this contained demo.</p>
+  </section>
+
+</div>
+
+<script>
+  (function () {
+    var KEY = "vela-ds-theme";
+    var root = document.documentElement;
+    try {
+      if (localStorage.getItem(KEY) === "light") root.setAttribute("data-theme", "light");
+    } catch (e) {}
+    document.getElementById("theme-toggle").addEventListener("click", function () {
+      var light = root.getAttribute("data-theme") === "light";
+      if (light) { root.removeAttribute("data-theme"); }
+      else { root.setAttribute("data-theme", "light"); }
+      try { localStorage.setItem(KEY, light ? "dark" : "light"); } catch (e) {}
+    });
+
+    var demo = document.getElementById("shell-demo");
+    var demoBtn = document.getElementById("shell-demo-narrow");
+    if (demo && demoBtn) {
+      demoBtn.addEventListener("click", function () {
+        demo.classList.toggle("is-narrow");
+      });
+    }
+  })();
+</script>
+
+</body>
+</html>

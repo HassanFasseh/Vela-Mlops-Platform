@@ -1,0 +1,1013 @@
+/*
+ * Vela design system — PRIMITIVES: buttons, forms, cards, tables,
+ * badges / status, alerts, tabs, dropdowns, modals, toasts, and the
+ * empty / loading / error states every page needs.
+ *
+ * Class-based, no build step — compose directly in server-rendered
+ * HTML. Class names deliberately mirror the current css/components.css
+ * vocabulary (.btn, .card, .table, .badge, .input, .field, .status-dot,
+ * .tabs, .modal …) so Phase 2 can migrate a screen by swapping the
+ * stylesheet link, not rewriting markup.
+ *
+ * Flat, restrained: no blur, no glow, no gradient, radius ≤ 8px, no
+ * shadow heavier than a true overlay needs.
+ */
+
+/* ===================================================================
+   Buttons
+   =================================================================== */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+  height: 30px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  border: var(--border-width) solid transparent;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: background var(--dur-1) var(--ease),
+              border-color var(--dur-1) var(--ease),
+              color var(--dur-1) var(--ease),
+              opacity var(--dur-1) var(--ease);
+}
+.btn:hover { text-decoration: none; }
+.btn:active { transform: translateY(0.5px); }
+.btn:disabled,
+.btn[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.btn-primary {
+  background: var(--btn-primary-bg);
+  border-color: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+  font-weight: var(--fw-semibold);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--btn-primary-bg-hover);
+  border-color: var(--btn-primary-bg-hover);
+}
+
+.btn-secondary {
+  background: var(--surface-raised);
+  border-color: var(--border);
+  color: var(--text);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.btn-danger {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+  color: var(--error-fg);
+}
+.btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--error-fg) 22%, transparent);
+}
+
+/* Sizes */
+.btn-sm {
+  height: 26px;
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+}
+.btn-lg {
+  height: 36px;
+  padding: 0 var(--space-4);
+  font-size: var(--text-md);
+}
+.btn-block { width: 100%; }
+
+/* Icon-only — square, centers a 14–16px glyph */
+.btn-icon {
+  width: 30px;
+  padding: 0;
+}
+.btn-icon.btn-sm { width: 26px; }
+.btn-icon.btn-lg { width: 36px; }
+.btn .btn-glyph { width: 14px; height: 14px; flex-shrink: 0; }
+
+/* Loading — swap label for a spinner, keep the box from collapsing */
+.btn.is-loading {
+  color: transparent !important;
+  pointer-events: none;
+  position: relative;
+}
+.btn.is-loading::after {
+  content: "";
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  border-radius: var(--radius-full);
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  color: var(--btn-primary-fg);
+  animation: ds-spin 0.6s linear infinite;
+}
+.btn-secondary.is-loading::after,
+.btn-ghost.is-loading::after { color: var(--text); }
+.btn-danger.is-loading::after { color: var(--error-fg); }
+
+@keyframes ds-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .btn.is-loading::after { animation-duration: 0s; }
+}
+
+/* A row of buttons with consistent spacing */
+.btn-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* ===================================================================
+   Forms
+   =================================================================== */
+
+/* A form's own vertical rhythm — generous, one field per row by default.
+   Labels sit ABOVE the control; hints and validation sit below it. */
+.form {
+  display: flex;
+  flex-direction: column;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+}
+.field:last-child { margin-bottom: 0; }
+
+/* Two (or more) controls sharing a row; collapses to stacked below the
+   forms breakpoint so nothing is ever cramped on a phone. */
+.field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+.field-row .field { margin-bottom: 0; }
+
+/* Sentence-case label, not a micro-caps eyebrow — reads as a question
+   the field answers. */
+.field-label {
+  font-size: var(--text-md);
+  font-weight: var(--fw-medium);
+  color: var(--text);
+  line-height: var(--lh-tight);
+}
+.field-label .field-optional {
+  margin-left: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-regular);
+  color: var(--text-muted);
+}
+.field-hint {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  line-height: var(--lh-normal);
+}
+.field-error,
+.field-success {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  line-height: var(--lh-normal);
+}
+.field-error { color: var(--error-fg); }
+.field-success { color: var(--healthy-fg); }
+.field-error svg,
+.field-success svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.input,
+.select,
+.textarea {
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  color: var(--text);
+  background: var(--surface-raised);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm);
+  height: var(--input-h);
+  padding: 0 var(--space-3);
+  width: 100%;
+  transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease);
+}
+.textarea {
+  height: auto;
+  min-height: 6em;
+  padding: var(--space-3);
+  line-height: var(--lh-normal);
+  resize: vertical;
+}
+.input::placeholder,
+.textarea::placeholder { color: var(--text-muted); }
+
+/* Rest state is a plain 1px hairline; hover firms it; focus sharpens it
+   to the accent plus a ring. No filled/boxy treatment. */
+.input:hover:not(:disabled),
+.select:hover:not(:disabled),
+.textarea:hover:not(:disabled) { border-color: var(--border-strong); }
+
+.input:focus-visible,
+.select:focus-visible,
+.textarea:focus-visible {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.input:disabled,
+.select:disabled,
+.textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Inline validation — the border carries the state, the message below
+   spells it out. Success is opt-in (.is-valid) so a clean form stays
+   colorless. */
+.input[aria-invalid="true"],
+.select[aria-invalid="true"],
+.textarea[aria-invalid="true"] {
+  border-color: var(--error-fg);
+}
+.input[aria-invalid="true"]:focus-visible,
+.select[aria-invalid="true"]:focus-visible,
+.textarea[aria-invalid="true"]:focus-visible {
+  box-shadow: 0 0 0 3px var(--error-bg);
+}
+.input.is-valid,
+.select.is-valid,
+.textarea.is-valid {
+  border-color: var(--healthy-border);
+}
+.input.is-valid:focus-visible,
+.select.is-valid:focus-visible,
+.textarea.is-valid:focus-visible {
+  box-shadow: 0 0 0 3px var(--healthy-bg);
+}
+
+.select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23767680' stroke-width='1.4'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--space-3) center;
+  padding-right: var(--space-7);
+}
+
+/* Input with a leading icon */
+.input-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.input-group .input-icon {
+  position: absolute;
+  left: var(--space-3);
+  width: 15px;
+  height: 15px;
+  color: var(--icon-muted);
+  pointer-events: none;
+}
+.input-group .input { padding-left: var(--space-8); }
+
+/* Checkbox / radio */
+.checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  line-height: var(--lh-tight);
+}
+.checkbox-row input[type="checkbox"],
+.checkbox-row input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  /* Checked state is monochrome — a near-white fill (matching the primary
+     button) with the browser's auto-contrasted dark check / dot. Blue
+     never fills a control. */
+  accent-color: var(--btn-primary-bg);
+  flex-shrink: 0;
+}
+
+/* Button row that closes a form — a hairline rule sets it apart from
+   the last field. */
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: var(--border-width) solid var(--border-subtle);
+}
+.form-actions .form-actions-spacer { flex: 1; }
+
+@media (max-width: 520px) {
+  .field-row { grid-template-columns: 1fr; gap: var(--space-5); }
+}
+
+/* Toggle / switch — for boolean settings (auto-remediation on/off, etc.) */
+.toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.toggle .toggle-track {
+  width: 30px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background: var(--surface-active);
+  border: var(--border-width) solid var(--border);
+  transition: background var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
+  flex-shrink: 0;
+}
+.toggle .toggle-thumb {
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  margin-top: -6px;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-full);
+  background: var(--text-secondary);
+  transition: transform var(--dur-2) var(--ease-out), background var(--dur-2) var(--ease);
+}
+/* ON state is monochrome, matching the primary button — near-white
+   track, dark knob. Blue never fills the toggle. */
+.toggle input:checked ~ .toggle-track {
+  background: var(--btn-primary-bg);
+  border-color: var(--btn-primary-bg);
+}
+.toggle input:checked ~ .toggle-thumb {
+  transform: translateX(12px);
+  background: var(--btn-primary-fg);
+}
+.toggle input:focus-visible ~ .toggle-track {
+  box-shadow: var(--focus-ring);
+}
+
+/* ===================================================================
+   Cards & panels
+   =================================================================== */
+
+.card {
+  background: var(--surface);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+.card + .card { margin-top: var(--space-4); }
+
+/* Panel — flatter than a card: for the "evidence" surfaces on the
+   observability pages (model header, breakdowns, timelines). */
+.panel {
+  background: var(--surface);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+
+/* Selected / active state — a plain card never carries an indicator.
+   Selection reads as a firmer border plus a crisp near-white 2px rule
+   (monochrome, matching the primary button) — never blue. The rule is
+   an inset shadow so selecting a card doesn't shift its contents. */
+.card.is-selected,
+.panel.is-selected,
+.card[aria-selected="true"],
+.panel[aria-selected="true"] {
+  border-color: var(--border-strong);
+  box-shadow: inset 2px 0 0 0 var(--btn-primary-bg);
+}
+
+/* Clickable card — hover firms the border, nothing more. */
+.card.is-interactive,
+.panel.is-interactive {
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease);
+}
+.card.is-interactive:hover,
+.panel.is-interactive:hover { border-color: var(--border-strong); }
+
+.card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.card-title {
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+  letter-spacing: var(--tracking-tight);
+}
+.card-subtitle {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Inset block — a contained sub-section inside a panel (model header,
+   reference-window note, a nested group). Neutral hairline rule by
+   default; the selected one firms to a near-white monochrome rule,
+   never blue. */
+.inset-block {
+  border-left: 2px solid var(--border);
+  padding: var(--space-1) 0 var(--space-1) var(--space-4);
+}
+.inset-block.is-selected {
+  border-left-color: var(--btn-primary-bg);
+}
+
+/* ===================================================================
+   Badges — a neutral chip for non-status labels (role, ticket type,
+   model source, team). Status itself renders as a dot + text, or a
+   filled .pill in dense tables — never a plain colored chip.
+   =================================================================== */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-xs);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-medium);
+  line-height: 1.5;
+  white-space: nowrap;
+  background: var(--surface-raised);
+  border: var(--border-width) solid var(--border);
+  color: var(--text-secondary);
+}
+
+/* ===================================================================
+   Status — dot + plain-text label. Default rendering for health,
+   deployment state, drift, ticket status everywhere.
+   =================================================================== */
+
+.status-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.status-dot-mark {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* The mark carries the status color; the label stays readable-neutral
+   except for states actively asking for attention (warning/error/
+   degraded/drift), which take the full foreground color. */
+.status-dot-healthy  .status-dot-mark { color: var(--healthy-fg); }
+.status-dot-info     .status-dot-mark { color: var(--info-fg); }
+.status-dot-idle     .status-dot-mark { color: var(--idle-fg); }
+.status-dot-neutral  .status-dot-mark { color: var(--text-muted); }
+.status-dot-warning  .status-dot-mark { color: var(--warning-fg); }
+.status-dot-error    .status-dot-mark { color: var(--error-fg); }
+.status-dot-degraded .status-dot-mark { color: var(--degraded-fg); }
+.status-dot-drift    .status-dot-mark { color: var(--drift-fg); }
+
+.status-dot-warning  { color: var(--warning-fg); }
+.status-dot-error    { color: var(--error-fg); }
+.status-dot-degraded { color: var(--degraded-fg); }
+.status-dot-drift    { color: var(--drift-fg); }
+
+/* Back-compat aliases for the old variant names. */
+.status-dot-running .status-dot-mark { color: var(--healthy-fg); }
+.status-dot-offline .status-dot-mark { color: var(--idle-fg); }
+.status-dot-running { color: var(--text-secondary); }
+.status-dot-offline { color: var(--text-secondary); }
+
+/* Filled status pill — only where a table row genuinely reads better
+   with a bounded chip than a bare dot. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-xs);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-medium);
+  line-height: 1.6;
+  white-space: nowrap;
+  border: var(--border-width) solid transparent;
+}
+.pill::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  background: currentColor;
+  flex-shrink: 0;
+}
+.pill-healthy  { color: var(--healthy-fg);  background: var(--healthy-bg);  border-color: var(--healthy-border); }
+.pill-warning  { color: var(--warning-fg);  background: var(--warning-bg);  border-color: var(--warning-border); }
+.pill-error    { color: var(--error-fg);    background: var(--error-bg);    border-color: var(--error-border); }
+.pill-degraded { color: var(--degraded-fg); background: var(--degraded-bg); border-color: var(--degraded-border); }
+.pill-drift    { color: var(--drift-fg);    background: var(--drift-bg);    border-color: var(--drift-border); }
+.pill-idle     { color: var(--idle-fg);     background: var(--idle-bg);     border-color: var(--idle-border); }
+.pill-info     { color: var(--info-fg);     background: var(--info-bg);     border-color: var(--info-border); }
+
+/* ===================================================================
+   Alerts / banners
+   =================================================================== */
+
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: var(--border-width) solid var(--border);
+  background: var(--surface);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.alert-icon { flex-shrink: 0; width: 15px; height: 15px; margin-top: 1px; }
+.alert-title {
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.alert-info     { border-color: var(--info-border);     background: var(--info-bg); }
+.alert-success  { border-color: var(--healthy-border);  background: var(--healthy-bg); }
+.alert-warning  { border-color: var(--warning-border);  background: var(--warning-bg); }
+.alert-danger   { border-color: var(--error-border);    background: var(--error-bg); }
+.alert-info    .alert-icon { color: var(--info-fg); }
+.alert-success .alert-icon { color: var(--healthy-fg); }
+.alert-warning .alert-icon { color: var(--warning-fg); }
+.alert-danger  .alert-icon { color: var(--error-fg); }
+
+/* One-line strip above a table (drift warning, stale-data notice). */
+.banner-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: var(--border-width) solid var(--border-subtle);
+  background: var(--surface);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-3);
+}
+.banner-strip.is-warning { background: var(--warning-bg); border-color: var(--warning-border); color: var(--warning-fg); }
+.banner-strip.is-drift   { background: var(--drift-bg);   border-color: var(--drift-border);   color: var(--drift-fg); }
+.banner-strip a { font-weight: var(--fw-semibold); color: inherit; text-decoration: underline; }
+
+/* ===================================================================
+   Tables — no card wrapper; the table sits on the page background.
+   .table-wrap only provides the bounded horizontal scroll.
+   =================================================================== */
+
+/* Bounded horizontal scroll — the table keeps its shape on a phone and
+   scrolls inside this box rather than stretching the page. */
+.table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+.table {
+  width: 100%;
+  min-width: 560px;
+  font-size: var(--text-sm);
+  border-collapse: collapse;
+}
+.table thead th {
+  text-align: left;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-semibold);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  padding: 0 var(--space-3);
+  height: 34px;
+  border-bottom: var(--border-width) solid var(--border);
+  white-space: nowrap;
+}
+.table tbody td {
+  height: 40px;
+  padding: 0 var(--space-3);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  color: var(--text);
+  vertical-align: middle;
+}
+.table tbody tr:last-child td { border-bottom: none; }
+.table tbody tr {
+  transition: background var(--dur-1) var(--ease);
+}
+.table tbody tr:hover { background: var(--surface-hover); }
+.table tbody tr.is-interactive { cursor: pointer; }
+
+/* Numeric columns — right-aligned, tabular figures. */
+.table .num,
+.table td.num,
+.table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Sortable header affordance */
+.table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.table th.sortable:hover { color: var(--text-secondary); }
+.table th.sortable[aria-sort="ascending"]::after { content: " ↑"; }
+.table th.sortable[aria-sort="descending"]::after { content: " ↓"; }
+
+/* Sticky header for long tables inside a scroll container */
+.table.is-sticky thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 1;
+}
+
+/* ===================================================================
+   Tabs
+   =================================================================== */
+
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: var(--border-width) solid var(--border);
+  overflow-x: auto;
+}
+.tab {
+  appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: -1px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
+}
+.tab:hover { color: var(--text); }
+.tab[aria-selected="true"] {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+/* ===================================================================
+   Dropdown menu
+   =================================================================== */
+
+.dropdown-menu {
+  position: absolute;
+  min-width: 200px;
+  background: var(--surface-raised);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-1);
+  z-index: var(--z-dropdown);
+}
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.dropdown-item:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+  text-decoration: none;
+}
+.dropdown-item.is-danger { color: var(--error-fg); }
+.dropdown-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: var(--space-1) 0;
+}
+
+/* ===================================================================
+   Modal
+   =================================================================== */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  z-index: var(--z-modal);
+  animation: ds-fade-in var(--dur-2) var(--ease-out);
+}
+.modal {
+  width: 100%;
+  max-width: 460px;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  animation: ds-pop-in var(--dur-2) var(--ease-out);
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+}
+.modal-title {
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+}
+.modal-body { padding: var(--space-4); }
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-top: var(--border-width) solid var(--border-subtle);
+}
+
+@keyframes ds-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ds-pop-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .modal-overlay, .modal { animation-duration: 0s; }
+}
+
+/* ===================================================================
+   Toasts
+   =================================================================== */
+
+.toast-stack {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  z-index: var(--z-toast);
+  max-width: min(360px, calc(100vw - 2 * var(--space-4)));
+}
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: var(--border-width) solid var(--border);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: var(--text-sm);
+  box-shadow: var(--shadow-md);
+  animation: ds-pop-in var(--dur-2) var(--ease-out);
+}
+.toast-success { border-color: var(--healthy-border); }
+.toast-danger  { border-color: var(--error-border); }
+.toast-info    { border-color: var(--info-border); }
+.toast-icon { flex-shrink: 0; width: 15px; height: 15px; margin-top: 1px; }
+.toast-success .toast-icon { color: var(--healthy-fg); }
+.toast-danger  .toast-icon { color: var(--error-fg); }
+.toast-info    .toast-icon { color: var(--info-fg); }
+
+/* ===================================================================
+   Empty / loading (skeleton) / error / denied states
+   =================================================================== */
+
+.empty-state,
+.error-state,
+.denied-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-2);
+  padding: var(--space-9) var(--space-4);
+  color: var(--text-secondary);
+}
+.empty-state-icon,
+.error-state-icon,
+.denied-state-icon {
+  color: var(--icon-muted);
+  margin-bottom: var(--space-1);
+}
+.error-state-icon { color: var(--error-fg); }
+.denied-state-icon { color: var(--warning-fg); }
+.empty-state-title,
+.error-state-title,
+.denied-state-title {
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+.empty-state-body,
+.error-state-body,
+.denied-state-body {
+  font-size: var(--text-sm);
+  max-width: 44ch;
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-hover);
+  border-radius: var(--radius-xs);
+  color: transparent !important;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+  animation: ds-shimmer 1.4s infinite;
+}
+@keyframes ds-shimmer { 100% { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after { animation: none; }
+}
+.skeleton-text { height: 0.9em; width: 100%; margin: 0.25em 0; }
+.skeleton-block { width: 100%; height: 72px; }
+
+/* ===================================================================
+   Meter — CPU / memory / confidence / drift-share bars
+   =================================================================== */
+
+.meter-label {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+/* The read-out value stays neutral unless the meter itself is in a
+   warning / error state — then it takes the matching color and nothing
+   else does. */
+.meter-value { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.meter-label.is-warning .meter-value { color: var(--warning-fg); }
+.meter-label.is-error   .meter-value { color: var(--error-fg); }
+
+.meter-track {
+  background: var(--meter-track);
+  border-radius: var(--radius-full);
+  height: 6px;
+  overflow: hidden;
+}
+.meter-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--meter-fill);
+  transition: width var(--dur-3) var(--ease-out), background var(--dur-2) var(--ease);
+}
+/* Color a meter ONLY when its value has crossed into a state that wants
+   attention. A CPU bar at 38% or a drift share at 20% stays neutral;
+   an error rate at 91% is red. There is no "healthy" green fill — a
+   normal reading is simply not colored. */
+.meter-fill.is-warning { background: var(--warning-fg); }
+.meter-fill.is-error,
+.meter-fill.is-critical { background: var(--error-fg); }
+
+/* ===================================================================
+   Metric strip — a plain-text row of stats separated by rules, used
+   instead of a KPI card wall. Number + label, no box.
+   =================================================================== */
+
+.metric-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-6);
+}
+.metric-strip-item {
+  padding-left: var(--space-6);
+  border-left: var(--border-width) solid var(--border-subtle);
+}
+.metric-strip-item:first-child {
+  padding-left: 0;
+  border-left: none;
+}
+/* Numbers are neutral. A metric only takes color when the value itself
+   is the exception being reported — "3 drifting" (warning), "1 failed"
+   (error). A count of deployed models or a request rate never does. */
+.metric-strip-value {
+  font-size: var(--text-xl);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+  line-height: var(--lh-tight);
+  font-variant-numeric: tabular-nums;
+}
+.metric-strip-value.is-warning { color: var(--warning-fg); }
+.metric-strip-value.is-error   { color: var(--error-fg); }
+.metric-strip-label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Below ~560px the rules would collide with wrapped rows — drop them
+   and let the items sit as a simple two-up grid. */
+@media (max-width: 560px) {
+  .metric-strip { gap: var(--space-4) var(--space-5); }
+  .metric-strip-item {
+    padding-left: 0;
+    border-left: none;
+    flex: 1 0 40%;
+  }
+}
+
+/* ===================================================================
+   Layout grids
+   =================================================================== */
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+.grid-split {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: var(--space-7);
+  align-items: start;
+}
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-3);
+}
+
+@media (max-width: 900px) {
+  .grid-split { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .grid-2 { grid-template-columns: 1fr; }
+  .card-grid { grid-template-columns: 1fr; }
+}

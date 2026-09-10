@@ -1,0 +1,250 @@
+/*
+ * Vela design system — TOKENS (Phase 1 of the 2026-09 redesign).
+ *
+ * Dark-first. `:root` is the designed-for dark theme; the light theme is a
+ * derived override under `:root[data-theme="light"]` and is provisional —
+ * it will be tuned in a later phase. Nothing here is wired into a real
+ * screen yet: only the /design preview loads the ds/* bundle. Existing
+ * screens still use css/tokens.css + css/components.css + css/shell.css
+ * and are untouched.
+ *
+ * Principle: near-black neutral surfaces, one hairline border doing most
+ * of the structural work, small sharp type, and color reserved strictly
+ * for semantic meaning — deployment status, health, drift, warnings,
+ * errors. No gradients, no glow, no glassmorphism, radius capped at 8px.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* ==================================================================
+     Neutral surfaces — elevation comes from surface lightness + a
+     border, never from a heavy shadow. Each step is ~+4–6% lightness.
+     ================================================================== */
+  --bg: #0a0a0b;               /* app background, deepest */
+  --surface-sunken: #0e0e10;   /* sidebar, code blocks, inset wells */
+  --surface: #141417;          /* card, panel, dropdown, modal */
+  --surface-raised: #1a1a1e;   /* input, nested card, popover */
+  --surface-hover: #202024;    /* row hover, ghost-button hover */
+  --surface-active: #26262b;   /* pressed / selected row */
+
+  /* Borders — the core structural device. */
+  --border-width: 1px;
+  --border-subtle: #202024;    /* row dividers, internal rules */
+  --border: #2a2a30;           /* default component border */
+  --border-strong: #3a3a42;    /* hover / focused container */
+
+  /* Text */
+  --text: #ededef;             /* primary  (~15:1 on --bg) */
+  --text-secondary: #9b9ba4;   /* secondary (~6.9:1) */
+  --text-muted: #767680;       /* meta, hints, placeholders (~4.6:1) */
+  --text-disabled: #4a4a52;
+  --text-inverse: #0a0a0b;     /* text on a light/near-white fill */
+
+  /* Icons */
+  --icon: #8a8a93;
+  --icon-muted: #6b6b75;
+
+  /* ==================================================================
+     Accent — navigational only: links, focus ring, active-nav
+     indicator, text selection. It never fills a button (the primary
+     button is monochrome, see --btn-primary-* below) so the UI does
+     not read as a generic blue SaaS dashboard.
+     ================================================================== */
+  --accent: #4c8dff;
+  --accent-hover: #6ba1ff;
+  --accent-bg: rgba(76, 141, 255, 0.14);      /* active nav row, selected row */
+  --accent-border: rgba(76, 141, 255, 0.40);
+  --accent-contrast: #0a0a0b;                  /* text on a solid --accent fill */
+  --accent-focus: rgba(76, 141, 255, 0.35);
+  --focus-ring: 0 0 0 3px var(--accent-focus);
+
+  /* Primary action — monochrome, high-contrast (Vercel-style). Flips in
+     the light theme to near-black-on-white. */
+  --btn-primary-bg: #ededef;
+  --btn-primary-bg-hover: #ffffff;
+  --btn-primary-fg: #0a0a0b;
+
+  /* ==================================================================
+     Semantic status — the ONLY place color is allowed. Each state has a
+     foreground (dot + text), a low-alpha background tint, and a border
+     for the filled-pill variant. All foregrounds clear ≥4.5:1 on --bg.
+     Default rendering stays dot + plain text; the tint/border set is
+     for dense tables where a filled pill genuinely reads better.
+     ================================================================== */
+  --healthy-fg: #3fb950;   --healthy-bg: rgba(63, 185, 80, 0.13);    --healthy-border: rgba(63, 185, 80, 0.30);
+  --warning-fg: #d2a422;   --warning-bg: rgba(210, 164, 34, 0.13);   --warning-border: rgba(210, 164, 34, 0.30);
+  --error-fg: #f85149;     --error-bg: rgba(248, 81, 73, 0.13);      --error-border: rgba(248, 81, 73, 0.30);
+  --degraded-fg: #e0823c;  --degraded-bg: rgba(224, 130, 60, 0.13);  --degraded-border: rgba(224, 130, 60, 0.30);
+  --drift-fg: #b180ff;     --drift-bg: rgba(177, 128, 255, 0.14);    --drift-border: rgba(177, 128, 255, 0.32);
+  --idle-fg: #7d8590;      --idle-bg: rgba(125, 133, 144, 0.12);     --idle-border: rgba(125, 133, 144, 0.26);
+  --info-fg: #4c8dff;      --info-bg: rgba(76, 141, 255, 0.13);      --info-border: rgba(76, 141, 255, 0.30);
+
+  /* Aliases for the two states that already had names in the old system
+     (deployed == healthy, failed == error). */
+  --deployed-fg: var(--healthy-fg);
+  --failed-fg: var(--error-fg);
+
+  /* Neutral fill for meters / progress at rest. A value that has not
+     crossed a threshold carries NO color — only --warning-fg / --error-fg
+     ever paint a meter, and only when the number actually warrants it. */
+  --meter-fill: #5b5b64;
+  --meter-track: var(--surface-active);
+
+  /* ==================================================================
+     Typography — body is sans; mono is reserved for model names, IDs,
+     keys and code/JSON (the .mono utility). Weights 400 / 500 / 600
+     only — no 700. tabular-nums on all metrics and table numerics.
+     ================================================================== */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
+
+  --text-xs: 11px;    /* micro-labels, table headers (uppercase), badge text */
+  --text-sm: 12px;    /* meta, secondary text, dense table cells */
+  --text-base: 13px;  /* body default */
+  --text-md: 14px;    /* card/section titles, inputs, buttons */
+  --text-lg: 16px;    /* page-section headings */
+  --text-xl: 20px;    /* page title (h1) */
+  --text-2xl: 24px;   /* big numeric callout, empty-state heading */
+
+  --lh-tight: 1.25;
+  --lh-normal: 1.5;
+  --lh-relaxed: 1.65;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+
+  --tracking-tight: -0.01em;   /* headings ≥16px */
+  --tracking-normal: 0;
+  --tracking-label: 0.04em;    /* uppercase micro-labels */
+
+  /* ==================================================================
+     Spacing — 4px base. Numbers 1–4 match the old scale's meaning; 5
+     and 8 fill the steps the old scale skipped (20px, 40px).
+     ================================================================== */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-9: 48px;
+  --space-10: 64px;
+
+  /* ==================================================================
+     Radii — restrained, nothing bubbly.
+     ================================================================== */
+  --radius-xs: 3px;    /* badges, chips, mono chips */
+  --radius-sm: 5px;    /* buttons, inputs, row hover */
+  --radius-md: 6px;    /* cards, panels */
+  --radius-lg: 8px;    /* modal, popover, command palette */
+  --radius-full: 999px;
+
+  /* ==================================================================
+     Elevation — barely used. Dark UIs get depth from surface + border;
+     shadow only anchors true overlays. No glow, no colored shadow.
+     ================================================================== */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.30);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.50);
+
+  /* ==================================================================
+     Motion — feedback only. Color/bg on interactive elements, a fade +
+     2px translate for overlays, skeleton shimmer. No entrance
+     animation on page content.
+     ================================================================== */
+  --dur-1: 100ms;   /* hover / press */
+  --dur-2: 150ms;   /* dropdown / toast in */
+  --dur-3: 240ms;   /* modal, sidebar collapse */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* ==================================================================
+     Layout shell
+     ================================================================== */
+  --sidebar-w: 224px;
+  --sidebar-w-collapsed: 56px;
+  --topbar-h: 48px;
+
+  /* Form controls — inputs sit roomier than a toolbar/table control so
+     forms read generously (Vercel / Linear scale). */
+  --control-h: 30px;   /* buttons, toolbar inputs, dense controls */
+  --input-h: 36px;     /* form inputs, selects, single-line fields */
+  --content-max: 1160px;      /* wide — tables, observability */
+  --content-narrow: 720px;    /* forms, settings */
+  --page-px: 24px;
+  --page-py: 20px;
+
+  /* Z-index scale */
+  --z-sidebar: 90;
+  --z-topbar: 100;
+  --z-dropdown: 200;
+  --z-modal: 300;
+  --z-command: 350;
+  --z-toast: 400;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-1: 0ms;
+    --dur-2: 0ms;
+    --dur-3: 0ms;
+  }
+}
+
+/* ====================================================================
+   LIGHT THEME — provisional. Same hues, re-tuned for ≥4.5:1 on white;
+   neutral ramp inverted; primary button flips to near-black-on-white.
+   ==================================================================== */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #ffffff;
+  --surface-sunken: #f6f6f7;
+  --surface: #ffffff;
+  --surface-raised: #fbfbfc;
+  --surface-hover: #f3f3f4;
+  --surface-active: #ececee;
+
+  --border-subtle: #ececee;
+  --border: #e0e0e3;
+  --border-strong: #c8c8cd;
+
+  --text: #17171a;
+  --text-secondary: #55555e;
+  --text-muted: #74747e;
+  --text-disabled: #a8a8b0;
+  --text-inverse: #ffffff;
+
+  --icon: #6b6b75;
+  --icon-muted: #8c8c95;
+
+  --accent: #2e6ff2;
+  --accent-hover: #1d5ce0;
+  --accent-bg: rgba(46, 111, 242, 0.10);
+  --accent-border: rgba(46, 111, 242, 0.32);
+  --accent-contrast: #ffffff;
+  --accent-focus: rgba(46, 111, 242, 0.30);
+
+  --btn-primary-bg: #17171a;
+  --btn-primary-bg-hover: #000000;
+  --btn-primary-fg: #ffffff;
+
+  --healthy-fg: #1a7f37;   --healthy-bg: rgba(26, 127, 55, 0.10);    --healthy-border: rgba(26, 127, 55, 0.28);
+  --warning-fg: #9a6700;   --warning-bg: rgba(154, 103, 0, 0.10);    --warning-border: rgba(154, 103, 0, 0.28);
+  --error-fg: #cf222e;     --error-bg: rgba(207, 34, 46, 0.10);      --error-border: rgba(207, 34, 46, 0.28);
+  --degraded-fg: #bc4c00;  --degraded-bg: rgba(188, 76, 0, 0.10);    --degraded-border: rgba(188, 76, 0, 0.28);
+  --drift-fg: #8250df;     --drift-bg: rgba(130, 80, 223, 0.10);     --drift-border: rgba(130, 80, 223, 0.30);
+  --idle-fg: #656d76;      --idle-bg: rgba(101, 109, 118, 0.10);     --idle-border: rgba(101, 109, 118, 0.24);
+  --info-fg: #2e6ff2;      --info-bg: rgba(46, 111, 242, 0.10);      --info-border: rgba(46, 111, 242, 0.28);
+
+  --meter-fill: #9a9aa2;
+  --meter-track: var(--surface-active);
+
+  --shadow-sm: 0 1px 2px rgba(15, 15, 20, 0.06);
+  --shadow-md: 0 4px 12px rgba(15, 15, 20, 0.10);
+  --shadow-lg: 0 16px 40px rgba(15, 15, 20, 0.16);
+}

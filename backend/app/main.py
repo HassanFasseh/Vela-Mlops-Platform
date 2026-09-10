@@ -92,10 +92,12 @@ from backend.app.routers.auth import router as auth_router
 from backend.app.routers.teams import router as teams_router
 from backend.app.routers.admin_pages import router as admin_pages_router
 from backend.app.routers.member_pages import router as member_pages_router
+from backend.app.routers.design_system import router as design_system_router
 app.include_router(auth_router)
 app.include_router(teams_router)
 app.include_router(admin_pages_router)
 app.include_router(member_pages_router)
+app.include_router(design_system_router)
 
 
 @app.get("/metrics-summary")
