@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vela — Design System</title>
-<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds3">
-<link rel="stylesheet" href="/static/css/ds/base.css?v=ds3">
-<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds3">
-<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds3">
+<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds4">
+<link rel="stylesheet" href="/static/css/ds/base.css?v=ds4">
+<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds4">
+<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds4">
 <style>
   /* Catalog scaffolding only — not part of the design system. */
   body { background: var(--bg); }
@@ -465,9 +465,10 @@
     <h2>Cards &amp; panels</h2>
     <p class="ds-lede">
       A plain card is a surface plus a 1px border — no left accent bar. Selection
-      (<span class="mono">.is-selected</span>) reads as a firmer border plus a crisp
-      near-white 2px rule — monochrome, matching the primary button, never blue —
-      rendered as an inset so selecting a card never shifts its contents.
+      (<span class="mono">.is-selected</span>) reads as a uniform near-white border on
+      all four sides — monochrome, matching the primary button, never blue, and never a
+      single-side bar. The border width is unchanged, so selecting a card never shifts
+      its contents.
     </p>
     <div class="ds-grid cols-2">
       <div class="card">
@@ -505,7 +506,7 @@
         </div>
         <div class="inset-block is-selected" style="margin-top:var(--space-3)">
           <div class="mono" style="font-weight:var(--fw-semibold)">fraud-detector-v3</div>
-          <div class="text-muted" style="font-size:var(--text-xs)">Selected block — near-white rule</div>
+          <div class="text-muted" style="font-size:var(--text-xs)">Selected block — uniform raised surface, no accented edge</div>
         </div>
       </div>
     </div>

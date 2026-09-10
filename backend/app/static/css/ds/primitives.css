@@ -413,15 +413,15 @@
 }
 
 /* Selected / active state — a plain card never carries an indicator.
-   Selection reads as a firmer border plus a crisp near-white 2px rule
-   (monochrome, matching the primary button) — never blue. The rule is
-   an inset shadow so selecting a card doesn't shift its contents. */
+   Selection reads as a uniform near-white border on all four sides
+   (monochrome, matching the primary button) — never blue, and never a
+   single-side bar. Border width is unchanged, so selecting a card
+   doesn't shift its contents. */
 .card.is-selected,
 .panel.is-selected,
 .card[aria-selected="true"],
 .panel[aria-selected="true"] {
-  border-color: var(--border-strong);
-  box-shadow: inset 2px 0 0 0 var(--btn-primary-bg);
+  border-color: var(--btn-primary-bg);
 }
 
 /* Clickable card — hover firms the border, nothing more. */
@@ -453,15 +453,17 @@
 }
 
 /* Inset block — a contained sub-section inside a panel (model header,
-   reference-window note, a nested group). Neutral hairline rule by
-   default; the selected one firms to a near-white monochrome rule,
-   never blue. */
+   reference-window note, a nested group). A neutral hairline rule on
+   the leading edge marks it as nested; that rule is structural, not an
+   accent, and it does not change on selection. A selected block reads
+   as a uniform raised surface across the whole block — no single edge
+   is brightened or accented. */
 .inset-block {
   border-left: 2px solid var(--border);
   padding: var(--space-1) 0 var(--space-1) var(--space-4);
 }
 .inset-block.is-selected {
-  border-left-color: var(--btn-primary-bg);
+  background: var(--surface-raised);
 }
 
 /* ===================================================================
