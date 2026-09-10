@@ -1590,20 +1590,63 @@ def admin_models_page():
 
 @router.get("/admin/deployments", response_class=HTMLResponse)
 def admin_deployments_page():
+    # Phase 2: migrated to the ds/* design system (see admin_overview_page
+    # for the reference pattern). ds/* bundle for this route only; every
+    # other admin page still uses _ASSETS. Shared JS (_SCRIPTS) unchanged.
+    ds_assets = (
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds5">'
+    )
+
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
-    <h1 style="font-size:var(--text-lg);margin-bottom:2px">Deployments</h1>
-    <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)">
-      Operational status of every deployment, and a form to trigger a new one.
-    </p>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Deployments</h1>
+        <div class="page-description">Operational status of every deployment.</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-secondary btn-sm" id="refresh-btn" type="button">Refresh</button>
+        <button class="btn btn-primary btn-sm" id="open-deploy-panel" type="button">Deploy model</button>
+      </div>
+    </div>
 
-    <div class="grid-split">
-    <div>
-    <div class="section-label" style="margin-top:0">Deploy a model</div>
-    <div class="card">
-      <form id="deploy-form" novalidate>
-        <div class="field"><label class="field-label" for="dp-model">HuggingFace model name</label><input class="input" id="dp-model" placeholder="e.g. distilbert-base-uncased-finetuned-sst-2-english" required></div>
+    <div class="toolbar">
+      <span class="input-group" style="flex:1 1 220px">
+        <svg class="input-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m11 11 3 3"/></svg>
+        <input class="input" id="dep-filter" type="text" placeholder="Filter by name, model or status" autocomplete="off" style="flex:1;min-width:0">
+      </span>
+      <span class="toolbar-spacer"></span>
+      <span class="text-muted" id="dep-count" style="font-size:var(--text-xs);flex-shrink:0"></span>
+    </div>
+    <div class="table-wrap">
+      <table class="table" style="min-width:680px">
+        <thead><tr><th>Deployment</th><th>Model</th><th>Task</th><th>Status</th><th class="num">Replicas</th><th>Managed by</th></tr></thead>
+        <tbody id="deployments-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="slideover-overlay" id="deploy-panel" hidden>
+  <div class="slideover" role="dialog" aria-modal="true" aria-labelledby="deploy-panel-title">
+    <div class="slideover-header">
+      <div class="slideover-title" id="deploy-panel-title">Deploy a model</div>
+      <button class="btn btn-ghost btn-sm btn-icon" id="close-deploy-panel" type="button" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="slideover-body">
+      <div class="segmented segmented-block" role="tablist" aria-label="Deployment type" style="margin-bottom:var(--space-5)">
+        <button class="segmented-option is-active" id="seg-hf" type="button" role="tab" aria-selected="true" aria-controls="deploy-form">HuggingFace</button>
+        <button class="segmented-option" id="seg-custom" type="button" role="tab" aria-selected="false" aria-controls="custom-deploy-form">Custom model</button>
+      </div>
+
+      <form class="form" id="deploy-form" novalidate>
+        <div class="field">
+          <label class="field-label" for="dp-model">HuggingFace model name</label>
+          <input class="input" id="dp-model" placeholder="e.g. distilbert-base-uncased-finetuned-sst-2-english" required>
+        </div>
         <div class="field">
           <label class="field-label" for="dp-task">Task</label>
           <select class="select" id="dp-task">
@@ -1625,23 +1668,19 @@ def admin_deployments_page():
           <div class="field-hint">Lowercase letters, numbers, and hyphens only.</div>
         </div>
         <div class="field-error" id="dp-error" role="alert"></div>
-        <div id="dp-success" style="display:none;margin-bottom:1rem"></div>
-        <button class="btn btn-primary" type="submit" id="dp-submit">Deploy via GitHub Actions</button>
+        <div id="dp-success" hidden style="margin-bottom:var(--space-3)"></div>
+        <button class="btn btn-primary btn-block" type="submit" id="dp-submit">Deploy via GitHub Actions</button>
       </form>
-    </div>
 
-    <div class="section-label">Deploy a custom model</div>
-    <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-3)">Upload your own trained model with a prediction script</p>
-    <div class="card">
-      <a class="link-secondary" style="font-size:var(--text-xs);display:inline-block;margin-bottom:1rem" href="/api/v1/custom-model-template" download>Download template &rarr;</a>
-      <form id="custom-deploy-form" novalidate>
+      <form class="form" id="custom-deploy-form" novalidate hidden>
+        <a class="link-action" style="font-size:var(--text-xs);display:inline-block;margin-bottom:var(--space-3)" href="/api/v1/custom-model-template" download>Download predict.py template &rarr;</a>
         <div class="field">
           <label class="field-label" for="cm-name">Deployment name</label>
           <input class="input" id="cm-name" placeholder="lowercase-with-hyphens" required>
           <div class="field-hint">Lowercase letters, numbers, and hyphens only.</div>
         </div>
         <div class="field">
-          <label class="field-label" for="cm-task-type">Task type <span class="text-muted">(optional)</span></label>
+          <label class="field-label" for="cm-task-type">Task type <span class="field-optional">optional</span></label>
           <input class="input" id="cm-task-type" placeholder="e.g. fraud-detection, clinical-risk, tabular-classification">
           <div class="field-hint">Free-text label for what the model does &mdash; shown on the Model Registry.</div>
         </div>
@@ -1653,48 +1692,158 @@ def admin_deployments_page():
             <option value="file">File / Image</option>
           </select>
         </div>
-        <div class="field" id="cm-schema-field" style="display:none">
+        <div class="field" id="cm-schema-field" hidden>
           <label class="field-label" for="cm-input-schema">Input schema</label>
           <textarea class="textarea" id="cm-input-schema" placeholder='{"age": "number", "income": "number", "risk_score": "number"}'></textarea>
           <div class="field-hint">Describes the JSON fields callers should send &mdash; shown to them, not enforced.</div>
         </div>
         <div class="field">
           <label class="field-label" for="cm-predict-file">predict.py</label>
-          <input class="input" type="file" id="cm-predict-file" accept=".py" required>
+          <label class="file-input">
+            <input type="file" id="cm-predict-file" accept=".py" required>
+            <span class="file-input-name is-empty" data-placeholder="No file selected">No file selected</span>
+            <span class="file-input-btn">Choose file</span>
+          </label>
         </div>
         <div class="field">
           <label class="field-label" for="cm-model-files">Model files</label>
-          <input class="input" type="file" id="cm-model-files" accept=".pkl,.joblib,.pt,.bin,.onnx,.h5,.safetensors" multiple required>
+          <label class="file-input">
+            <input type="file" id="cm-model-files" accept=".pkl,.joblib,.pt,.bin,.onnx,.h5,.safetensors" multiple required>
+            <span class="file-input-name is-empty" data-placeholder="No files selected">No files selected</span>
+            <span class="file-input-btn">Choose files</span>
+          </label>
         </div>
         <div class="field">
-          <label class="field-label" for="cm-requirements-file">requirements.txt <span class="text-muted">(optional)</span></label>
-          <input class="input" type="file" id="cm-requirements-file" accept=".txt">
+          <label class="field-label" for="cm-requirements-file">requirements.txt <span class="field-optional">optional</span></label>
+          <label class="file-input">
+            <input type="file" id="cm-requirements-file" accept=".txt">
+            <span class="file-input-name is-empty" data-placeholder="No file selected">No file selected</span>
+            <span class="file-input-btn">Choose file</span>
+          </label>
           <div class="field-hint">List any Python packages your predict.py needs beyond scikit-learn, joblib, pandas, numpy.</div>
         </div>
         <div class="field-error" id="cm-error" role="alert"></div>
-        <div id="cm-success" style="display:none;margin-bottom:1rem"></div>
-        <button class="btn btn-primary" type="submit" id="cm-submit">Upload and deploy</button>
+        <div id="cm-success" hidden style="margin-bottom:var(--space-3)"></div>
+        <button class="btn btn-primary btn-block" type="submit" id="cm-submit">Upload and deploy</button>
       </form>
     </div>
-    </div>
-
-    <div>
-    <div class="section-label" style="margin-top:0">Live deployments</div>
-    <div class="table-wrap">
-      <table class="table">
-        <thead><tr><th>Deployment</th><th>Model</th><th>Task</th><th>Status</th><th>Replicas</th><th>Managed by</th></tr></thead>
-        <tbody id="deployments-body"></tbody>
-      </table>
-    </div>
-    </div>
-    </div>
+  </div>
   </div>
 </div>
-<div class="auth-loading" id="loading-root">Loading&hellip;</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
 """
 
     script = """
 <script>
+  let deploymentRows = [];
+  let deployPanelReturnFocus = null;
+
+  function initDeployments() {
+    const refreshBtn = document.getElementById('refresh-btn');
+    if (refreshBtn) refreshBtn.addEventListener('click', () => loadDeployments());
+    const filterInput = document.getElementById('dep-filter');
+    if (filterInput) filterInput.addEventListener('input', renderDeploymentRows);
+
+    wireDeployPanel();
+    wireSegmentedControl();
+    wireFileInputs(document);
+
+    loadDeployments();
+  }
+
+  // ---- Deploy slide-over -------------------------------------------------
+  function wireDeployPanel() {
+    const panel = document.getElementById('deploy-panel');
+    const openBtn = document.getElementById('open-deploy-panel');
+    const closeBtn = document.getElementById('close-deploy-panel');
+    if (!panel || !openBtn) return;
+
+    openBtn.addEventListener('click', () => {
+      deployPanelReturnFocus = document.activeElement;
+      panel.hidden = false;
+      document.addEventListener('keydown', deployPanelKeydown);
+      const first = panel.querySelector('.form:not([hidden]) .input, .form:not([hidden]) .select');
+      if (first) first.focus();
+    });
+    closeBtn.addEventListener('click', closeDeployPanel);
+    panel.addEventListener('click', (e) => { if (e.target === panel) closeDeployPanel(); });
+  }
+
+  function closeDeployPanel() {
+    const panel = document.getElementById('deploy-panel');
+    if (!panel || panel.hidden) return;
+    panel.hidden = true;
+    document.removeEventListener('keydown', deployPanelKeydown);
+    if (deployPanelReturnFocus && document.contains(deployPanelReturnFocus)) deployPanelReturnFocus.focus();
+    deployPanelReturnFocus = null;
+  }
+
+  function deployPanelKeydown(e) {
+    if (e.key === 'Escape') { closeDeployPanel(); return; }
+    // Minimal focus containment: wrap Tab within the panel.
+    if (e.key !== 'Tab') return;
+    const panel = document.getElementById('deploy-panel');
+    const focusables = Array.from(panel.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
+    )).filter(el => el.offsetParent !== null);
+    if (!focusables.length) return;
+    const first = focusables[0], last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+
+  // ---- Segmented control (HuggingFace | Custom model) -------------------
+  // Show/hide only - both forms stay in the DOM, every field id and the
+  // submit handlers below are untouched.
+  function wireSegmentedControl() {
+    const segHf = document.getElementById('seg-hf');
+    const segCustom = document.getElementById('seg-custom');
+    if (!segHf || !segCustom) return;
+    segHf.addEventListener('click', () => showSegment('hf'));
+    segCustom.addEventListener('click', () => showSegment('custom'));
+  }
+
+  function showSegment(which) {
+    const hf = which !== 'custom';
+    document.getElementById('deploy-form').hidden = !hf;
+    document.getElementById('custom-deploy-form').hidden = hf;
+    for (const [id, on] of [['seg-hf', hf], ['seg-custom', !hf]]) {
+      const el = document.getElementById(id);
+      el.classList.toggle('is-active', on);
+      el.setAttribute('aria-selected', String(on));
+    }
+    const active = document.querySelector('.slideover-body .form:not([hidden])');
+    const firstField = active && active.querySelector('.input, .select');
+    if (firstField) firstField.focus();
+  }
+
+  // ---- Styled file inputs ---------------------------------------------
+  // Purely visual: the real <input type="file"> is untouched (id, name,
+  // .files, accept, multiple, required all preserved) - this only mirrors
+  // its selection into the .file-input-name span.
+  function syncFileInput(input) {
+    const wrap = input.closest('.file-input');
+    if (!wrap) return;
+    const nameEl = wrap.querySelector('.file-input-name');
+    if (!nameEl) return;
+    const placeholder = nameEl.dataset.placeholder || 'No file selected';
+    const n = input.files ? input.files.length : 0;
+    if (!n) { nameEl.textContent = placeholder; nameEl.classList.add('is-empty'); }
+    else if (n === 1) { nameEl.textContent = input.files[0].name; nameEl.classList.remove('is-empty'); }
+    else { nameEl.textContent = n + ' files selected'; nameEl.classList.remove('is-empty'); }
+  }
+
+  function wireFileInputs(root) {
+    root.querySelectorAll('.file-input > input[type="file"]').forEach(input => {
+      input.addEventListener('change', () => syncFileInput(input));
+      syncFileInput(input);
+    });
+  }
+
+  function resetFileInputs(formEl) {
+    formEl.querySelectorAll('.file-input > input[type="file"]').forEach(syncFileInput);
+  }
+
   async function loadDeployments() {
     const body = document.getElementById('deployments-body');
     body.innerHTML = UI.skeletonRows(6, 3);
@@ -1712,24 +1861,58 @@ def admin_deployments_page():
       // task_type column on /admin/models, for the same underlying reason.
       // It also carries model_type, which "Managed by" shows instead of
       // the old always-"platform"/hardcoded-"core service" label.
-      const rows = deployments.map(d => {
+      deploymentRows = deployments.map(d => {
         const reg = registryByName.get(d.name) || null;
         return {
           name: d.name, model: (reg && reg.model_name) || d.model_name, task: (reg && reg.task_type) || d.task_type,
           status: d.status, replicas: d.ready + '/' + d.desired, model_type: reg ? reg.model_type : 'huggingface',
         };
       });
-      if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="6">' + UI.emptyState('No deployments yet', 'Use the form below to deploy your first model.') + '</td></tr>';
-        return;
-      }
-      body.innerHTML = rows.map(r =>
-        '<tr><td class="mono">' + UI.escapeHtml(r.name) + '</td><td class="text-secondary">' + UI.escapeHtml(r.model || '—') + '</td><td><span class="chip-mono">' + UI.escapeHtml(r.task) + '</span></td>' +
-        '<td>' + UI.statusBadge(r.status) + '</td><td class="text-secondary">' + r.replicas + '</td><td class="text-secondary">' + UI.escapeHtml(r.model_type) + '</td></tr>'
-      ).join('');
+      renderDeploymentRows();
     } catch (e) {
+      deploymentRows = [];
       body.innerHTML = '<tr><td colspan="6">' + UI.errorState(e.message, loadDeployments) + '</td></tr>';
+      const countEl = document.getElementById('dep-count');
+      if (countEl) countEl.textContent = '';
     }
+  }
+
+  // Client-side only: narrows the already-loaded rows by name / model /
+  // task / status. The filter box never re-fetches - no backend call.
+  function renderDeploymentRows() {
+    const body = document.getElementById('deployments-body');
+    const countEl = document.getElementById('dep-count');
+    const q = (document.getElementById('dep-filter').value || '').trim().toLowerCase();
+
+    if (!deploymentRows.length) {
+      body.innerHTML = '<tr><td colspan="6">' + UI.emptyState('No deployments yet', 'Use the forms on the left to deploy your first model.') + '</td></tr>';
+      if (countEl) countEl.textContent = '';
+      return;
+    }
+
+    const rows = q
+      ? deploymentRows.filter(r =>
+          (r.name || '').toLowerCase().includes(q) ||
+          (r.model || '').toLowerCase().includes(q) ||
+          (r.task || '').toLowerCase().includes(q) ||
+          (r.status || '').toLowerCase().includes(q))
+      : deploymentRows;
+
+    if (countEl) {
+      countEl.textContent = q
+        ? rows.length + ' of ' + deploymentRows.length
+        : deploymentRows.length + (deploymentRows.length === 1 ? ' deployment' : ' deployments');
+    }
+
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="6">' + UI.emptyState('No matches', 'No deployment matches that filter.') + '</td></tr>';
+      return;
+    }
+
+    body.innerHTML = rows.map(r =>
+      '<tr><td class="mono">' + UI.escapeHtml(r.name) + '</td><td class="text-secondary">' + UI.escapeHtml(r.model || '—') + '</td><td><span class="chip-mono">' + UI.escapeHtml(r.task) + '</span></td>' +
+      '<td>' + UI.statusBadge(r.status) + '</td><td class="num text-secondary">' + r.replicas + '</td><td class="text-secondary">' + UI.escapeHtml(r.model_type) + '</td></tr>'
+    ).join('');
   }
 
   document.getElementById('deploy-form').addEventListener('submit', async (e) => {
@@ -1738,7 +1921,7 @@ def admin_deployments_page():
     const successEl = document.getElementById('dp-success');
     const submitBtn = document.getElementById('dp-submit');
     errorEl.textContent = '';
-    successEl.style.display = 'none';
+    successEl.hidden = true;
     const model_name = document.getElementById('dp-model').value.trim();
     const task_type = document.getElementById('dp-task').value;
     const deployment_name = document.getElementById('dp-name').value.trim();
@@ -1748,11 +1931,13 @@ def admin_deployments_page():
     submitBtn.textContent = 'Triggering…';
     try {
       const result = await Api.post('/deploy-model', { model_name, task_type, deployment_name });
-      successEl.style.display = 'block';
-      successEl.innerHTML = UI.badge('Triggered', 'success', true) +
-        ' <span class="text-secondary" style="font-size:var(--text-sm)">&ldquo;' + UI.escapeHtml(deployment_name) + '&rdquo; will appear here in ~5&ndash;10 min.' +
-        (result.deployment_id ? ' <a class="link-secondary" href="/admin/docs?deployment_id=' + result.deployment_id + '">Document it now &rarr;</a>' : '') +
-        '</span>';
+      successEl.hidden = false;
+      successEl.innerHTML =
+        '<div class="alert alert-success"><div>' +
+        '<div class="alert-title">Deployment triggered</div>' +
+        '&ldquo;' + UI.escapeHtml(deployment_name) + '&rdquo; will appear in the table in ~5&ndash;10 min.' +
+        (result.deployment_id ? ' <a class="link-action" href="/admin/docs?deployment_id=' + result.deployment_id + '">Document it now &rarr;</a>' : '') +
+        '</div></div>';
       UI.toast('Deployment triggered', 'success');
       document.getElementById('deploy-form').reset();
     } catch (err) {
@@ -1764,7 +1949,7 @@ def admin_deployments_page():
   });
 
   document.getElementById('cm-input-type').addEventListener('change', (e) => {
-    document.getElementById('cm-schema-field').style.display = e.target.value === 'json' ? 'block' : 'none';
+    document.getElementById('cm-schema-field').hidden = e.target.value !== 'json';
   });
 
   document.getElementById('custom-deploy-form').addEventListener('submit', async (e) => {
@@ -1773,7 +1958,7 @@ def admin_deployments_page():
     const successEl = document.getElementById('cm-success');
     const submitBtn = document.getElementById('cm-submit');
     errorEl.textContent = '';
-    successEl.style.display = 'none';
+    successEl.hidden = true;
 
     const deployment_name = document.getElementById('cm-name').value.trim();
     const task_type = document.getElementById('cm-task-type').value.trim();
@@ -1830,12 +2015,16 @@ def admin_deployments_page():
 
       clearTimeout(stageTimer);
       submitBtn.textContent = 'Deployment queued!';
-      successEl.style.display = 'block';
-      successEl.innerHTML = UI.badge('Queued', 'success', true) +
-        ' <span class="text-secondary" style="font-size:var(--text-sm)">Deployment #' + data.deployment_id + ' queued&hellip;</span>';
+      successEl.hidden = false;
+      successEl.innerHTML =
+        '<div class="alert alert-success"><div>' +
+        '<div class="alert-title">Deployment queued</div>' +
+        'Deployment #' + data.deployment_id + ' has been queued.' +
+        '</div></div>';
       UI.toast('Custom model deployment triggered', 'success');
       document.getElementById('custom-deploy-form').reset();
-      document.getElementById('cm-schema-field').style.display = 'none';
+      resetFileInputs(document.getElementById('custom-deploy-form'));
+      document.getElementById('cm-schema-field').hidden = true;
       setTimeout(() => { submitBtn.textContent = 'Upload and deploy'; }, 2000);
       pollCustomModelStatus(data.deployment_id, successEl);
     } catch (err) {
@@ -1862,6 +2051,8 @@ def admin_deployments_page():
     }[phase] || phase;
   }
 
+  // Maps a poll phase to a ds alert modifier: running -> success,
+  // failed -> danger, anything still in progress -> warning.
   function customStatusVariant(phase) {
     if (phase === 'running') return 'success';
     if (phase === 'failed') return 'danger';
@@ -1881,10 +2072,13 @@ def admin_deployments_page():
         const data = await res.json().catch(() => null);
         const phase = (data && data.phase) || 'unknown';
         const detail = data && data.detail ? ' (' + UI.escapeHtml(data.detail) + ')' : '';
-        statusEl.innerHTML = UI.badge(customStatusLabel(phase), customStatusVariant(phase), true) +
-          ' <span class="text-secondary" style="font-size:var(--text-sm)">Deployment #' + deploymentId +
+        statusEl.hidden = false;
+        statusEl.innerHTML =
+          '<div class="alert alert-' + customStatusVariant(phase) + '"><div>' +
+          '<div class="alert-title">' + UI.escapeHtml(customStatusLabel(phase)) + '</div>' +
+          'Deployment #' + deploymentId +
           (phase === 'running' ? ' is running.' : phase === 'failed' ? ' failed to deploy.' + detail : ' is being provisioned&hellip;') +
-          '</span>';
+          '</div></div>';
         if (phase === 'running' || phase === 'failed') {
           loadDeployments();
           return;
@@ -1899,12 +2093,12 @@ def admin_deployments_page():
   }
 </script>"""
 
-    ready = "loadDeployments();"
+    ready = "initDeployments();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Deployments - Vela Admin</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        "<title>Deployments - Vela Admin</title>\n" + ds_assets + "\n</head>\n<body>\n"
         + body
         + "\n" + _SCRIPTS + "\n" + script
         + _boot_script("/admin/deployments", "Deployments", ready)

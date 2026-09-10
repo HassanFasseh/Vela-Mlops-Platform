@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vela — Design System</title>
-<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds4">
-<link rel="stylesheet" href="/static/css/ds/base.css?v=ds4">
-<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds4">
-<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds4">
+<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">
+<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">
+<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">
+<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds5">
 <style>
   /* Catalog scaffolding only — not part of the design system. */
   body { background: var(--bg); }
@@ -428,6 +428,43 @@
       primary button. No interactive control fills with blue — that stays for links,
       focus rings, active nav and the info state only.
     </p>
+
+    <h3>File input</h3>
+    <p class="ds-note">
+      The browser's native <span class="mono">Choose file / no file chosen</span> control
+      is replaced, not restyled: a <span class="mono">&lt;label class="file-input"&gt;</span>
+      wraps the real <span class="mono">&lt;input type="file"&gt;</span> (kept in the DOM,
+      focusable, its <span class="mono">name</span> / <span class="mono">.files</span> /
+      <span class="mono">FormData</span> wiring untouched) and JS mirrors the selection
+      into the name area. Same height, border and hover / focus treatment as
+      <span class="mono">.input</span>.
+    </p>
+    <div class="ds-demo ds-stack" style="max-width:420px">
+      <div class="field" style="margin-bottom:0">
+        <label class="field-label" for="ds-file-1">Single file</label>
+        <label class="file-input">
+          <input type="file" id="ds-file-1">
+          <span class="file-input-name is-empty" data-placeholder="No file selected">No file selected</span>
+          <span class="file-input-btn">Choose file</span>
+        </label>
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label class="field-label" for="ds-file-2">Multiple files</label>
+        <label class="file-input">
+          <input type="file" id="ds-file-2" multiple>
+          <span class="file-input-name is-empty" data-placeholder="No files selected">No files selected</span>
+          <span class="file-input-btn">Choose files</span>
+        </label>
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <span class="field-label">Filled state</span>
+        <label class="file-input">
+          <input type="file" id="ds-file-3" tabindex="-1">
+          <span class="file-input-name">fraud-model.joblib</span>
+          <span class="file-input-btn">Choose file</span>
+        </label>
+      </div>
+    </div>
   </section>
 
   <!-- ============================================================ -->
@@ -568,7 +605,7 @@
 
   <!-- ============================================================ -->
   <section class="ds-section" id="tabs-menus">
-    <h2>Tabs, menus &amp; modal</h2>
+    <h2>Tabs, segmented control, menus &amp; overlays</h2>
 
     <h3>Tabs</h3>
     <div class="tabs" style="margin-bottom:var(--space-4)">
@@ -577,6 +614,25 @@
       <button class="tab">Drift</button>
       <button class="tab">Events</button>
       <button class="tab">Config</button>
+    </div>
+
+    <h3>Segmented control</h3>
+    <p class="ds-note">
+      One exclusive choice among 2–4 short options — a view mode or a form variant. Not
+      tabs (no page-section semantics, no underline) and not a radio group. The active
+      option is a raised chip: elevation and a monochrome surface step, never an accent
+      fill. <span class="mono">.segmented-block</span> stretches it to fill its container.
+    </p>
+    <div class="ds-demo ds-stack" data-seg-demo>
+      <div class="segmented" role="tablist" aria-label="Range">
+        <button class="segmented-option is-active" type="button" role="tab" aria-selected="true">Day</button>
+        <button class="segmented-option" type="button" role="tab" aria-selected="false">Week</button>
+        <button class="segmented-option" type="button" role="tab" aria-selected="false">Month</button>
+      </div>
+      <div class="segmented segmented-block" role="tablist" aria-label="Deployment type">
+        <button class="segmented-option is-active" type="button" role="tab" aria-selected="true">HuggingFace</button>
+        <button class="segmented-option" type="button" role="tab" aria-selected="false">Custom model</button>
+      </div>
     </div>
 
     <div class="ds-grid cols-2">
@@ -607,6 +663,42 @@
             <button class="btn btn-secondary">Cancel</button>
             <button class="btn btn-danger">Delete</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <h3>Slide-over</h3>
+    <p class="ds-note">
+      A right-anchored panel for a focused task that carries more than a modal holds
+      comfortably — a multi-step or multi-variant form. Same scrim and z-index as a modal;
+      the panel keeps its own scroll so the page behind never moves. Full-width below
+      560px. Opens by toggling <span class="mono">[hidden]</span> on
+      <span class="mono">.slideover-overlay</span>.
+    </p>
+    <button class="btn btn-secondary btn-sm" type="button" id="ds-slideover-open">Open slide-over</button>
+    <div class="slideover-overlay" id="ds-slideover" hidden>
+      <div class="slideover" role="dialog" aria-modal="true" aria-label="Example slide-over">
+        <div class="slideover-header">
+          <div class="slideover-title">Deploy a model</div>
+          <button class="btn btn-ghost btn-sm btn-icon" type="button" id="ds-slideover-close" aria-label="Close">✕</button>
+        </div>
+        <div class="slideover-body">
+          <div class="segmented segmented-block" role="tablist" aria-label="Deployment type" style="margin-bottom:var(--space-5)">
+            <button class="segmented-option is-active" type="button" role="tab" aria-selected="true">HuggingFace</button>
+            <button class="segmented-option" type="button" role="tab" aria-selected="false">Custom model</button>
+          </div>
+          <form class="form" onsubmit="return false">
+            <div class="field">
+              <label class="field-label" for="ds-so-model">HuggingFace model name</label>
+              <input class="input" id="ds-so-model" placeholder="distilbert-base-uncased-finetuned-sst-2-english">
+            </div>
+            <div class="field">
+              <label class="field-label" for="ds-so-name">Deployment name</label>
+              <input class="input" id="ds-so-name" placeholder="lowercase-with-hyphens">
+              <div class="field-hint">Lowercase letters, numbers, and hyphens only.</div>
+            </div>
+            <button class="btn btn-primary btn-block" type="submit">Deploy via GitHub Actions</button>
+          </form>
         </div>
       </div>
     </div>
@@ -784,6 +876,50 @@
       demoBtn.addEventListener("click", function () {
         demo.classList.toggle("is-narrow");
       });
+    }
+
+    // File inputs — mirror the native selection into .file-input-name.
+    document.querySelectorAll(".file-input > input[type=file]").forEach(function (input) {
+      var nameEl = input.parentElement.querySelector(".file-input-name");
+      if (!nameEl) return;
+      var placeholder = nameEl.dataset.placeholder || "No file selected";
+      input.addEventListener("change", function () {
+        var n = input.files ? input.files.length : 0;
+        if (!n) { nameEl.textContent = placeholder; nameEl.classList.add("is-empty"); }
+        else if (n === 1) { nameEl.textContent = input.files[0].name; nameEl.classList.remove("is-empty"); }
+        else { nameEl.textContent = n + " files selected"; nameEl.classList.remove("is-empty"); }
+      });
+    });
+
+    // Segmented controls — click swaps .is-active / aria-selected within a group.
+    document.querySelectorAll(".segmented").forEach(function (group) {
+      group.addEventListener("click", function (e) {
+        var opt = e.target.closest(".segmented-option");
+        if (!opt || !group.contains(opt)) return;
+        group.querySelectorAll(".segmented-option").forEach(function (o) {
+          var on = o === opt;
+          o.classList.toggle("is-active", on);
+          o.setAttribute("aria-selected", String(on));
+        });
+      });
+    });
+
+    // Slide-over demo — toggle [hidden] on the overlay; Esc / scrim close.
+    var soOpen = document.getElementById("ds-slideover-open");
+    var so = document.getElementById("ds-slideover");
+    if (soOpen && so) {
+      var soClose = document.getElementById("ds-slideover-close");
+      var closeSo = function () {
+        so.hidden = true;
+        document.removeEventListener("keydown", soKey);
+      };
+      var soKey = function (e) { if (e.key === "Escape") closeSo(); };
+      soOpen.addEventListener("click", function () {
+        so.hidden = false;
+        document.addEventListener("keydown", soKey);
+      });
+      soClose.addEventListener("click", closeSo);
+      so.addEventListener("click", function (e) { if (e.target === so) closeSo(); });
     }
   })();
 </script>
