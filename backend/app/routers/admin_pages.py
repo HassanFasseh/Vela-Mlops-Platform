@@ -73,34 +73,48 @@ def _boot_script(active_path: str, breadcrumb_label: str, on_ready: str) -> str:
 
 @router.get("/admin", response_class=HTMLResponse)
 def admin_overview_page():
+    # Phase 2: first screen migrated to the ds/* design system. This route
+    # loads the ds/* stylesheet bundle instead of the legacy css/* one;
+    # every other admin page still uses _ASSETS. The shared JS (_SCRIPTS:
+    # api/shell/ui.js) is theme-agnostic and unchanged.
+    ds_assets = (
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds4">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds4">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds4">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds4">'
+    )
+
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
-    <div class="card-header" style="margin-bottom:var(--space-2)">
+    <div class="page-header">
       <div>
-        <h1 id="greeting" style="font-size:var(--text-lg)">Loading…</h1>
-        <div id="platform-status" class="text-secondary" style="font-size:var(--text-sm);margin-top:2px"></div>
+        <h1 class="page-title" id="greeting">Loading…</h1>
+        <div class="page-description" id="platform-status"></div>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-secondary btn-sm" id="refresh-btn" type="button">Refresh</button>
       </div>
     </div>
 
-    <div class="metric-strip" id="metric-row" style="margin:var(--space-5) 0"></div>
+    <div class="metric-strip" id="metric-row"></div>
 
     <div class="section-label">Model health</div>
     <div id="drift-banner"></div>
     <div class="table-wrap">
-      <table class="table">
+      <table class="table" style="min-width:640px">
         <thead>
           <tr><th>Model</th><th>Task</th><th>Source</th><th>Status</th><th>Actions</th></tr>
         </thead>
-        <tbody id="model-health-body">""" + "" + """</tbody>
+        <tbody id="model-health-body"></tbody>
       </table>
     </div>
 
     <div class="section-label">Recent tickets</div>
-    <div id="recent-tickets-card"></div>
+    <div id="recent-tickets"></div>
   </div>
 </div>
-<div class="auth-loading" id="loading-root">Loading…</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
 """
 
     script = """
@@ -110,6 +124,12 @@ def admin_overview_page():
   let overviewRows = [];
   let managementApiKey = '';
   let overviewUser = null;
+
+  function initOverview(user) {
+    const refreshBtn = document.getElementById('refresh-btn');
+    if (refreshBtn) refreshBtn.addEventListener('click', () => loadOverview());
+    loadOverview(user);
+  }
 
   async function loadOverview(user) {
     overviewUser = user || overviewUser;
@@ -168,7 +188,9 @@ def admin_overview_page():
 
   // A plain-text 3-column strip (spec) instead of a KPI card wall -
   // total running models, open tickets, and platform-wide drift, each
-  // just a number + label separated by a divider.
+  // just a number + label separated by a divider. Neutral by default: a
+  // value only takes colour when it is itself the exception being
+  // reported (open tickets, elevated platform drift).
   function stripItem(value, label, variant) {
     return '<div class="metric-strip-item"><div class="metric-strip-value' + (variant ? ' is-' + variant : '') + '">' + value + '</div><div class="metric-strip-label">' + label + '</div></div>';
   }
@@ -179,7 +201,7 @@ def admin_overview_page():
     document.getElementById('metric-row').innerHTML =
       stripItem(running + ' / ' + rows.length, 'Models running') +
       stripItem(openTickets, 'Open tickets', openTickets > 0 ? 'warning' : undefined) +
-      stripItem(fmtPct(metrics.drift_score), 'Platform drift', (metrics.drift_score || 0) > 0.3 ? 'danger' : undefined);
+      stripItem(fmtPct(metrics.drift_score), 'Platform drift', (metrics.drift_score || 0) > 0.3 ? 'error' : undefined);
   }
 
   // There's no per-model drift breakdown fetched on this page (that lives
@@ -190,8 +212,8 @@ def admin_overview_page():
   function renderDriftBanner(metrics) {
     const el = document.getElementById('drift-banner');
     if ((metrics.drift_score || 0) <= 0.3) { el.innerHTML = ''; return; }
-    el.innerHTML = '<div class="banner-strip is-warning">&#9888; Elevated drift detected across the platform (' +
-      fmtPct(metrics.drift_score) + ' of tracked features) - <a href="/admin/drift">Investigate &rarr;</a></div>';
+    el.innerHTML = '<div class="banner-strip is-warning">Elevated drift detected across the platform (' +
+      fmtPct(metrics.drift_score) + ' of tracked features) &mdash; <a href="/admin/drift">Investigate &rarr;</a></div>';
   }
 
   function renderModelHealth(rows) {
@@ -224,7 +246,7 @@ def admin_overview_page():
       const overlay = UI.openModal({
         title: 'API key required',
         bodyHtml: `
-          <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:.75rem">An unscoped workspace API key is needed to manage models - see API Keys.</p>
+          <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-3)">An unscoped workspace API key is needed to manage models - see API Keys.</p>
           <div class="field"><label class="field-label" for="ov-api-key">API key</label><input class="input" type="password" id="ov-api-key" placeholder="aodp_your_admin_key"></div>
         `,
         footerHtml: `<button class="btn btn-ghost" id="ov-key-cancel" type="button">Cancel</button>
@@ -271,8 +293,8 @@ def admin_overview_page():
     const overlay = UI.openModal({
       title: 'Delete ' + row.name,
       bodyHtml: `
-        <div class="alert alert-danger" style="margin-bottom:.75rem">
-          <div><div class="alert-title">This cannot be undone</div><div class="alert-body">This will remove the model and revoke all team access. Type the model name to confirm.</div></div>
+        <div class="alert alert-danger" style="margin-bottom:var(--space-3)">
+          <div><div class="alert-title">This cannot be undone</div><div>This will remove the model and revoke all team access. Type the model name to confirm.</div></div>
         </div>
         <div class="field">
           <label class="field-label" for="ov-del-confirm-name">Model name</label>
@@ -308,31 +330,35 @@ def admin_overview_page():
     });
   }
 
+  // Compact table (Ticket / Filed / Severity), consistent with Model
+  // health above. Severity renders as dot + text; the row itself carries
+  // no colour.
   function renderRecentTickets(tickets) {
-    const card = document.getElementById('recent-tickets-card');
+    const el = document.getElementById('recent-tickets');
     if (!tickets.length) {
-      card.innerHTML = UI.emptyState('No tickets yet', 'Tickets filed by team members will appear here.');
+      el.innerHTML = UI.emptyState('No tickets yet', 'Tickets filed by team members will appear here.');
       return;
     }
     const recent = tickets.slice(0, 5);
-    card.innerHTML = recent.map(t =>
-      '<div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem;padding:.5rem 0;border-bottom:1px solid var(--color-border-subtle)">' +
-      '<div style="min-width:0">' +
-      '<div style="font-size:var(--text-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + UI.escapeHtml(t.title) + '</div>' +
-      '<div class="text-muted" style="font-size:var(--text-xs)">' + UI.timeAgo(t.filed_at) + '</div>' +
-      '</div>' +
-      '<div style="flex-shrink:0">' + UI.severityBadge(t.severity) + '</div>' +
-      '</div>'
-    ).join('') + '<div style="margin-top:.75rem"><a href="/admin/tickets-page" class="link-secondary" style="font-size:var(--text-sm)">View all tickets &rarr;</a></div>';
+    el.innerHTML =
+      '<div class="table-wrap"><table class="table" style="min-width:480px">' +
+      '<thead><tr><th>Ticket</th><th>Filed</th><th>Severity</th></tr></thead><tbody>' +
+      recent.map(t =>
+        '<tr><td>' + UI.escapeHtml(t.title) + '</td>' +
+        '<td class="text-muted">' + UI.timeAgo(t.filed_at) + '</td>' +
+        '<td>' + UI.severityBadge(t.severity) + '</td></tr>'
+      ).join('') +
+      '</tbody></table></div>' +
+      '<div style="margin-top:var(--space-3)"><a class="link-action" href="/admin/tickets-page">View all tickets &rarr;</a></div>';
   }
 </script>"""
 
-    ready = "loadOverview(user);"
+    ready = "initOverview(user);"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Overview - Vela Admin</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        "<title>Overview - Vela Admin</title>\n" + ds_assets + "\n</head>\n<body>\n"
         + body
         + "\n" + _SCRIPTS + "\n" + script
         + _boot_script("/admin", "Overview", ready)
