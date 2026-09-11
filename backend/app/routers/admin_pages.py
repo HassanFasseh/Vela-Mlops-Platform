@@ -2327,76 +2327,138 @@ def admin_deployments_page():
 # =========================================================================
 # Infrastructure - /admin/infrastructure
 #
+# Phase 2: migrated to the ds/* design system (see admin_overview_page /
+# admin_models_page for the same local ds_assets pattern). Presentation
+# only - every fetch below is unchanged.
+#
 # "Running instances" and the services table are built from
 # /models/status + /deployments' replica counts, not the Kubernetes Pod
 # API directly (no endpoint exposes individual Pod objects) - labeled
 # accordingly rather than claiming pod-level precision. "Uptime" is
 # derived from the most recent "deploy" event on /timeline (itself
-# sourced from Prometheus process_start_time_seconds), with a graceful
-# fallback since /timeline 500s if Prometheus is unreachable.
+# sourced from Prometheus process_start_time_seconds). Node CPU/memory
+# come from /metrics-summary's node_cpu_percent/node_memory_*_gb. All
+# three of these Prometheus-backed reads (and /deployments' Kubernetes
+# read) already fail soft server-side - None/[] on an unreachable
+# Prometheus or cluster, never a 500 - so what this page renders for
+# "nothing came back" is purely a frontend/DS concern now.
 # =========================================================================
 
 @router.get("/admin/infrastructure", response_class=HTMLResponse)
 def admin_infrastructure_page():
+    ds_assets = (
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds5">'
+    )
+
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
-    <h1 style="font-size:var(--text-lg);margin-bottom:2px">Infrastructure</h1>
-    <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)">Node resource usage and running services.</p>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Infrastructure</h1>
+        <div class="page-description">Node resource usage and running services.</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-secondary btn-sm" id="refresh-btn" type="button">Refresh</button>
+      </div>
+    </div>
 
     <div class="grid-2" style="margin-bottom:var(--space-4)">
-      <div class="card">
-        <div class="meter-label"><span>Node CPU usage</span><span id="cpu-val">&mdash;</span></div>
+      <div class="panel">
+        <div class="meter-label" id="cpu-label"><span>Node CPU usage</span><span class="meter-value" id="cpu-val">&mdash;</span></div>
         <div class="meter-track"><div class="meter-fill" id="cpu-fill" style="width:0%"></div></div>
       </div>
-      <div class="card">
-        <div class="meter-label"><span>Node memory usage</span><span id="mem-val">&mdash;</span></div>
+      <div class="panel">
+        <div class="meter-label" id="mem-label"><span>Node memory usage</span><span class="meter-value" id="mem-val">&mdash;</span></div>
         <div class="meter-track"><div class="meter-fill" id="mem-fill" style="width:0%"></div></div>
       </div>
     </div>
 
-    <div class="metric-row" style="margin-bottom:var(--space-5)">
-      <div class="metric-tile"><div class="metric-tile-value" id="pod-count">&mdash;</div><div class="metric-tile-label">Running instances</div></div>
-      <div class="metric-tile"><div class="metric-tile-value" id="uptime-val" style="font-size:var(--text-md)">&mdash;</div><div class="metric-tile-label">Uptime since last deploy</div></div>
+    <div class="metric-strip" style="margin-bottom:var(--space-5)">
+      <div class="metric-strip-item"><div class="metric-strip-value" id="pod-count">&mdash;</div><div class="metric-strip-label">Running instances</div></div>
+      <div class="metric-strip-item"><div class="metric-strip-value" id="uptime-val" style="font-size:var(--text-md)">&mdash;</div><div class="metric-strip-label">Uptime since last deploy</div></div>
     </div>
 
     <div class="section-label">Services</div>
     <div class="table-wrap">
-      <table class="table">
+      <table class="table" style="min-width:520px">
         <thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Replicas</th></tr></thead>
         <tbody id="services-body"></tbody>
       </table>
     </div>
   </div>
 </div>
-<div class="auth-loading" id="loading-root">Loading&hellip;</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
 """
 
     script = """
 <script>
-  function setMeter(prefix, pct, label) {
+  // variant is null for a normal reading (no color - ds rule: a healthy
+  // value is simply not colored) or 'warning'/'error' past a threshold -
+  // applied to both the fill AND the label/value together, never just
+  // the bar, so the read-out text itself carries the same signal.
+  function setMeter(prefix, pct, label, variant) {
     const fill = document.getElementById(prefix + '-fill');
     const val = document.getElementById(prefix + '-val');
+    const labelEl = document.getElementById(prefix + '-label');
     if (fill) {
       fill.style.width = Math.min(100, Math.max(0, pct)) + '%';
-      fill.className = 'meter-fill' + (pct > 85 ? ' is-danger' : pct > 65 ? ' is-warning' : '');
+      fill.className = 'meter-fill' + (variant ? ' is-' + variant : '');
     }
     if (val) val.textContent = label;
+    if (labelEl) labelEl.className = 'meter-label' + (variant ? ' is-' + variant : '');
+  }
+
+  // Prometheus having nothing for this reading (unreachable locally, or
+  // a fresh node with no scrape yet) is NOT the same fact as "0% usage" -
+  // showing a fabricated 0% bar would read as "measured and idle" when
+  // it's actually "never measured". Same honesty rule as Model Health's
+  // "No telemetry yet" panel, just sized for an inline meter instead of
+  // a full panel.
+  function setMeterUnavailable(prefix) {
+    const fill = document.getElementById(prefix + '-fill');
+    const val = document.getElementById(prefix + '-val');
+    const labelEl = document.getElementById(prefix + '-label');
+    if (fill) { fill.style.width = '0%'; fill.className = 'meter-fill'; }
+    if (val) val.textContent = 'Not instrumented';
+    if (labelEl) labelEl.className = 'meter-label';
   }
 
   function fmtN(n, dec) { return (n == null || isNaN(n)) ? '—' : Number(n).toFixed(dec); }
 
+  function meterVariant(pct) { return pct > 85 ? 'error' : pct > 65 ? 'warning' : null; }
+
   async function loadMetrics() {
     try {
       const d = await Api.get('/metrics-summary');
-      const cpu = Math.round(d.node_cpu_percent || 0);
-      const mu = d.node_memory_used_gb || 0;
-      const mt = d.node_memory_total_gb || 0;
-      const mp = mt > 0 ? Math.round((mu / mt) * 100) : 0;
-      setMeter('cpu', cpu, cpu + '%');
-      setMeter('mem', mp, fmtN(mu, 1) + 'GB / ' + fmtN(mt, 1) + 'GB (' + mp + '%)');
+
+      if (d.node_cpu_percent == null) {
+        setMeterUnavailable('cpu');
+      } else {
+        const cpu = Math.round(d.node_cpu_percent);
+        setMeter('cpu', cpu, cpu + '%', meterVariant(cpu));
+      }
+
+      if (d.node_memory_used_gb == null || d.node_memory_total_gb == null || d.node_memory_total_gb <= 0) {
+        setMeterUnavailable('mem');
+      } else {
+        const mu = d.node_memory_used_gb;
+        const mt = d.node_memory_total_gb;
+        const mp = Math.round((mu / mt) * 100);
+        setMeter('mem', mp, fmtN(mu, 1) + 'GB / ' + fmtN(mt, 1) + 'GB (' + mp + '%)', meterVariant(mp));
+      }
     } catch (e) {
-      UI.toast('Could not load node metrics: ' + e.message, 'danger');
+      // /metrics-summary itself fails soft server-side (see comment
+      // above) - this only fires on a real network-level failure, and
+      // never shows the raw error, just the same honest unavailable
+      // state as "Prometheus had nothing".
+      console.error('Infrastructure: loadMetrics failed', e);
+      setMeterUnavailable('cpu');
+      setMeterUnavailable('mem');
+      UI.toast('Could not load node metrics.', 'danger');
     }
   }
 
@@ -2435,17 +2497,29 @@ def admin_infrastructure_page():
       const hours = Math.floor(seconds / 3600);
       el.textContent = hours < 1 ? Math.floor(seconds / 60) + 'm' : hours < 48 ? hours + 'h' : Math.floor(hours / 24) + 'd';
     } catch (e) {
+      // Same rule as elsewhere on this page - /timeline already fails
+      // soft server-side, so this is a real network failure at best;
+      // never the raw error, just a calm "can't tell right now".
+      console.error('Infrastructure: loadUptime failed', e);
       el.textContent = 'Unavailable';
     }
   }
+
+  function initInfrastructure() {
+    const refreshBtn = document.getElementById('refresh-btn');
+    if (refreshBtn) refreshBtn.addEventListener('click', () => { loadMetrics(); loadServices(); loadUptime(); });
+    loadMetrics();
+    loadServices();
+    loadUptime();
+  }
 </script>"""
 
-    ready = "loadMetrics(); loadServices(); loadUptime();"
+    ready = "initInfrastructure();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Infrastructure - Vela Admin</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        "<title>Infrastructure - Vela Admin</title>\n" + ds_assets + "\n</head>\n<body>\n"
         + body
         + "\n" + _SCRIPTS + "\n" + script
         + _boot_script("/admin/infrastructure", "Infrastructure", ready)
