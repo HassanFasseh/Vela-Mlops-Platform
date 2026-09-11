@@ -732,21 +732,92 @@ def admin_users_page():
 
 # =========================================================================
 # Teams - /admin/teams-page
+#
+# Phase 2: migrated to the ds/* design system (see admin_users_page for
+# the reference pattern - creation in a slide-over, confirmations as
+# modals). Presentation only: every loader and CRUD call below (teams/
+# users/deployments loads, add/remove member, grant/revoke model access,
+# create team) is unchanged - only the surface it's wired through moved.
+#
+# The old page rendered one always-expanded card per team, each inlining
+# a full members+models editor - fine for a handful of teams, not for
+# many. That's now a compact table (one row per team) plus an on-screen
+# "Manage" slide-over per team, opened on demand, holding exactly the
+# same member/model editor. That's the focused, multi-part-form case
+# slide-overs are for; it's just no longer rendered N times at once for N
+# teams. No delete-team action: there is no DELETE /admin/teams/{id}
+# endpoint to call, so one isn't invented here.
 # =========================================================================
 
 @router.get("/admin/teams-page", response_class=HTMLResponse)
 def admin_teams_page():
+    ds_assets = (
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds5">'
+    )
+
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
-    <div class="card-header">
-      <h1 style="font-size:var(--text-lg)">Teams</h1>
-      <button class="btn btn-primary" id="new-team-btn" type="button">New team</button>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Teams</h1>
+        <div class="page-description">Team membership and per-team model access.</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-secondary btn-sm" id="refresh-btn" type="button">Refresh</button>
+        <button class="btn btn-primary btn-sm" id="new-team-btn" type="button">New team</button>
+      </div>
     </div>
-    <div id="teams-list"></div>
+
+    <div class="toolbar">
+      <span class="input-group" style="flex:1 1 220px">
+        <svg class="input-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m11 11 3 3"/></svg>
+        <input class="input" id="teams-filter" type="text" placeholder="Filter by name or description" autocomplete="off" style="flex:1;min-width:0">
+      </span>
+      <span class="toolbar-spacer"></span>
+      <span class="text-muted" id="teams-count" style="font-size:var(--text-xs);flex-shrink:0"></span>
+    </div>
+    <div class="table-wrap">
+      <table class="table" style="min-width:560px">
+        <thead>
+          <tr><th>Name</th><th>Description</th><th class="num">Members</th><th class="num">Models</th><th class="num">Actions</th></tr>
+        </thead>
+        <tbody id="teams-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="slideover-overlay" id="new-team-panel" hidden>
+  <div class="slideover" role="dialog" aria-modal="true" aria-labelledby="new-team-panel-title">
+    <div class="slideover-header">
+      <div class="slideover-title" id="new-team-panel-title">New team</div>
+      <button class="btn btn-ghost btn-sm btn-icon" id="close-new-team-panel" type="button" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="slideover-body">
+      <form class="form" id="new-team-form" novalidate>
+        <div class="field"><label class="field-label" for="nt-name">Team name</label><input class="input" id="nt-name" required></div>
+        <div class="field"><label class="field-label" for="nt-desc">Description (optional)</label><textarea class="textarea" id="nt-desc" rows="3"></textarea></div>
+        <div class="field-error" id="nt-error" role="alert"></div>
+        <button class="btn btn-primary btn-block" type="submit" id="nt-submit">Create team</button>
+      </form>
+    </div>
+  </div>
+  </div>
+
+  <div class="slideover-overlay" id="manage-team-panel" hidden>
+  <div class="slideover" role="dialog" aria-modal="true" aria-labelledby="manage-team-panel-title">
+    <div class="slideover-header">
+      <div class="slideover-title" id="manage-team-panel-title">Manage team</div>
+      <button class="btn btn-ghost btn-sm btn-icon" id="close-manage-team-panel" type="button" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="slideover-body" id="manage-team-body"></div>
+  </div>
   </div>
 </div>
-<div class="auth-loading" id="loading-root">Loading…</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
 """
 
     script = """
@@ -755,6 +826,7 @@ def admin_teams_page():
   let cachedTeams = [];
   let cachedDeployments = [];
   let workspaceId = null;
+  let currentManageTeamId = null;
 
   async function ensureWorkspace() {
     if (workspaceId) return workspaceId;
@@ -768,9 +840,19 @@ def admin_teams_page():
     return workspaceId;
   }
 
+  function initTeams() {
+    const refreshBtn = document.getElementById('refresh-btn');
+    if (refreshBtn) refreshBtn.addEventListener('click', () => loadTeams());
+    const filterInput = document.getElementById('teams-filter');
+    if (filterInput) filterInput.addEventListener('input', renderTeamsTable);
+    wireNewTeamPanel();
+    wireManageTeamPanel();
+    loadTeams();
+  }
+
   async function loadTeams() {
-    const list = document.getElementById('teams-list');
-    list.innerHTML = '<div class="card"><span class="skeleton skeleton-text" style="display:block;max-width:220px">&nbsp;</span></div>';
+    const body = document.getElementById('teams-body');
+    body.innerHTML = UI.skeletonRows(5, 4);
     try {
       const [teams, users, deployments] = await Promise.all([
         Api.get('/admin/teams'), Api.get('/admin/users'), Api.get('/admin/deployment-registry')
@@ -778,49 +860,120 @@ def admin_teams_page():
       cachedTeams = teams;
       cachedUsers = users;
       cachedDeployments = deployments;
-      renderTeams();
+      renderTeamsTable();
+      // Keep an open Manage panel showing live data after a mutation -
+      // add/remove member and grant/revoke access all call loadTeams()
+      // on success, and the panel would otherwise still show the
+      // pre-mutation list until closed and reopened.
+      if (currentManageTeamId != null) renderManagePanelBody(currentManageTeamId);
     } catch (e) {
-      list.innerHTML = UI.errorState(e.message, loadTeams);
+      cachedTeams = [];
+      body.innerHTML = '<tr><td colspan="5">' + UI.errorState(e.message, loadTeams) + '</td></tr>';
+      const countEl = document.getElementById('teams-count');
+      if (countEl) countEl.textContent = '';
     }
   }
 
-  function renderTeams() {
-    const list = document.getElementById('teams-list');
+  // Client-side only: filters the already-loaded cachedTeams, same
+  // pattern as the Users registry filter.
+  function renderTeamsTable() {
+    const body = document.getElementById('teams-body');
+    const countEl = document.getElementById('teams-count');
+    const q = (document.getElementById('teams-filter').value || '').trim().toLowerCase();
+
     if (!cachedTeams.length) {
-      list.innerHTML = '<div class="card">' + UI.emptyState('No teams yet', 'Create a team to start assigning members and model access.') + '</div>';
+      body.innerHTML = '<tr><td colspan="5">' + UI.emptyState('No teams yet', 'Create a team to start assigning members and model access.') + '</td></tr>';
+      if (countEl) countEl.textContent = '';
       return;
     }
-    list.innerHTML = cachedTeams.map(renderTeamCard).join('');
-    cachedTeams.forEach(t => wireTeamCard(t));
+
+    const rows = cachedTeams.filter(t => {
+      if (!q) return true;
+      return (t.name || '').toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q);
+    });
+
+    if (countEl) {
+      countEl.textContent = q
+        ? rows.length + ' of ' + cachedTeams.length
+        : cachedTeams.length + (cachedTeams.length === 1 ? ' team' : ' teams');
+    }
+
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="5">' + UI.emptyState('No matches', 'No team matches that filter.') + '</td></tr>';
+      return;
+    }
+
+    body.innerHTML = rows.map(renderTeamRow).join('');
+    body.querySelectorAll('[data-manage-team]').forEach(btn => {
+      btn.addEventListener('click', () => openManageTeamPanel(btn.dataset.manageTeam));
+    });
   }
 
-  function renderTeamCard(t) {
+  // Member/model counts are plain facts, not exceptions - neutral, same
+  // as the rest of this table. Role (member/lead) inside the Manage
+  // panel is the only place this page labels anything, and that stays a
+  // neutral badge too (see renderManagePanelBody) - color is reserved
+  // for real status elsewhere in this system, not for identity labels.
+  function renderTeamRow(t) {
+    const memberCount = (t.members || []).length;
+    const modelCount = (t.permissions || []).length;
+    return '<tr>' +
+      '<td>' + UI.escapeHtml(t.name) + '</td>' +
+      '<td class="text-secondary">' + (t.description ? UI.escapeHtml(t.description) : '<span class="text-muted">—</span>') + '</td>' +
+      '<td class="num">' + memberCount + '</td>' +
+      '<td class="num">' + modelCount + '</td>' +
+      '<td class="num"><button class="link-action" data-manage-team="' + t.id + '" type="button">Manage</button></td>' +
+      '</tr>';
+  }
+
+  // ================================================================
+  // Manage team slide-over - members + model access for one team,
+  // opened on demand. One scrolling panel (slideover-body already
+  // scrolls) rather than tabbed; if members+models ever gets too tall
+  // in practice, tabbing it is a follow-up, not a pre-optimization.
+  // ================================================================
+
+  function renderManagePanelBody(teamId) {
+    const t = cachedTeams.find(x => String(x.id) === String(teamId));
+    const titleEl = document.getElementById('manage-team-panel-title');
+    const body = document.getElementById('manage-team-body');
+    if (!t) { if (titleEl) titleEl.textContent = 'Manage team'; body.innerHTML = ''; return; }
+    if (titleEl) titleEl.textContent = t.name;
+
     const memberIds = new Set((t.members || []).map(m => m.user_id));
     const memberCount = (t.members || []).length;
     const memberRows = memberCount
-      ? t.members.map(m =>
-          '<div style="display:flex;justify-content:space-between;align-items:center;padding:.3rem 0">' +
-          '<span style="font-size:var(--text-sm)">' + UI.escapeHtml(m.name || m.email || ('User #' + m.user_id)) +
-          (m.role === 'lead' ? ' <span class="text-muted" style="font-size:var(--text-xs)">(lead)</span>' : '') + '</span>' +
-          '<button class="link-action" data-remove-member="' + t.id + ':' + m.user_id + '" type="button">Remove</button>' +
-          '</div>'
-        ).join('')
-      : '<div class="text-muted" style="font-size:var(--text-sm);padding:.3rem 0">No members yet</div>';
+      ? t.members.map(m => {
+          const label = m.name || m.email || ('User #' + m.user_id);
+          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.35rem 0;border-bottom:var(--border-width) solid var(--border-subtle)">' +
+            '<span style="font-size:var(--text-sm)">' + UI.escapeHtml(label) + (m.role === 'lead' ? ' ' + UI.badge('Lead', 'neutral') : '') + '</span>' +
+            '<button class="link-action link-danger" data-remove-member="' + t.id + ':' + m.user_id + '" data-member-name="' + UI.escapeHtml(label) + '" type="button">Remove</button>' +
+            '</div>';
+        }).join('')
+      : '<div class="text-muted" style="font-size:var(--text-sm);padding:.35rem 0">No members yet</div>';
 
     const availableUsers = cachedUsers.filter(u => u.is_active && !memberIds.has(u.id));
     const userOptions = availableUsers.map(u => '<option value="' + u.id + '">' + UI.escapeHtml(u.name) + ' (' + UI.escapeHtml(u.username) + ')</option>').join('');
+    const addMemberRow = availableUsers.length
+      ? '<div style="display:flex;gap:.5rem;margin-top:var(--space-2);flex-wrap:wrap">' +
+        '<select class="select" id="mt-add-user" style="flex:2;min-width:120px">' + userOptions + '</select>' +
+        '<select class="select" id="mt-add-role" style="flex:1;min-width:90px"><option value="member">Member</option><option value="lead">Lead</option></select>' +
+        '<button class="btn btn-secondary btn-sm" id="mt-add-member" type="button">Add</button>' +
+        '</div>'
+      : '';
 
     const perms = t.permissions || [];
     const modelCount = perms.length;
     const permRows = modelCount
-      ? perms.map(p =>
-          '<div style="display:flex;justify-content:space-between;align-items:center;padding:.3rem 0">' +
-          '<span style="font-size:var(--text-sm)">' + UI.escapeHtml(p.model_name || p.deployment_name || ('Deployment #' + p.deployment_id)) +
-          '<span class="text-muted" style="font-size:var(--text-xs)">' + (p.can_predict ? ' &middot; predict' : '') + (p.can_view_metrics ? ' &middot; view metrics' : '') + '</span></span>' +
-          '<button class="link-action link-danger" data-revoke-perm="' + t.id + ':' + p.deployment_id + '" type="button">Revoke</button>' +
-          '</div>'
-        ).join('')
-      : '<div class="text-muted" style="font-size:var(--text-sm);padding:.3rem 0">No model access granted yet</div>';
+      ? perms.map(p => {
+          const label = p.model_name || p.deployment_name || ('Deployment #' + p.deployment_id);
+          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.35rem 0;border-bottom:var(--border-width) solid var(--border-subtle)">' +
+            '<span style="font-size:var(--text-sm)">' + UI.escapeHtml(label) +
+            '<span class="text-muted" style="font-size:var(--text-xs)">' + (p.can_predict ? ' &middot; predict' : '') + (p.can_view_metrics ? ' &middot; view metrics' : '') + '</span></span>' +
+            '<button class="link-action link-danger" data-revoke-perm="' + t.id + ':' + p.deployment_id + '" data-model-name="' + UI.escapeHtml(label) + '" type="button">Revoke</button>' +
+            '</div>';
+        }).join('')
+      : '<div class="text-muted" style="font-size:var(--text-sm);padding:.35rem 0">No model access granted yet</div>';
 
     // deployment_id is a real FK into the deployments table - GET
     // /deployments (k8s-live) doesn't carry that id at all, so the "add
@@ -835,61 +988,67 @@ def admin_teams_page():
     let addModelRow;
     if (availableDeployments.length) {
       addModelRow =
-        '<div style="display:flex;gap:.5rem;margin-top:.5rem;flex-wrap:wrap;align-items:center">' +
-        '<select class="select" data-add-deployment="' + t.id + '" style="flex:2;min-width:160px">' + deploymentOptions + '</select>' +
-        '<label class="checkbox-row"><input type="checkbox" data-can-predict="' + t.id + '" checked> Can predict</label>' +
-        '<button class="btn btn-secondary btn-sm" data-grant-access="' + t.id + '" type="button">Add</button>' +
+        '<div style="display:flex;gap:.5rem;margin-top:var(--space-2);flex-wrap:wrap;align-items:center">' +
+        '<select class="select" id="mt-add-deployment" style="flex:2;min-width:160px">' + deploymentOptions + '</select>' +
+        '<label class="checkbox-row"><input type="checkbox" id="mt-can-predict" checked> Can predict</label>' +
+        '<button class="btn btn-secondary btn-sm" id="mt-grant-access" type="button">Add</button>' +
         '</div>';
     } else if (cachedDeployments.length) {
-      addModelRow = '<div class="text-muted" style="font-size:var(--text-xs);margin-top:.5rem">All available models already granted</div>';
+      addModelRow = '<div class="text-muted" style="font-size:var(--text-xs);margin-top:var(--space-2)">All available models already granted</div>';
     } else {
-      addModelRow = '<div class="text-muted" style="font-size:var(--text-xs);margin-top:.5rem">No models deployed yet</div>';
+      addModelRow = '<div class="text-muted" style="font-size:var(--text-xs);margin-top:var(--space-2)">No models deployed yet</div>';
     }
 
-    return '<div class="card" style="margin-bottom:var(--space-3)" data-team-card="' + t.id + '">' +
-      '<div class="card-title" style="font-size:var(--text-lg)">' + UI.escapeHtml(t.name) + '</div>' +
-      '<div class="card-subtitle">' + (t.description ? UI.escapeHtml(t.description) + ' &middot; ' : '') +
-      memberCount + ' member' + (memberCount === 1 ? '' : 's') + ' &middot; ' + modelCount + ' model' + (modelCount === 1 ? '' : 's') + '</div>' +
-      '<div class="grid-2" style="margin-top:var(--space-4)">' +
-      '<div><div class="section-label" style="margin-top:0">Members</div>' + memberRows +
-      (availableUsers.length ? (
-        '<div style="display:flex;gap:.5rem;margin-top:.5rem;flex-wrap:wrap">' +
-        '<select class="select" data-add-user="' + t.id + '" style="flex:2;min-width:120px">' + userOptions + '</select>' +
-        '<select class="select" data-add-role="' + t.id + '" style="flex:1;min-width:90px"><option value="member">Member</option><option value="lead">Lead</option></select>' +
-        '<button class="btn btn-secondary btn-sm" data-add-member="' + t.id + '" type="button">Add</button>' +
-        '</div>'
-      ) : '') + '</div>' +
-      '<div><div class="section-label" style="margin-top:0">Models</div>' + permRows + addModelRow + '</div>' +
-      '</div></div>';
-  }
+    body.innerHTML =
+      (t.description ? '<p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-4)">' + UI.escapeHtml(t.description) + '</p>' : '') +
+      '<div class="section-label" style="margin-top:0">Members &middot; ' + memberCount + '</div>' +
+      memberRows + addMemberRow +
+      '<div class="section-label">Models &middot; ' + modelCount + '</div>' +
+      permRows + addModelRow;
 
-  function wireTeamCard(t) {
-    const card = document.querySelector('[data-team-card="' + t.id + '"]');
-    if (!card) return;
-    card.querySelectorAll('[data-remove-member]').forEach(btn => {
+    body.querySelectorAll('[data-remove-member]').forEach(btn => {
       btn.addEventListener('click', () => {
-        const [teamId, userId] = btn.dataset.removeMember.split(':');
-        removeMember(teamId, userId);
+        const [tId, userId] = btn.dataset.removeMember.split(':');
+        confirmRemoveMember(tId, userId, btn.dataset.memberName);
       });
     });
-    const addBtn = card.querySelector('[data-add-member="' + t.id + '"]');
-    if (addBtn) addBtn.addEventListener('click', () => {
-      const userSel = card.querySelector('[data-add-user="' + t.id + '"]');
-      const roleSel = card.querySelector('[data-add-role="' + t.id + '"]');
+    const addMemberBtn = document.getElementById('mt-add-member');
+    if (addMemberBtn) addMemberBtn.addEventListener('click', () => {
+      const userSel = document.getElementById('mt-add-user');
+      const roleSel = document.getElementById('mt-add-role');
       if (userSel && userSel.value) addMember(t.id, userSel.value, roleSel.value);
     });
-    card.querySelectorAll('[data-revoke-perm]').forEach(btn => {
+    body.querySelectorAll('[data-revoke-perm]').forEach(btn => {
       btn.addEventListener('click', () => {
-        const [teamId, deploymentId] = btn.dataset.revokePerm.split(':');
-        revokeAccess(teamId, deploymentId);
+        const [tId, deploymentId] = btn.dataset.revokePerm.split(':');
+        confirmRevokeAccess(tId, deploymentId, btn.dataset.modelName);
       });
     });
-    const grantBtn = card.querySelector('[data-grant-access="' + t.id + '"]');
+    const grantBtn = document.getElementById('mt-grant-access');
     if (grantBtn) grantBtn.addEventListener('click', () => {
-      const depSel = card.querySelector('[data-add-deployment="' + t.id + '"]');
-      const predictChk = card.querySelector('[data-can-predict="' + t.id + '"]');
+      const depSel = document.getElementById('mt-add-deployment');
+      const predictChk = document.getElementById('mt-can-predict');
       if (depSel && depSel.value) grantAccess(t.id, depSel.value, predictChk.checked, false);
     });
+  }
+
+  function openManageTeamPanel(teamId) {
+    currentManageTeamId = String(teamId);
+    renderManagePanelBody(currentManageTeamId);
+    openSlideover('manage-team-panel', '#close-manage-team-panel', closeManageTeamPanel);
+  }
+
+  function closeManageTeamPanel() {
+    closeSlideoverChrome('manage-team-panel');
+    currentManageTeamId = null;
+  }
+
+  function wireManageTeamPanel() {
+    const panel = document.getElementById('manage-team-panel');
+    const closeBtn = document.getElementById('close-manage-team-panel');
+    if (!panel) return;
+    closeBtn.addEventListener('click', closeManageTeamPanel);
+    panel.addEventListener('click', (e) => { if (e.target === panel) closeManageTeamPanel(); });
   }
 
   async function grantAccess(teamId, deploymentId, canPredict, canViewMetrics) {
@@ -906,15 +1065,37 @@ def admin_teams_page():
     }
   }
 
-  async function revokeAccess(teamId, deploymentId) {
-    if (!confirm("Revoke this team's access to this model?")) return;
-    try {
-      await Api.del('/teams/' + teamId + '/permissions/' + deploymentId);
-      UI.toast('Access revoked', 'success');
-      loadTeams();
-    } catch (e) {
-      UI.toast(e.message || 'Could not revoke access', 'danger');
-    }
+  // Reversible (access can be granted right back), so a single DS-styled
+  // confirm modal - same treatment as Deactivate User, not the
+  // type-to-confirm Delete User gets - replacing the native confirm()
+  // the legacy page used. Underlying call unchanged.
+  function confirmRevokeAccess(teamId, deploymentId, modelName) {
+    const overlay = UI.openModal({
+      title: 'Revoke access to ' + (modelName || 'this model'),
+      bodyHtml: `
+        <div class="alert alert-warning">
+          <div><div class="alert-title">This team will lose access</div>Access can be granted again at any time.</div></div>
+        </div>
+      `,
+      footerHtml: `<button class="btn btn-ghost" id="revoke-cancel" type="button">Cancel</button>
+                   <button class="btn btn-danger" id="revoke-confirm" type="button">Revoke</button>`,
+    });
+    overlay.querySelector('#revoke-cancel').addEventListener('click', UI.closeModal);
+    const confirmBtn = overlay.querySelector('#revoke-confirm');
+    confirmBtn.addEventListener('click', async () => {
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Revoking…';
+      try {
+        await Api.del('/teams/' + teamId + '/permissions/' + deploymentId);
+        UI.closeModal();
+        UI.toast('Access revoked', 'success');
+        loadTeams();
+      } catch (e) {
+        UI.toast(e.message || 'Could not revoke access', 'danger');
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Revoke';
+      }
+    });
   }
 
   async function addMember(teamId, userId, role) {
@@ -927,58 +1108,132 @@ def admin_teams_page():
     }
   }
 
-  async function removeMember(teamId, userId) {
-    if (!confirm('Remove this member from the team?')) return;
-    try {
-      await Api.del('/admin/teams/' + teamId + '/users/' + userId);
-      UI.toast('Member removed', 'success');
-      loadTeams();
-    } catch (e) {
-      UI.toast(e.message || 'Could not remove member', 'danger');
-    }
+  // Same reversible-action treatment as confirmRevokeAccess above -
+  // replaces the native confirm() the legacy page used. Underlying call
+  // unchanged.
+  function confirmRemoveMember(teamId, userId, memberName) {
+    const overlay = UI.openModal({
+      title: 'Remove ' + (memberName || 'member'),
+      bodyHtml: `
+        <div class="alert alert-warning">
+          <div><div class="alert-title">${UI.escapeHtml(memberName || 'This member')} will lose access</div>They can be re-added to the team at any time.</div></div>
+        </div>
+      `,
+      footerHtml: `<button class="btn btn-ghost" id="rm-member-cancel" type="button">Cancel</button>
+                   <button class="btn btn-danger" id="rm-member-confirm" type="button">Remove</button>`,
+    });
+    overlay.querySelector('#rm-member-cancel').addEventListener('click', UI.closeModal);
+    const confirmBtn = overlay.querySelector('#rm-member-confirm');
+    confirmBtn.addEventListener('click', async () => {
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Removing…';
+      try {
+        await Api.del('/admin/teams/' + teamId + '/users/' + userId);
+        UI.closeModal();
+        UI.toast('Member removed', 'success');
+        loadTeams();
+      } catch (e) {
+        UI.toast(e.message || 'Could not remove member', 'danger');
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Remove';
+      }
+    });
   }
 
-  function openNewTeamModal() {
-    const overlay = UI.openModal({
-      title: 'New team',
-      bodyHtml: `
-        <form id="new-team-form" novalidate>
-          <div class="field"><label class="field-label" for="nt-name">Team name</label><input class="input" id="nt-name" required></div>
-          <div class="field"><label class="field-label" for="nt-desc">Description (optional)</label><textarea class="textarea" id="nt-desc" rows="2"></textarea></div>
-          <div class="field-error" id="nt-error" role="alert"></div>
-        </form>`,
-      footerHtml: `<button class="btn btn-ghost" id="nt-cancel" type="button">Cancel</button>
-                   <button class="btn btn-primary" id="nt-submit" type="submit" form="new-team-form">Create team</button>`,
-    });
-    overlay.querySelector('#nt-cancel').addEventListener('click', UI.closeModal);
-    overlay.querySelector('#new-team-form').addEventListener('submit', async (e) => {
+  // ================================================================
+  // Shared slide-over chrome (open/close/focus-trap) - both New team and
+  // Manage team use this; each panel still owns its own open/close
+  // wrapper for its own cleanup (form reset, currentManageTeamId).
+  // ================================================================
+
+  const slideoverState = {};
+
+  function openSlideover(id, focusSelector, onClose) {
+    const panel = document.getElementById(id);
+    if (!panel) return;
+    const state = { returnFocus: document.activeElement };
+    state.keydownHandler = (e) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab') return;
+      const focusables = Array.from(panel.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
+      )).filter(el => el.offsetParent !== null);
+      if (!focusables.length) return;
+      const first = focusables[0], last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    slideoverState[id] = state;
+    panel.hidden = false;
+    document.addEventListener('keydown', state.keydownHandler);
+    const first = focusSelector ? panel.querySelector(focusSelector) : null;
+    if (first) first.focus();
+  }
+
+  function closeSlideoverChrome(id) {
+    const panel = document.getElementById(id);
+    const state = slideoverState[id];
+    if (!panel || panel.hidden) return;
+    panel.hidden = true;
+    if (state && state.keydownHandler) document.removeEventListener('keydown', state.keydownHandler);
+    if (state && state.returnFocus && document.contains(state.returnFocus)) state.returnFocus.focus();
+    delete slideoverState[id];
+  }
+
+  // CREATION flow -> slide-over (matches the New user pattern);
+  // CONFIRMATION dialogs (revoke access, remove member above, plus
+  // Users' deactivate/delete) stay as modals. Same form, same ids, same
+  // validation, same POST - only the surface it lives in changed (this
+  // used to be a modal).
+  function wireNewTeamPanel() {
+    const panel = document.getElementById('new-team-panel');
+    const openBtn = document.getElementById('new-team-btn');
+    const closeBtn = document.getElementById('close-new-team-panel');
+    if (!panel || !openBtn) return;
+
+    openBtn.addEventListener('click', () => openSlideover('new-team-panel', '#nt-name', closeNewTeamPanel));
+    closeBtn.addEventListener('click', closeNewTeamPanel);
+    panel.addEventListener('click', (e) => { if (e.target === panel) closeNewTeamPanel(); });
+
+    document.getElementById('new-team-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const errorEl = overlay.querySelector('#nt-error');
-      const name = overlay.querySelector('#nt-name').value.trim();
-      const description = overlay.querySelector('#nt-desc').value.trim();
+      const errorEl = document.getElementById('nt-error');
+      const submitBtn = document.getElementById('nt-submit');
+      const name = document.getElementById('nt-name').value.trim();
+      const description = document.getElementById('nt-desc').value.trim();
       if (!name) { errorEl.textContent = 'Team name is required.'; return; }
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Creating…';
+      errorEl.textContent = '';
       try {
         const wsId = await ensureWorkspace();
         const params = new URLSearchParams({ name, description, workspace_id: wsId });
         await Api.post('/admin/teams?' + params.toString());
         UI.toast('Team ' + name + ' created', 'success');
-        UI.closeModal();
+        closeNewTeamPanel();
         loadTeams();
       } catch (err) {
         errorEl.textContent = err.message || 'Could not create team.';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Create team';
       }
     });
   }
 
-  document.getElementById('new-team-btn').addEventListener('click', openNewTeamModal);
+  function closeNewTeamPanel() {
+    closeSlideoverChrome('new-team-panel');
+    document.getElementById('new-team-form').reset();
+    document.getElementById('nt-error').textContent = '';
+  }
 </script>"""
 
-    ready = "loadTeams();"
+    ready = "initTeams();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Teams - Vela Admin</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        "<title>Teams - Vela Admin</title>\n" + ds_assets + "\n</head>\n<body>\n"
         + body
         + "\n" + _SCRIPTS + "\n" + script
         + _boot_script("/admin/teams-page", "Teams", ready)
