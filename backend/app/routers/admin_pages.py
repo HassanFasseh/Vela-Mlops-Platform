@@ -2786,50 +2786,108 @@ def admin_infrastructure_page():
 # =========================================================================
 # API Keys - /admin/api-keys
 #
+# Phase 2: migrated to the ds/* design system (see admin_teams_page for
+# the reference pattern - creation in a slide-over, confirmations as
+# modals, shared openSlideover/closeSlideoverChrome helper). Presentation
+# only: every loader and CRUD call below (workspaces + per-workspace key
+# loads, create key, revoke key) is unchanged.
+#
 # GET /workspaces returns only workspaces the CALLING user belongs to -
 # there is no platform-wide "list every workspace" endpoint, and
 # is_admin doesn't grant broader visibility there. This shows the
 # admin's own workspace memberships (typically ones bootstrapped from
 # the Teams page), not necessarily every workspace on the platform.
+#
+# Key-reveal: POST .../api-keys returns the raw key exactly once, at
+# creation - it's never stored anywhere retrievable again (list_api_keys
+# in auth.py only ever returns key_prefix). The New key slide-over's body
+# swaps in place from the create form to a reveal state on success
+# (renderKeyReveal()) rather than opening a second modal on top of it -
+# one surface, no overlay-on-overlay focus handoff to get right. The
+# table only ever shows that same prefix, masked with an ellipsis - there
+# is no key suffix available to show instead (and there shouldn't be:
+# deriving one would mean storing the plaintext key, which is exactly the
+# thing this design avoids). No Status column - list_api_keys only ever
+# returns active keys (revoked ones are filtered server-side), so every
+# row would say the same thing; that's noise, not signal.
 # =========================================================================
 
 @router.get("/admin/api-keys", response_class=HTMLResponse)
 def admin_api_keys_page():
+    ds_assets = (
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds5">'
+    )
+
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
-    <div class="card-header">
+    <div class="page-header">
       <div>
-        <h1 style="font-size:var(--text-lg);margin-bottom:2px">API Keys</h1>
-        <p class="text-secondary" style="font-size:var(--text-sm)">
-          Workspaces you belong to and their keys. There's no platform-wide workspace list in the API &mdash;
-          this shows workspaces your admin account is a member of.
-        </p>
+        <h1 class="page-title">API Keys</h1>
+        <div class="page-description">Workspaces you belong to and their keys. There's no platform-wide workspace list in the API &mdash; this shows workspaces your admin account is a member of.</div>
       </div>
-      <button class="btn btn-primary btn-sm" id="new-key-btn" type="button">New key</button>
+      <div class="page-actions">
+        <button class="btn btn-secondary btn-sm" id="refresh-btn" type="button">Refresh</button>
+        <button class="btn btn-primary btn-sm" id="new-key-btn" type="button">New key</button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <span class="input-group" style="flex:1 1 220px">
+        <svg class="input-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m11 11 3 3"/></svg>
+        <input class="input" id="keys-filter" type="text" placeholder="Filter by name, workspace, team or model" autocomplete="off" style="flex:1;min-width:0">
+      </span>
+      <span class="toolbar-spacer"></span>
+      <span class="text-muted" id="keys-count" style="font-size:var(--text-xs);flex-shrink:0"></span>
     </div>
     <div class="table-wrap">
-      <table class="table">
-        <thead><tr><th>Key prefix</th><th>Name</th><th>Scope</th><th>Created</th><th></th></tr></thead>
+      <table class="table" style="min-width:680px">
+        <thead><tr><th>Name</th><th>Key</th><th>Scope</th><th>Created</th><th>Last used</th><th class="num">Actions</th></tr></thead>
         <tbody id="keys-body"></tbody>
       </table>
     </div>
   </div>
+
+  <div class="slideover-overlay" id="new-key-panel" hidden>
+  <div class="slideover" role="dialog" aria-modal="true" aria-labelledby="new-key-panel-title">
+    <div class="slideover-header">
+      <div class="slideover-title" id="new-key-panel-title">New key</div>
+      <button class="btn btn-ghost btn-sm btn-icon" id="close-new-key-panel" type="button" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="slideover-body" id="new-key-body"></div>
+  </div>
+  </div>
 </div>
-<div class="auth-loading" id="loading-root">Loading&hellip;</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
 """
 
     script = """
 <script>
   let cachedWorkspaces = [];
+  let cachedRows = [];
+
+  function initApiKeys() {
+    const refreshBtn = document.getElementById('refresh-btn');
+    if (refreshBtn) refreshBtn.addEventListener('click', () => loadWorkspaces());
+    const filterInput = document.getElementById('keys-filter');
+    if (filterInput) filterInput.addEventListener('input', renderKeysTable);
+    wireNewKeyPanel();
+    loadWorkspaces();
+  }
 
   async function loadWorkspaces() {
     const body = document.getElementById('keys-body');
-    body.innerHTML = UI.skeletonRows(4, 5);
+    body.innerHTML = UI.skeletonRows(6, 5);
     try {
       cachedWorkspaces = await Api.get('/workspaces');
       if (!cachedWorkspaces.length) {
-        body.innerHTML = '<tr><td colspan="5">' + UI.emptyState('No workspaces yet', 'Create a team from the Teams page to bootstrap your first workspace.') + '</td></tr>';
+        cachedRows = [];
+        body.innerHTML = '<tr><td colspan="6">' + UI.emptyState('No workspaces yet', 'Create a team from the Teams page to bootstrap your first workspace.') + '</td></tr>';
+        const countEl = document.getElementById('keys-count');
+        if (countEl) countEl.textContent = '';
         return;
       }
       const perWorkspace = await Promise.allSettled(cachedWorkspaces.map(ws => Api.get('/workspaces/' + ws.id + '/api-keys')));
@@ -2838,95 +2896,198 @@ def admin_api_keys_page():
         if (r.status !== 'fulfilled') return;
         r.value.forEach(k => rows.push(Object.assign({}, k, { ws_id: cachedWorkspaces[i].id, ws_name: cachedWorkspaces[i].name })));
       });
-      renderKeys(rows);
+      cachedRows = rows;
+      renderKeysTable();
     } catch (e) {
-      body.innerHTML = '<tr><td colspan="5">' + UI.errorState(e.message, loadWorkspaces) + '</td></tr>';
+      cachedRows = [];
+      body.innerHTML = '<tr><td colspan="6">' + UI.errorState(e.message, loadWorkspaces) + '</td></tr>';
+      const countEl = document.getElementById('keys-count');
+      if (countEl) countEl.textContent = '';
     }
   }
 
-  function renderKeys(rows) {
+  // Workspace is always shown; team/model only appear when the key is
+  // further narrowed (see auth.py's create/list handlers) - already
+  // fetched in list_api_keys' response, just not previously displayed.
+  function scopeParts(k) {
+    const parts = [k.ws_name];
+    if (k.team_name) parts.push('Team: ' + k.team_name);
+    if (k.model_name || k.deployment_name) parts.push('Model: ' + (k.model_name || k.deployment_name));
+    return parts;
+  }
+
+  // Client-side only: filters the already-loaded cachedRows, same
+  // pattern as the Teams/Users filters.
+  function renderKeysTable() {
     const body = document.getElementById('keys-body');
-    if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="5">' + UI.emptyState('No keys yet', 'Generate one with the button above.') + '</td></tr>';
+    const countEl = document.getElementById('keys-count');
+    const q = (document.getElementById('keys-filter').value || '').trim().toLowerCase();
+
+    if (!cachedRows.length) {
+      body.innerHTML = '<tr><td colspan="6">' + UI.emptyState('No keys yet', 'Generate one with the button above.') + '</td></tr>';
+      if (countEl) countEl.textContent = '';
       return;
     }
-    body.innerHTML = rows.map(k =>
-      '<tr>' +
-      '<td class="mono">' + UI.escapeHtml(k.prefix) + '&hellip;</td>' +
-      '<td>' + UI.escapeHtml(k.name) + '</td>' +
-      '<td class="text-secondary">' + UI.escapeHtml(k.ws_name) + '</td>' +
-      '<td class="text-secondary">' + UI.fmtDate(k.created_at) + (k.last_used_at ? ' &middot; used ' + UI.timeAgo(k.last_used_at) : ' &middot; never used') + '</td>' +
-      '<td style="text-align:right"><button class="link-action link-danger" data-revoke-key="' + k.ws_id + ':' + k.id + '" data-name="' + UI.escapeHtml(k.name) + '" type="button">Revoke</button></td>' +
-      '</tr>'
-    ).join('');
+
+    const rows = cachedRows.filter(k => {
+      if (!q) return true;
+      return (k.name || '').toLowerCase().includes(q) || scopeParts(k).join(' ').toLowerCase().includes(q);
+    });
+
+    if (countEl) {
+      countEl.textContent = q
+        ? rows.length + ' of ' + cachedRows.length
+        : cachedRows.length + (cachedRows.length === 1 ? ' key' : ' keys');
+    }
+
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="6">' + UI.emptyState('No matches', 'No key matches that filter.') + '</td></tr>';
+      return;
+    }
+
+    body.innerHTML = rows.map(renderKeyRow).join('');
     body.querySelectorAll('[data-revoke-key]').forEach(btn => {
       btn.addEventListener('click', () => {
         const parts = btn.dataset.revokeKey.split(':');
-        revokeKey(parts[0], parts[1], btn.dataset.name);
+        confirmRevokeKey(parts[0], parts[1], btn.dataset.name);
       });
     });
   }
 
-  async function revokeKey(wsId, keyId, name) {
-    if (!confirm('Revoke "' + name + '"? Anything using this key will stop working immediately.')) return;
-    try {
-      await Api.del('/workspaces/' + wsId + '/api-keys/' + keyId);
-      UI.toast('Key revoked', 'success');
-      loadWorkspaces();
-    } catch (e) {
-      UI.toast(e.message || 'Could not revoke key', 'danger');
-    }
+  // Never the full key - only ever the prefix this list endpoint
+  // returns, masked with an ellipsis (see comment above the route).
+  // Team/model scope reads as a neutral badge, same as role/team labels
+  // on the Users/Teams tables - identity, not status, so no color.
+  function renderKeyRow(k) {
+    const parts = scopeParts(k);
+    const scopeHtml = '<span class="text-secondary">' + UI.escapeHtml(parts[0]) + '</span>' +
+      parts.slice(1).map(p => ' ' + UI.badge(p, 'neutral')).join('');
+    return '<tr>' +
+      '<td>' + UI.escapeHtml(k.name) + '</td>' +
+      '<td class="mono">' + UI.escapeHtml(k.prefix) + '&hellip;</td>' +
+      '<td>' + scopeHtml + '</td>' +
+      '<td class="text-secondary">' + UI.fmtDate(k.created_at) + '</td>' +
+      '<td class="text-secondary">' + (k.last_used_at ? UI.timeAgo(k.last_used_at) : 'Never') + '</td>' +
+      '<td class="num"><button class="link-action link-danger" data-revoke-key="' + k.ws_id + ':' + k.id + '" data-name="' + UI.escapeHtml(k.name) + '" type="button">Revoke</button></td>' +
+      '</tr>';
   }
 
-  function openNewKeyModal() {
-    const wsOptions = cachedWorkspaces.map(ws => '<option value="' + ws.id + '">' + UI.escapeHtml(ws.name) + '</option>').join('');
+  // Irreversible - there is no un-revoke endpoint, and anything using the
+  // key breaks immediately - same class as Delete User, so type-to-
+  // confirm rather than the lightweight Cancel/Confirm Teams' reversible
+  // actions get. Underlying call unchanged.
+  function confirmRevokeKey(wsId, keyId, name) {
     const overlay = UI.openModal({
-      title: 'New API key',
+      title: 'Revoke ' + name,
       bodyHtml: `
-        <form id="new-key-form" novalidate>
-          ${cachedWorkspaces.length > 1 ? `<div class="field"><label class="field-label" for="nk-ws">Workspace</label><select class="select" id="nk-ws">${wsOptions}</select></div>` : ''}
-          <div class="field"><label class="field-label" for="nk-name">Key name</label><input class="input" id="nk-name" placeholder="e.g. production, ci-cd" required></div>
-          <div class="field-error" id="nk-error" role="alert"></div>
-        </form>`,
-      footerHtml: `<button class="btn btn-ghost" id="nk-cancel" type="button">Cancel</button>
-                   <button class="btn btn-primary" id="nk-submit" type="submit" form="new-key-form">Generate key</button>`,
+        <div class="alert alert-danger" style="margin-bottom:var(--space-3)">
+          <div><div class="alert-title">This cannot be undone</div><div>Anything using this key will stop working immediately. Type the key name to confirm.</div></div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="revoke-key-confirm-name">Key name</label>
+          <input class="input" id="revoke-key-confirm-name" placeholder="${UI.escapeHtml(name)}">
+        </div>
+        <div class="field-error" id="revoke-key-confirm-error" role="alert"></div>
+      `,
+      footerHtml: `<button class="btn btn-ghost" id="revoke-key-cancel" type="button">Cancel</button>
+                   <button class="btn btn-danger" id="revoke-key-confirm" type="button" disabled>Revoke</button>`,
     });
-    overlay.querySelector('#nk-cancel').addEventListener('click', UI.closeModal);
-    overlay.querySelector('#new-key-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const wsSel = overlay.querySelector('#nk-ws');
-      const wsId = wsSel ? wsSel.value : cachedWorkspaces[0].id;
-      const errorEl = overlay.querySelector('#nk-error');
-      const name = overlay.querySelector('#nk-name').value.trim();
-      if (!name) { errorEl.textContent = 'Give the key a name.'; return; }
+    const input = overlay.querySelector('#revoke-key-confirm-name');
+    const confirmBtn = overlay.querySelector('#revoke-key-confirm');
+    const errorEl = overlay.querySelector('#revoke-key-confirm-error');
+
+    input.addEventListener('input', () => {
+      confirmBtn.disabled = input.value !== name;
+    });
+    overlay.querySelector('#revoke-key-cancel').addEventListener('click', UI.closeModal);
+
+    confirmBtn.addEventListener('click', async () => {
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Revoking…';
+      errorEl.textContent = '';
       try {
-        const result = await Api.post('/workspaces/' + wsId + '/api-keys', { name });
+        await Api.del('/workspaces/' + wsId + '/api-keys/' + keyId);
         UI.closeModal();
-        showRawKey(result);
+        UI.toast('Key revoked', 'success');
         loadWorkspaces();
-      } catch (err) {
-        errorEl.textContent = err.message || 'Could not create key.';
+      } catch (e) {
+        errorEl.textContent = e.message || 'Could not revoke key.';
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Revoke';
       }
     });
   }
 
-  function showRawKey(result) {
-    const overlay = UI.openModal({
-      title: 'Copy your API key',
-      bodyHtml: `
-        <div class="alert alert-warning" style="margin-bottom:.75rem">
-          <div><div class="alert-title">Shown once</div><div class="alert-body">This key will not be shown again &mdash; copy it now.</div></div>
-        </div>
-        <div class="field">
-          <label class="field-label">${UI.escapeHtml(result.name)}</label>
-          <input class="input" id="raw-key" value="${UI.escapeHtml(result.key)}" readonly style="font-size:var(--text-xs)">
-        </div>`,
-      footerHtml: `<button class="btn btn-secondary" id="rk-copy" type="button">Copy</button>
-                   <button class="btn btn-primary" id="rk-done" type="button">Done</button>`,
+  // ================================================================
+  // New key slide-over - the form and the one-time reveal are two
+  // states of the SAME panel (renderNewKeyForm() / renderKeyReveal()
+  // swap #new-key-body's content in place) rather than a second modal
+  // opened on top of the first: one surface, one focus trap, and the
+  // reveal can't be reached without having just gone through the form.
+  // Reopening the panel always starts back at the form (openNewKeyPanel
+  // re-renders it unconditionally), so a finished reveal never lingers.
+  // ================================================================
+
+  function renderNewKeyForm() {
+    const titleEl = document.getElementById('new-key-panel-title');
+    const body = document.getElementById('new-key-body');
+    if (titleEl) titleEl.textContent = 'New key';
+    const wsOptions = cachedWorkspaces.map(ws => '<option value="' + ws.id + '">' + UI.escapeHtml(ws.name) + '</option>').join('');
+    body.innerHTML = `
+      <form class="form" id="new-key-form" novalidate>
+        ${cachedWorkspaces.length > 1 ? `<div class="field"><label class="field-label" for="nk-ws">Workspace</label><select class="select" id="nk-ws">${wsOptions}</select></div>` : ''}
+        <div class="field"><label class="field-label" for="nk-name">Key name</label><input class="input" id="nk-name" placeholder="e.g. production, ci-cd" required></div>
+        <div class="field-error" id="nk-error" role="alert"></div>
+        <button class="btn btn-primary btn-block" type="submit" id="nk-submit">Generate key</button>
+      </form>`;
+
+    document.getElementById('new-key-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const wsSel = document.getElementById('nk-ws');
+      const wsId = wsSel ? wsSel.value : (cachedWorkspaces[0] && cachedWorkspaces[0].id);
+      const errorEl = document.getElementById('nk-error');
+      const submitBtn = document.getElementById('nk-submit');
+      const name = document.getElementById('nk-name').value.trim();
+      if (!name) { errorEl.textContent = 'Give the key a name.'; return; }
+      if (wsId == null) { errorEl.textContent = 'No workspace to create this key in.'; return; }
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Generating…';
+      errorEl.textContent = '';
+      try {
+        const result = await Api.post('/workspaces/' + wsId + '/api-keys', { name });
+        renderKeyReveal(result);
+        loadWorkspaces();
+      } catch (err) {
+        errorEl.textContent = err.message || 'Could not create key.';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Generate key';
+      }
     });
-    overlay.querySelector('#rk-done').addEventListener('click', UI.closeModal);
-    overlay.querySelector('#rk-copy').addEventListener('click', async () => {
-      const input = overlay.querySelector('#raw-key');
+  }
+
+  // The key in result.key is the only time it's ever available - see
+  // the route comment above. Copy uses UI.copyText's clipboard-with-
+  // execCommand-fallback (this backend is served over plain HTTP, where
+  // navigator.clipboard is commonly just undefined) and always shows
+  // whether it actually worked, never a silent no-op.
+  function renderKeyReveal(result) {
+    const titleEl = document.getElementById('new-key-panel-title');
+    const body = document.getElementById('new-key-body');
+    if (titleEl) titleEl.textContent = 'Copy your API key';
+    body.innerHTML = `
+      <div class="alert alert-warning" style="margin-bottom:var(--space-3)">
+        <div><div class="alert-title">Shown once</div>This key will not be shown again once you close this panel &mdash; copy it now.</div></div>
+      </div>
+      <div class="field">
+        <label class="field-label">${UI.escapeHtml(result.name)}</label>
+        <input class="input mono" id="raw-key" value="${UI.escapeHtml(result.key)}" readonly style="font-size:var(--text-xs)">
+      </div>
+      <button class="btn btn-secondary btn-block" id="rk-copy" type="button" style="margin-bottom:var(--space-2)">Copy to clipboard</button>
+      <button class="btn btn-primary btn-block" id="rk-done" type="button">Done</button>
+    `;
+    document.getElementById('rk-done').addEventListener('click', closeNewKeyPanel);
+    document.getElementById('rk-copy').addEventListener('click', async () => {
+      const input = document.getElementById('raw-key');
       const ok = await UI.copyText(input.value);
       if (ok) {
         UI.toast('Copied to clipboard', 'success');
@@ -2937,15 +3098,72 @@ def admin_api_keys_page():
     });
   }
 
-  document.getElementById('new-key-btn').addEventListener('click', openNewKeyModal);
+  function openNewKeyPanel() {
+    renderNewKeyForm();
+    openSlideover('new-key-panel', '#nk-name', closeNewKeyPanel);
+  }
+
+  function closeNewKeyPanel() {
+    closeSlideoverChrome('new-key-panel');
+  }
+
+  function wireNewKeyPanel() {
+    const panel = document.getElementById('new-key-panel');
+    const openBtn = document.getElementById('new-key-btn');
+    const closeBtn = document.getElementById('close-new-key-panel');
+    if (!panel || !openBtn) return;
+    openBtn.addEventListener('click', openNewKeyPanel);
+    closeBtn.addEventListener('click', closeNewKeyPanel);
+    panel.addEventListener('click', (e) => { if (e.target === panel) closeNewKeyPanel(); });
+  }
+
+  // ================================================================
+  // Shared slide-over chrome (open/close/focus-trap) - same helper as
+  // admin_teams_page, duplicated here since each route's <script> is
+  // self-contained (no shared ds.js module yet).
+  // ================================================================
+
+  const slideoverState = {};
+
+  function openSlideover(id, focusSelector, onClose) {
+    const panel = document.getElementById(id);
+    if (!panel) return;
+    const state = { returnFocus: document.activeElement };
+    state.keydownHandler = (e) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab') return;
+      const focusables = Array.from(panel.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
+      )).filter(el => el.offsetParent !== null);
+      if (!focusables.length) return;
+      const first = focusables[0], last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    slideoverState[id] = state;
+    panel.hidden = false;
+    document.addEventListener('keydown', state.keydownHandler);
+    const first = focusSelector ? panel.querySelector(focusSelector) : null;
+    if (first) first.focus();
+  }
+
+  function closeSlideoverChrome(id) {
+    const panel = document.getElementById(id);
+    const state = slideoverState[id];
+    if (!panel || panel.hidden) return;
+    panel.hidden = true;
+    if (state && state.keydownHandler) document.removeEventListener('keydown', state.keydownHandler);
+    if (state && state.returnFocus && document.contains(state.returnFocus)) state.returnFocus.focus();
+    delete slideoverState[id];
+  }
 </script>"""
 
-    ready = "loadWorkspaces();"
+    ready = "initApiKeys();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>API Keys - Vela Admin</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        "<title>API Keys - Vela Admin</title>\n" + ds_assets + "\n</head>\n<body>\n"
         + body
         + "\n" + _SCRIPTS + "\n" + script
         + _boot_script("/admin/api-keys", "API Keys", ready)
