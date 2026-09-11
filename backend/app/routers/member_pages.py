@@ -21,8 +21,7 @@ from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 
 from backend.app.routers._page_fragments import (
-    CHART_JS_CDN, MONITORING_CSS, MONITORING_BODY, MONITORING_SCRIPTS_EXTRA,
-    DRIFT_BODY, DRIFT_SCRIPTS_EXTRA,
+    DS_ASSETS, CHART_JS_CDN, MONITORING_CSS, MONITORING_BODY, MONITORING_SCRIPTS_EXTRA,
     DOCS_BODY, DOCS_SCRIPTS_EXTRA,
     SETTINGS_BODY, SETTINGS_SCRIPTS_EXTRA,
     _STATIC_V,
@@ -812,7 +811,7 @@ def member_monitoring_page():
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Model Health - Vela</title>\n" + _ASSETS + "\n" + CHART_JS_CDN + "\n" + MONITORING_CSS + "\n</head>\n<body>\n"
+        "<title>Model Health - Vela</title>\n" + DS_ASSETS + "\n" + CHART_JS_CDN + "\n" + MONITORING_CSS + "\n</head>\n<body>\n"
         + MONITORING_BODY
         + "\n" + _SCRIPTS + "\n" + MONITORING_SCRIPTS_EXTRA
         + _boot_script("/app/monitoring", "Monitoring", ready)
@@ -822,23 +821,14 @@ def member_monitoring_page():
 
 
 # =========================================================================
-# Drift - /app/drift
+# Drift - folded into /app/monitoring's #drift-section (see
+# _page_fragments.py). This route is kept only as a redirect so old links
+# and bookmarks to the former standalone Drift page don't 404.
 # =========================================================================
 
-@router.get("/app/drift", response_class=HTMLResponse)
+@router.get("/app/drift")
 def member_drift_page():
-    ready = "Drift.start({role: 'member', actionHrefFor: (e) => '/app/tickets?model=' + encodeURIComponent(e ? e.label : ''), actionLabel: 'File a ticket'});"
-
-    html = (
-        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
-        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Drift - Vela</title>\n" + _ASSETS + "\n" + CHART_JS_CDN + "\n" + MONITORING_CSS + "\n</head>\n<body>\n"
-        + DRIFT_BODY
-        + "\n" + _SCRIPTS + "\n" + DRIFT_SCRIPTS_EXTRA
-        + _boot_script("/app/drift", "Drift", ready)
-        + "\n</body>\n</html>"
-    )
-    return html
+    return RedirectResponse(url="/app/monitoring#drift-section", status_code=302)
 
 
 # =========================================================================

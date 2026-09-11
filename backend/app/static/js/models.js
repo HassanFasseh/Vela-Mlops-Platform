@@ -1,6 +1,7 @@
 /*
- * Vela model catalog + picker - shared by Model Health (monitoring.js) and
- * Drift (drift.js), for both /app/* and /admin/* variants.
+ * Vela model catalog + picker - shared by the merged Model Health screen
+ * (monitoring.js, health + performance + drift together), for both
+ * /app/* and /admin/* variants.
  *
  * Composes the same "list of models this viewer can see" client-side from
  * existing endpoints, the same way /app/models and /admin/deployments

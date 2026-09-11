@@ -1,18 +1,26 @@
 /*
  * Vela Model Health - model-centric (spec redesign). Shared by
- * /admin/monitoring and /app/monitoring via Monitoring.start({role}).
+ * /admin/monitoring and /app/monitoring via Monitoring.start({role,
+ * actionHrefFor, actionLabel}). Model Health and Drift used to be two
+ * separate pages/modules (this file + drift.js) that opened on the same
+ * model picker and answered the same question about the same object -
+ * they're merged into one screen/one module now: pick a model once, see
+ * health + performance + drift together. drift.js no longer exists; its
+ * logic lives below (renderDriftSection() onward), fetches/branches
+ * unchanged from what drift.js used to do, just fed by the same
+ * /metrics-summary response the performance grid already fetches instead
+ * of a second, identical request.
  *
  * Selection comes from ModelCatalog (models.js). Whether a model actually
- * has performance data is a runtime fact, checked on every fetch
- * (metricsHaveData()) rather than assumed up front from what kind of
- * model it is - model-runner and custom-runner deployments got real
- * Prometheus instrumentation too (see model-runner/main.py, custom-
- * runner/base/main.py), so any of them can have data once they've
+ * has performance/drift data is a runtime fact, checked on every fetch
+ * (metricsHaveData()/driftHasData()) rather than assumed up front from
+ * what kind of model it is - model-runner and custom-runner deployments
+ * got real Prometheus instrumentation too (see model-runner/main.py,
+ * custom-runner/base/main.py), so any of them can have data once they've
  * actually served predictions and Prometheus has scraped them. No data
  * yet (or no resolvable job at all - see entry.job) shows the same
  * honest "make some predictions and check back" panel regardless of
  * model kind, and clears itself on the next poll once data shows up.
- * See drift.js for the linked full drift analysis.
  *
  * The performance grid's DOM (canvases) is only (re)built when the
  * selected model or its no-data/has-data state actually changes (see
@@ -22,16 +30,23 @@
  * previous bug here) leaves each chart pointing at a detached canvas
  * after the first refresh, since a fresh, blank one replaces it in the
  * DOM - the chart doesn't error, it just silently never draws into the
- * new element again.
+ * new element again. The drift-share-over-time chart (ensureDriftChart)
+ * uses the older, simpler pattern it always did - its canvas is only
+ * ever hidden/shown (#d-instrumented), never removed from the DOM, so it
+ * doesn't need the same rebuild-tracking dance.
  *
- * Expects in the page: #model-picker #model-empty #model-content
- *   #mh-name #mh-task #mh-status-badge #mh-status-stats
- *   #mh-performance #mh-drift-link #mh-drift-teaser
- *   #summary-box #timeline-status #timeline-list
+ * Expects in the page: #model-picker #model-identity #model-empty
+ *   #model-content #mh-name #mh-task #mh-status-badge #mh-status-stats
+ *   #mh-health-stats #mh-drift-value #mh-performance #drift-section
+ *   #d-not-instrumented #d-instrumented #d-share #d-computed #d-since
+ *   #drift-chart #breakdown-list #ai-analysis-surface #ai-analysis-box
+ *   #what-changed-list #recommended-list #action-btn #summary-box
+ *   #timeline-status #timeline-list
  */
 
 const Monitoring = (() => {
   let role = "member";
+  let opts = {};
   let entries = [];
   let selectedKey = null;
   let pollHandle = null;
@@ -39,8 +54,8 @@ const Monitoring = (() => {
   let latencyChart = null;
   let driftScoreChart = null;
   let confidenceChart = null;
-  let performanceBuiltFor = null; // entry.key, or "no-data:<key>" - see loadPerformance()
-  let verdictState = { status: null, drifted: null, rate: null }; // see renderVerdict()
+  let driftChart = null; // the drift-section's own "drift share over time" chart
+  let performanceBuiltFor = null; // entry.key, or "no-data:<key>" - see loadPerformanceAndDrift()
 
   function fmtN(n, dec = 1) {
     return n == null || isNaN(n) ? "—" : Number(n).toFixed(dec);
@@ -55,8 +70,8 @@ const Monitoring = (() => {
 
   function statLine(value, label, muted) {
     return (
-      '<div class="stat-line"><div class="stat-line-value' + (muted ? " is-muted" : "") + '">' +
-      UI.escapeHtml(String(value)) + "</div><div class=\"stat-line-label\">" + UI.escapeHtml(label) + "</div></div>"
+      '<div class="metric-strip-item"><div class="metric-strip-value"' + (muted ? ' style="color:var(--text-muted);font-weight:var(--fw-medium)"' : "") + ">" +
+      UI.escapeHtml(String(value)) + "</div><div class=\"metric-strip-label\">" + UI.escapeHtml(label) + "</div></div>"
     );
   }
 
@@ -64,9 +79,12 @@ const Monitoring = (() => {
     return { downloading: "Downloading model files", provisioning: "Starting", running: "Running", failed: "Failed", unknown: "Unknown" }[phase] || phase;
   }
 
+  // Status is dot + text everywhere in this system - no colored badge
+  // variant exists for it, so these map straight to ds's status-dot
+  // modifiers rather than a UI.badge color.
   function customPhaseVariant(phase) {
-    if (phase === "running") return "success";
-    if (phase === "failed") return "danger";
+    if (phase === "running") return "running";
+    if (phase === "failed") return "error";
     if (phase === "unknown") return "neutral";
     return "warning";
   }
@@ -89,7 +107,7 @@ const Monitoring = (() => {
       if (!xScale || !yScale) return;
       const ctx = chart.ctx;
       ctx.save();
-      ctx.strokeStyle = "#8a8a9a";
+      ctx.strokeStyle = "#767680";
       ctx.setLineDash([3, 3]);
       ctx.lineWidth = 1;
       marks.forEach((ts) => {
@@ -125,7 +143,7 @@ const Monitoring = (() => {
         labels: [],
         datasets: [
           { label: "value", data: [], borderColor: color, backgroundColor: "transparent", borderWidth: 1.5, pointRadius: 0, tension: 0.2 },
-          { label: "baseline (median)", data: [], borderColor: "#8a8a9a", borderDash: [4, 3], borderWidth: 1, pointRadius: 0 },
+          { label: "baseline (median)", data: [], borderColor: "#767680", borderDash: [4, 3], borderWidth: 1, pointRadius: 0 },
         ],
       },
       options: {
@@ -146,7 +164,7 @@ const Monitoring = (() => {
     if (!ctx || !window.Chart) return null;
     return new Chart(ctx.getContext("2d"), {
       type: "line",
-      data: { labels: [], datasets: [{ label: "Drift share", data: [], borderColor: "#dc2626", backgroundColor: "rgba(220,38,38,0.08)", borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.25 }] },
+      data: { labels: [], datasets: [{ label: "Drift share", data: [], borderColor: "#b180ff", backgroundColor: "rgba(177,128,255,0.08)", borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.25 }] },
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -188,9 +206,44 @@ const Monitoring = (() => {
     confidenceChart = null;
   }
 
+  // ---- Drift section's own chart (folded in from the former drift.js) --
+  // Created once and left in place - its canvas is only ever hidden/shown
+  // (#d-instrumented), never removed from the DOM, so it never goes stale
+  // the way the performance grid's canvases would without the rebuild
+  // tracking above.
+  function ensureDriftChart() {
+    const ctx = document.getElementById("drift-chart");
+    if (!ctx || !window.Chart || driftChart) return;
+    driftChart = new Chart(ctx.getContext("2d"), {
+      type: "line",
+      data: { labels: [], datasets: [{ label: "Drift share", data: [], borderColor: "#b180ff", backgroundColor: "rgba(177,128,255,0.08)", borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.25 }] },
+      options: {
+        responsive: true,
+        animation: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { display: false },
+          y: { min: 0, max: 1, ticks: { font: { size: 10 } }, grid: { color: "rgba(128,128,128,0.12)" } },
+        },
+      },
+    });
+  }
+
+  function setDriftShareChartData(history) {
+    if (!driftChart) return;
+    driftChart.data.labels = history.map((p) => new Date(p[0] * 1000).toLocaleTimeString());
+    driftChart.data.datasets[0].data = history.map((p) => p[1]);
+    driftChart.update("none");
+  }
+
+  // Predictions/latency/confidence are plain readings, not states - one
+  // consistent neutral gray (ds --text-secondary), never colored just for
+  // variety. Drift score is the one chart that's inherently about a real
+  // state, so it gets the platform's actual drift token (ds --drift-fg)
+  // instead of an arbitrary color.
   function ensureCharts() {
-    if (!predictionsChart) predictionsChart = makeLineChart("chart-predictions", "#2563eb");
-    if (!latencyChart) latencyChart = makeLineChart("chart-latency", "#7c3aed");
+    if (!predictionsChart) predictionsChart = makeLineChart("chart-predictions", "#9b9ba4");
+    if (!latencyChart) latencyChart = makeLineChart("chart-latency", "#9b9ba4");
     if (!driftScoreChart) driftScoreChart = makeDriftScoreChart("chart-driftscore");
     // model-runner/custom-runner set prediction_confidence (see their
     // main.py); model-service predates that instrumentation and doesn't
@@ -198,21 +251,21 @@ const Monitoring = (() => {
     // readout for that one job - same makeLineChart shape (value +
     // baseline) as predictions/latency, since a typical-confidence
     // baseline is exactly what makes a confidence *drop* visible.
-    if (!confidenceChart) confidenceChart = makeLineChart("chart-confidence", "#059669");
+    if (!confidenceChart) confidenceChart = makeLineChart("chart-confidence", "#9b9ba4");
   }
 
   function chartPanelHtml(canvasId, title, metaId, color, legendLabel, withBaseline) {
     const legend =
       '<div class="chart-legend-note"><span><span class="legend-swatch" style="color:' + color + ';background:' + color + '"></span>' + legendLabel + "</span>" +
-      (withBaseline ? '<span><span class="legend-swatch is-dashed" style="color:#8a8a9a"></span>baseline</span>' : "") +
+      (withBaseline ? '<span><span class="legend-swatch is-dashed" style="color:#767680"></span>baseline</span>' : "") +
       "</div>";
-    // Label above (small, uppercase, muted), chart, then the current
-    // value below it - not a title+value pair on one header row.
+    // Label above (small, uppercase, muted - ds .eyebrow), chart, then the
+    // current value below it - not a title+value pair on one header row.
     return (
-      '<div class="chart-panel-compact evidence-panel">' +
-      '<div class="chart-panel-label">' + title + '</div>' +
+      '<div class="panel">' +
+      '<div class="eyebrow" style="margin-bottom:var(--space-2)">' + title + '</div>' +
       '<div class="chart-canvas-wrap"><canvas id="' + canvasId + '"></canvas></div>' +
-      '<div class="chart-panel-value" id="' + metaId + '">&mdash;</div>' +
+      '<div class="metric-strip-value" id="' + metaId + '" style="margin-top:var(--space-2)">&mdash;</div>' +
       legend +
       "</div>"
     );
@@ -220,11 +273,11 @@ const Monitoring = (() => {
 
   function perfGridHtml() {
     return (
-      '<div class="metric-grid" style="margin-bottom:var(--space-5)">' +
-      chartPanelHtml("chart-predictions", "Predictions", "perf-rate-val", "#2563eb", "predictions/min", true) +
-      chartPanelHtml("chart-latency", "Latency (p95)", "perf-latency-val", "#7c3aed", "p95, 5min window", true) +
-      chartPanelHtml("chart-driftscore", "Drift score", "perf-drift-val", "#dc2626", "share of features drifted", false) +
-      chartPanelHtml("chart-confidence", "Confidence", "perf-confidence-val", "#059669", "avg. prediction confidence", true) +
+      '<div class="card-grid" style="margin-bottom:var(--space-5)">' +
+      chartPanelHtml("chart-predictions", "Predictions", "perf-rate-val", "#9b9ba4", "predictions/min", true) +
+      chartPanelHtml("chart-latency", "Latency (p95)", "perf-latency-val", "#9b9ba4", "p95, 5min window", true) +
+      chartPanelHtml("chart-driftscore", "Drift score", "perf-drift-val", "#b180ff", "share of features drifted", false) +
+      chartPanelHtml("chart-confidence", "Confidence", "perf-confidence-val", "#9b9ba4", "avg. prediction confidence", true) +
       "</div>"
     );
   }
@@ -237,9 +290,20 @@ const Monitoring = (() => {
   // shown whenever the latest fetch came back empty, whoever the
   // selected model is, and clears itself on the next poll once data
   // shows up - no page reload needed.
+  // Locally (no Prometheus) and for any model that hasn't served traffic
+  // yet, this is the state that actually shows almost always - it has to
+  // read as a deliberate, designed screen, not a rendering gap. A .panel
+  // sized to roughly the real chart grid's footprint + the same
+  // UI.emptyState used elsewhere on this page, not a bare floating line.
   function noDataHtml() {
-    // Spec: no bordered empty-state card here - just a quiet message.
-    return '<p class="text-muted" style="font-size:var(--text-sm);margin-bottom:var(--space-5)">No telemetry data available yet - make some predictions and check back in 30 seconds.</p>';
+    return (
+      '<div class="panel" style="min-height:320px;display:flex;align-items:center;justify-content:center;margin-bottom:var(--space-5)">' +
+      UI.emptyState(
+        "No telemetry yet",
+        "Once this model starts serving predictions, latency, throughput, confidence and drift will show up here."
+      ) +
+      "</div>"
+    );
   }
 
   function metricsHaveData(d) {
@@ -284,7 +348,6 @@ const Monitoring = (() => {
   function onSelect(key) {
     selectedKey = key;
     ModelCatalog.setSelected(key);
-    verdictState = { status: null, drifted: null, rate: null };
     renderModel();
   }
 
@@ -294,75 +357,222 @@ const Monitoring = (() => {
 
   async function loadHealth(entry) {
     const badgeEl = document.getElementById("mh-status-badge");
-    const statsEl = document.getElementById("mh-status-stats");
+    const statsEl = document.getElementById("mh-health-stats");
     statsEl.innerHTML = '<span class="skeleton skeleton-text" style="width:160px;display:inline-block">&nbsp;</span>';
     try {
       if (entry.kind === "custom") {
         const s = await Api.get("/api/v1/custom-model-status/" + entry.deploymentId);
         const phase = (s && s.phase) || "unknown";
-        badgeEl.innerHTML = UI.badge(customPhaseLabel(phase), customPhaseVariant(phase), true);
+        badgeEl.innerHTML = UI.statusDot(customPhaseLabel(phase), customPhaseVariant(phase));
         statsEl.innerHTML = statLine(customPhaseLabel(phase), "Phase") + (s && s.detail ? statLine(s.detail, "Detail") : "");
-        verdictState.status = phase === "running" ? "running" : phase === "failed" ? "failed" : "starting";
       } else {
         const deployments = await Api.get("/deployments");
         const d = deployments.find((x) => x.name === entry.deploymentName);
         const status = d ? d.status : entry.status || "unknown";
         badgeEl.innerHTML = UI.statusBadge(status);
         statsEl.innerHTML = statLine(d ? d.ready + "/" + d.desired : "—", "Replicas ready");
-        verdictState.status = status;
       }
     } catch (e) {
       statsEl.innerHTML = UI.errorState(e.message);
       badgeEl.innerHTML = "";
-      verdictState.status = null;
     }
-    renderVerdict();
   }
 
-  // One-line synthesis of health + drift + traffic (spec: "Running
-  // normally - no drift detected - 142 req/min" / "Drift detected -
-  // confidence score dropped - investigate below"). Each piece updates
-  // verdictState independently (loadHealth sets status, loadPerformance
-  // sets drifted/rate) and re-renders through this shared function so
-  // whichever one resolves last still produces a complete line.
-  function renderVerdict() {
-    const el = document.getElementById("mh-verdict");
+  // Compact drift indicator for the status band (#mh-drift-value) - the
+  // same underlying "is this model drifted" fact the full drift section
+  // below reports in detail, condensed to a dot + text. Replaces the old
+  // cross-page teaser link; the actual analysis is now one scroll away
+  // at #drift-section instead of a separate page.
+  function renderDriftIndicator(entry, metrics) {
+    const el = document.getElementById("mh-drift-value");
     if (!el) return;
-    const s = String(verdictState.status || "").toLowerCase();
-    const isRunning = s === "online" || s === "running" || s === "healthy" || s === "active";
-    const isKnown = s && s !== "unknown";
-    if (verdictState.drifted) {
-      el.innerHTML = "&#9888; Drift detected - investigate below.";
-      return;
-    }
-    if (!isKnown) {
-      el.textContent = "Status unknown for this model.";
-      return;
-    }
-    const rateText = verdictState.rate == null ? "no traffic yet" : fmtN(verdictState.rate, 1) + " req/min";
-    el.innerHTML =
-      UI.statusDot(isRunning ? "Running normally" : "Needs attention", isRunning ? "running" : "warning") +
-      ' <span class="text-secondary">— ' + (verdictState.drifted === false ? "no drift detected" : "drift status unknown") +
-      " - " + rateText + "</span>";
-  }
-
-  function renderDriftTeaser(entry, metrics) {
-    const el = document.getElementById("mh-drift-teaser");
     if (!metrics || metrics.drift_score == null) {
-      el.innerHTML = '<span class="text-secondary" style="font-size:var(--text-sm)">No drift computation available for this model.</span>';
-      verdictState.drifted = null;
-      renderVerdict();
+      el.innerHTML = UI.statusDot("No data", "neutral");
       return;
     }
-    const pct = (metrics.drift_score * 100).toFixed(1) + "%";
     const columns = (metrics.drift_details && metrics.drift_details.columns) || [];
     const drifted = columns.some((c) => c.drifted);
-    el.innerHTML =
-      '<div style="display:flex;align-items:center;gap:var(--space-3)">' +
-      UI.statusDot(drifted ? "Drift detected" : "Stable", drifted ? "warning" : "running") +
-      '<span style="font-size:var(--text-sm)">' + pct + " of tracked features drifted</span></div>";
-    verdictState.drifted = drifted;
-    renderVerdict();
+    el.innerHTML = UI.statusDot(drifted ? "Drift detected" : "Stable", drifted ? "warning" : "running");
+  }
+
+  // ================================================================
+  // Drift section (folded in from the former drift.js, unchanged logic)
+  // ================================================================
+
+  function fmtEpoch(sec) {
+    if (!sec) return "—";
+    return new Date(sec * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+
+  function timeAgoEpoch(sec) {
+    if (!sec) return "—";
+    const seconds = Math.max(0, Date.now() / 1000 - sec);
+    if (seconds < 60) return "just now";
+    const mins = Math.floor(seconds / 60);
+    if (mins < 60) return mins + "m ago";
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return hours + "h ago";
+    return fmtEpoch(sec);
+  }
+
+  /* First timestamp of the current unbroken run of nonzero drift-share
+     readings, scanning backward from the most recent point - i.e. "since
+     when has drift been continuously present", derived purely from the
+     history Prometheus actually returned, not a stored "detected_at". */
+  function driftSince(history) {
+    if (!history || !history.length) return null;
+    let i = history.length - 1;
+    if (!(history[i][1] > 0)) return null;
+    while (i > 0 && history[i - 1][1] > 0) i--;
+    return history[i][0];
+  }
+
+  function renderBreakdown(columns) {
+    const el = document.getElementById("breakdown-list");
+    if (!columns.length) {
+      el.innerHTML = UI.emptyState("No drift computation yet", "Once enough prediction traffic has been observed, per-feature drift results will appear here.");
+      return;
+    }
+    el.innerHTML = columns
+      .map((c) => {
+        const magnitude = Math.round((1 - c.p_value) * 100);
+        return (
+          '<div class="feature-row">' +
+          '<div class="feature-name">' + UI.escapeHtml(c.column) + "</div>" +
+          '<div class="meter-track"><div class="meter-fill' + (c.drifted ? " is-error" : "") + '" style="width:' + magnitude + '%"></div></div>' +
+          '<div class="feature-meta">' + UI.statusDot(c.drifted ? "Drifted" : "Stable", c.drifted ? "error" : "running") +
+          "<span>p=" + c.p_value + "</span><span>" + UI.escapeHtml(c.method || "unknown") + " test</span></div>" +
+          "</div>"
+        );
+      })
+      .join("");
+  }
+
+  function renderWhatChanged(columns) {
+    const el = document.getElementById("what-changed-list");
+    if (!columns.length) {
+      el.innerHTML = '<li class="text-secondary">No drift computation yet - nothing to compare.</li>';
+      return;
+    }
+    const drifted = columns.filter((c) => c.drifted);
+    if (!drifted.length) {
+      el.innerHTML = '<li class="text-secondary">All tracked features are stable - nothing has drifted.</li>';
+      return;
+    }
+    el.innerHTML = drifted
+      .map((c) => "<li>" + UI.escapeHtml(c.column) + ' distribution has shifted <span class="text-muted">(p=' + c.p_value + ", " + UI.escapeHtml(c.method || "unknown") + " test)</span></li>")
+      .join("");
+  }
+
+  function renderRecommended(columns) {
+    const el = document.getElementById("recommended-list");
+    const items = [];
+    if (columns.some((c) => c.drifted)) {
+      items.push("Review the drifted features in the breakdown above to understand what shifted.");
+      items.push("Check whether latency or prediction volume have also moved, in the performance section above.");
+      items.push("If this needs follow-up, use the action below.");
+    } else if (columns.length) {
+      items.push("No drift detected in the current window - no action needed right now.");
+    } else {
+      items.push("Not enough traffic has been observed yet to compute drift.");
+    }
+    el.innerHTML = items.map((i) => "<li>" + i + "</li>").join("");
+
+    const btn = document.getElementById("action-btn");
+    const entry = currentEntry();
+    if (btn && opts.actionHrefFor) {
+      btn.href = opts.actionHrefFor(entry);
+      btn.textContent = opts.actionLabel || "Open";
+      btn.style.display = "";
+    } else if (btn) {
+      btn.style.display = "none";
+    }
+  }
+
+  // Whether this model has an actual drift computation yet is a runtime
+  // fact - checked on the response, not assumed from what kind of model
+  // it is. Any deployment that's received predictions through
+  // POST /api/v1/predict can have this now (see drift_tracker.py).
+  function driftHasData(metrics) {
+    const columns = (metrics.drift_details && metrics.drift_details.columns) || [];
+    return columns.length > 0 || metrics.drift_score != null;
+  }
+
+  async function loadAiAnalysis(job, pod) {
+    const box = document.getElementById("ai-analysis-box");
+    if (!job) {
+      box.textContent = "No telemetry to explain for this model yet.";
+      return;
+    }
+    try {
+      const d = await Api.get("/summary?window_minutes=360&" + jobParams(job, pod));
+      box.textContent = d.summary || "No summary available for the current window.";
+    } catch (e) {
+      // Never surface the raw fetch error (e.g. a bare "Internal Server
+      // Error" from an unreachable Prometheus) - same calm, honest voice
+      // as the no-job case above, just for the "couldn't ask" case
+      // instead of the "nothing to ask about" one.
+      console.error("Monitoring: loadAiAnalysis failed", e);
+      box.textContent = "AI analysis unavailable right now.";
+    }
+  }
+
+  // Same treatment as noDataHtml() above - locally (no Prometheus) and
+  // for any model without enough traffic yet, this is what shows almost
+  // always, so it has to read as a designed state, not a rendering gap.
+  function renderDriftNoData() {
+    document.getElementById("d-instrumented").hidden = true;
+    document.getElementById("d-not-instrumented").innerHTML =
+      '<div class="panel" style="min-height:140px;display:flex;align-items:center;justify-content:center">' +
+      UI.emptyState(
+        "No drift computation yet",
+        "Once this model has received predictions, drift will be computed and shown here. This refreshes automatically."
+      ) +
+      "</div>";
+  }
+
+  // Renders the full drift section from the SAME /metrics-summary
+  // response loadPerformanceAndDrift() already fetched for the
+  // performance grid - metrics is null when there's no job to query at
+  // all, matching the performance grid's own no-job case.
+  async function renderDriftSection(entry, metrics) {
+    document.getElementById("d-not-instrumented").innerHTML = "";
+
+    if (!metrics || !driftHasData(metrics)) {
+      renderDriftNoData();
+      return;
+    }
+
+    document.getElementById("d-instrumented").hidden = false;
+    ensureDriftChart();
+
+    const details = metrics.drift_details || { drift_share: null, columns: [], computed_at: null };
+    const columns = details.columns || [];
+    const share = metrics.drift_score;
+
+    document.getElementById("d-share").textContent = share == null ? "—" : (share * 100).toFixed(1) + "%";
+    document.getElementById("d-computed").textContent = details.computed_at ? fmtEpoch(details.computed_at) + " (" + timeAgoEpoch(details.computed_at) + ")" : "No computation yet";
+
+    // Amber surface if drifted, grey if normal (spec) - same signal the
+    // drift indicator in the status band above already reflects.
+    const surface = document.getElementById("ai-analysis-surface");
+    surface.className = "banner-strip " + (columns.some((c) => c.drifted) ? "is-warning" : "is-neutral");
+
+    const history = metrics.drift_history || [];
+    const since = driftSince(history);
+    document.getElementById("d-since").textContent = since
+      ? "Continuously elevated since " + fmtEpoch(since) + " (" + timeAgoEpoch(since) + ")"
+      : columns.some((c) => c.drifted)
+      ? "Currently elevated - not enough history yet to say since when."
+      : history.length
+      ? "No drift currently present in this window."
+      : "No drift history available for this model - only the latest computation is kept.";
+
+    setDriftShareChartData(history);
+    renderBreakdown(columns);
+    renderWhatChanged(columns);
+    renderRecommended(columns);
+    await loadAiAnalysis(entry.job, entry.pod);
   }
 
   // job alone identifies model-service; every model-runner/custom-runner
@@ -389,7 +599,13 @@ const Monitoring = (() => {
       const d = await Api.get("/summary?window_minutes=360&" + jobParams(job, pod));
       box.textContent = d.summary || "No summary.";
     } catch (e) {
-      box.textContent = "Summary unavailable: " + e.message;
+      // Never surface the raw fetch error (e.g. a bare "Internal Server
+      // Error" from an unreachable Prometheus) - degrade to the same calm
+      // wording as "nothing to summarize yet" rather than a technical
+      // string the viewer can't act on. This refreshes every 30s, so a
+      // transient failure clears itself without anyone needing to retry.
+      console.error("Monitoring: renderSummary failed", e);
+      box.textContent = "Summary unavailable right now.";
     }
   }
 
@@ -412,22 +628,36 @@ const Monitoring = (() => {
           .reverse()
           .slice(0, 40)
           .map((e) => {
-            const variant = e.type === "drift" ? "danger" : e.type === "latency_p95" ? "success" : "info";
+            // deploy is informational, latency_p95 is just a routine
+            // reading, drift is the one type that's a real state worth
+            // flagging - dot + text throughout, never a colored badge.
+            const variant = e.type === "drift" ? "warning" : e.type === "latency_p95" ? "neutral" : "info";
             return (
               '<div class="event-row"><span class="event-time">' + new Date(e.timestamp * 1000).toLocaleString() + "</span>" +
-              UI.badge(e.type, variant) + '<span class="text-secondary">' + UI.escapeHtml(e.detail) + "</span></div>"
+              UI.statusDot(e.type, variant) + '<span class="text-secondary">' + UI.escapeHtml(e.detail) + "</span></div>"
             );
           })
           .join("");
       }
       return events;
     } catch (e) {
-      statusEl.textContent = "Error loading events: " + e.message;
+      // Same fail-soft treatment as the no-job/no-events cases above -
+      // never surface the raw fetch error (e.g. a bare "Internal Server
+      // Error" from an unreachable Prometheus) as on-screen text. This
+      // panel already has a designed empty state for "nothing here yet";
+      // "couldn't load" gets the same DS treatment instead of raw text.
+      console.error("Monitoring: renderTimeline failed", e);
+      statusEl.textContent = "";
+      listEl.innerHTML = UI.emptyState("Events unavailable", "Couldn't load recent events for this model right now. This refreshes automatically, so it'll retry shortly.");
       return [];
     }
   }
 
-  async function loadPerformance(entry) {
+  // Drives BOTH the performance grid and the drift section from ONE
+  // /metrics-summary fetch (the two used to be separate page loads, each
+  // making its own identical request for the same job/pod/deployment_id -
+  // merged onto one page/one render cycle, that's just one fetch now).
+  async function loadPerformanceAndDrift(entry) {
     const el = document.getElementById("mh-performance");
 
     // No job at all to query yet (a platform/custom deployment whose
@@ -441,7 +671,8 @@ const Monitoring = (() => {
         el.innerHTML = noDataHtml();
         performanceBuiltFor = marker;
       }
-      renderDriftTeaser(entry, null);
+      renderDriftIndicator(entry, null);
+      await renderDriftSection(entry, null);
       await renderSummary(null);
       await renderTimeline(null);
       return;
@@ -458,7 +689,7 @@ const Monitoring = (() => {
       // innerHTML here would tear down the live charts on every failed
       // poll, which is the same bug the built-DOM-caching below exists
       // to avoid.
-      console.error("Monitoring: loadPerformance refresh failed", e);
+      console.error("Monitoring: loadPerformanceAndDrift refresh failed", e);
       UI.toast("Could not refresh metrics: " + e.message, "danger");
       return;
     }
@@ -470,7 +701,8 @@ const Monitoring = (() => {
         el.innerHTML = noDataHtml();
         performanceBuiltFor = marker;
       }
-      renderDriftTeaser(entry, d);
+      renderDriftIndicator(entry, d);
+      await renderDriftSection(entry, d);
       await renderSummary(entry.job, entry.pod);
       return;
     }
@@ -487,9 +719,6 @@ const Monitoring = (() => {
       ensureCharts();
       performanceBuiltFor = entry.key;
     }
-
-    verdictState.rate = d.prediction_rate_5m;
-    renderVerdict();
 
     const rateVal = d.prediction_rate_5m == null ? "no data" : fmtN(d.prediction_rate_5m, 1) + "/min";
     const latVal = d.latency_p95 == null ? "no data" : fmtN(d.latency_p95 * 1000, 0) + "ms";
@@ -509,7 +738,8 @@ const Monitoring = (() => {
     setChartData(latencyChart, d.latency_p95_history || [], deployTimestamps);
     setDriftScoreData(driftScoreChart, d.drift_history || []);
     setChartData(confidenceChart, d.prediction_confidence_history || [], deployTimestamps);
-    renderDriftTeaser(entry, d);
+    renderDriftIndicator(entry, d);
+    await renderDriftSection(entry, d);
     await renderSummary(entry.job, entry.pod);
   }
 
@@ -518,12 +748,12 @@ const Monitoring = (() => {
     if (!entry) return;
     document.getElementById("mh-name").textContent = entry.label;
     document.getElementById("mh-task").textContent = ModelCatalog.kindLabel(entry.kind) + (entry.task ? " · " + entry.task : "");
-    document.getElementById("mh-drift-link").href = (role === "admin" ? "/admin/drift" : "/app/drift") + "?model=" + encodeURIComponent(entry.key);
-    await Promise.all([loadHealth(entry), loadPerformance(entry)]);
+    await Promise.all([loadHealth(entry), loadPerformanceAndDrift(entry)]);
   }
 
-  function start(opts) {
-    role = (opts && opts.role) || "member";
+  function start(o) {
+    opts = o || {};
+    role = opts.role || "member";
     loadCatalog();
     pollHandle = setInterval(() => {
       const entry = currentEntry();

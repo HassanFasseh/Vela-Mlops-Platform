@@ -61,7 +61,6 @@ const Shell = (() => {
         label: "Monitoring",
         items: [
           { label: "Model Health", href: "/admin/monitoring", icon: "activity" },
-          { label: "Drift", href: "/admin/drift", icon: "trending" },
           { label: "Infrastructure", href: "/admin/infrastructure", icon: "server" },
         ],
       },

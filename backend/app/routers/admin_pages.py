@@ -17,8 +17,7 @@ from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from backend.app.routers._page_fragments import (
-    CHART_JS_CDN, MONITORING_CSS, MONITORING_BODY, MONITORING_SCRIPTS_EXTRA,
-    DRIFT_BODY, DRIFT_SCRIPTS_EXTRA,
+    DS_ASSETS, CHART_JS_CDN, MONITORING_CSS, MONITORING_BODY, MONITORING_SCRIPTS_EXTRA,
     DOCS_BODY, DOCS_SCRIPTS_EXTRA,
     SETTINGS_BODY, SETTINGS_SCRIPTS_EXTRA,
 )
@@ -205,15 +204,15 @@ def admin_overview_page():
   }
 
   // There's no per-model drift breakdown fetched on this page (that lives
-  // on /admin/drift, one model at a time) - only a platform-wide
-  // drift_score from /metrics-summary. Rather than invent a specific
-  // model name for the banner, this reflects what's actually known: the
-  // platform-wide figure crossing a threshold.
+  // on /admin/monitoring's drift section, one model at a time) - only a
+  // platform-wide drift_score from /metrics-summary. Rather than invent a
+  // specific model name for the banner, this reflects what's actually
+  // known: the platform-wide figure crossing a threshold.
   function renderDriftBanner(metrics) {
     const el = document.getElementById('drift-banner');
     if ((metrics.drift_score || 0) <= 0.3) { el.innerHTML = ''; return; }
     el.innerHTML = '<div class="banner-strip is-warning">Elevated drift detected across the platform (' +
-      fmtPct(metrics.drift_score) + ' of tracked features) &mdash; <a href="/admin/drift">Investigate &rarr;</a></div>';
+      fmtPct(metrics.drift_score) + ' of tracked features) &mdash; <a href="/admin/monitoring#drift-section">Investigate &rarr;</a></div>';
   }
 
   function renderModelHealth(rows) {
@@ -1146,7 +1145,7 @@ def admin_monitoring_page():
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Model Health - Vela Admin</title>\n" + _ASSETS + "\n" + CHART_JS_CDN + "\n" + MONITORING_CSS + "\n</head>\n<body>\n"
+        "<title>Model Health - Vela Admin</title>\n" + DS_ASSETS + "\n" + CHART_JS_CDN + "\n" + MONITORING_CSS + "\n</head>\n<body>\n"
         + MONITORING_BODY
         + "\n" + _SCRIPTS + "\n" + MONITORING_SCRIPTS_EXTRA
         + _boot_script("/admin/monitoring", "Model Health", ready)
@@ -1156,23 +1155,14 @@ def admin_monitoring_page():
 
 
 # =========================================================================
-# Drift - /admin/drift
+# Drift - folded into /admin/monitoring's #drift-section (see
+# _page_fragments.py). This route is kept only as a redirect so old links
+# and bookmarks to the former standalone Drift page don't 404.
 # =========================================================================
 
-@router.get("/admin/drift", response_class=HTMLResponse)
+@router.get("/admin/drift")
 def admin_drift_page():
-    ready = "Drift.start({role: 'admin', actionHrefFor: (e) => '/admin/tickets-page', actionLabel: 'View open tickets'});"
-
-    html = (
-        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
-        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Drift - Vela Admin</title>\n" + _ASSETS + "\n" + CHART_JS_CDN + "\n" + MONITORING_CSS + "\n</head>\n<body>\n"
-        + DRIFT_BODY
-        + "\n" + _SCRIPTS + "\n" + DRIFT_SCRIPTS_EXTRA
-        + _boot_script("/admin/drift", "Drift", ready)
-        + "\n</body>\n</html>"
-    )
-    return html
+    return RedirectResponse(url="/admin/monitoring#drift-section", status_code=302)
 
 
 # =========================================================================

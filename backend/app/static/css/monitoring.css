@@ -1,119 +1,21 @@
 /*
- * Model Health / Drift - page-scoped styling on top of components.css.
- *
- * Deliberately flatter than the shared component library: no blur, no
- * glow, no gradient borders. components.css's .card uses backdrop-filter
- * blur + (on the dark variant) glow shadows, which reads as generic-AI-
- * SaaS chrome - fine for chrome (buttons, badges, modals stay untouched
- * here, for consistency with the rest of the app), wrong for the actual
- * evidence a "is this model healthy" page is built from. These classes
- * are additive and only used on /app/monitoring, /app/drift,
- * /admin/monitoring, /admin/drift.
+ * Model Health (health + performance + drift, one merged screen) - the
+ * handful of layout patterns specific to it that don't already have a
+ * ds/* primitive: the Chart.js sizing anchor, the chart-panel title/meta
+ * row, the color-swatch legend, the per-feature drift bar row, and the
+ * timeline event row. Everything else this page needs (panels, badges,
+ * status, empty/error states, grids, metric strips) comes straight from
+ * ds/tokens.css + ds/base.css + ds/primitives.css, loaded before this
+ * file. Additive only - used on /app/monitoring and /admin/monitoring;
+ * /admin/drift and /app/drift are now plain redirects into this page's
+ * #drift-section and never load this file directly.
  */
-
-.evidence-panel {
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-4);
-}
-
-.model-header {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-  margin-bottom: var(--space-2);
-}
-
-.model-header-name {
-  font-size: var(--text-md);
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.model-header-task {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-}
-
-/* ---- Compact stat line - a labeled number inline with its unit/window,
-   not a giant glowing tile. Used for single point-in-time facts (current
-   p95, current rate, replica count) that sit beside their chart rather
-   than in a KPI wall. ------------------------------------------------ */
-
-.stat-line-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-5);
-  margin-bottom: var(--space-3);
-}
-
-.stat-line {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.stat-line-value {
-  font-size: var(--text-lg);
-  font-weight: 600;
-  color: var(--color-text);
-  font-variant-numeric: tabular-nums;
-}
-
-.stat-line-value.is-muted {
-  color: var(--color-text-muted);
-  font-weight: 500;
-}
-
-.stat-line-label {
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-}
-
-.stat-line-sub {
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-}
-
-/* ---- Compact metric grid - 2 columns of small, square-ish chart panels
-   (predictions / latency / drift score / confidence) instead of a
-   handful of full-width charts stacked one under another. ------------- */
-
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--space-4);
-}
-
-@media (max-width: 700px) {
-  .metric-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Charts sit directly on the page background (spec: "no card borders -
-   just charts on page background"), even though the shared .evidence-
-   panel class also present on these elements is bordered everywhere
-   else on this page (model picker, model header, summary, timeline). */
-.chart-panel-compact.evidence-panel {
-  background: transparent;
-  border: none;
-  padding: 0;
-}
-
-.chart-panel-compact {
-  display: flex;
-  flex-direction: column;
-  max-height: 300px;
-}
 
 /* Chart.js's responsive mode needs an ancestor with a real, non-percent
    height to size against - this wrapper is that anchor, and the canvas
    is absolutely positioned to fill it (the standard pattern for a fixed-
    height responsive Chart.js canvas). Paired with maintainAspectRatio:
-   false in the chart's own options in monitoring.js/drift.js. */
+   false in the chart's own options in monitoring.js. */
 .chart-canvas-wrap {
   position: relative;
   height: 190px;
@@ -127,8 +29,8 @@
   height: 100% !important;
 }
 
-/* ---- Chart panel - label above (small, uppercase, muted), chart, then
-   the current value below it (spec). ------------------------------------ */
+/* ---- Chart panel head - title + meta on one row (Drift page's main
+   chart). The four small Model Health chart tiles use .eyebrow instead. */
 
 .chart-panel-head {
   display: flex;
@@ -141,36 +43,22 @@
 
 .chart-panel-title {
   font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--color-text);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
 }
 
 .chart-panel-meta {
   font-size: var(--text-xs);
-  color: var(--color-text-muted);
+  color: var(--text-muted);
 }
 
-.chart-panel-label {
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-label);
-  margin-bottom: var(--space-2);
-}
-
-.chart-panel-value {
-  font-size: var(--text-lg);
-  font-weight: 600;
-  color: var(--color-text);
-  font-variant-numeric: tabular-nums;
-  margin-top: var(--space-2);
-}
+/* ---- Color-swatch legend under a chart ("value" vs. "baseline") ------ */
 
 .chart-legend-note {
   display: flex;
   gap: var(--space-4);
   font-size: var(--text-xs);
-  color: var(--color-text-muted);
+  color: var(--text-muted);
   margin-top: var(--space-2);
   flex-wrap: wrap;
 }
@@ -194,26 +82,7 @@
   border-top: 2px dashed currentColor;
 }
 
-/* ---- Not-instrumented state - explicit and honest, not a fabricated
-   empty chart. Same "here's why" register as .empty-state. ------------ */
-
-.not-instrumented {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-6) var(--space-4);
-  text-align: center;
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-}
-
-.not-instrumented-title {
-  font-weight: 600;
-  color: var(--color-text);
-  font-size: var(--text-sm);
-}
-
-/* ---- Drift feature/distribution breakdown --------------------------- */
+/* ---- Drift feature/distribution breakdown row: name | bar | meta ----- */
 
 .feature-row {
   display: grid;
@@ -221,7 +90,7 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--color-border-subtle);
+  border-bottom: var(--border-width) solid var(--border-subtle);
 }
 
 .feature-row:last-child {
@@ -230,26 +99,10 @@
 
 .feature-name {
   font-size: var(--text-sm);
-  color: var(--color-text);
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.feature-bar-track {
-  background: var(--color-surface-2);
-  border-radius: var(--radius-sm);
-  height: 6px;
-  overflow: hidden;
-}
-
-.feature-bar-fill {
-  height: 100%;
-  background: var(--color-text-muted);
-}
-
-.feature-bar-fill.is-drifted {
-  background: var(--color-danger);
 }
 
 .feature-meta {
@@ -257,22 +110,11 @@
   align-items: center;
   gap: var(--space-2);
   font-size: var(--text-xs);
-  color: var(--color-text-muted);
+  color: var(--text-muted);
   white-space: nowrap;
 }
 
-/* ---- Since-when strip ------------------------------------------------ */
-
-.since-strip {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  margin-bottom: var(--space-3);
-}
-
-/* ---- Event log - compact, not a huge scroll list --------------------- */
+/* ---- Event log row (Model Health's Recent events panel) -------------- */
 
 .event-row {
   display: flex;
@@ -280,7 +122,7 @@
   align-items: baseline;
   padding: 5px 0;
   font-size: var(--text-xs);
-  border-bottom: 1px solid var(--color-border-subtle);
+  border-bottom: var(--border-width) solid var(--border-subtle);
 }
 
 .event-row:last-child {
@@ -288,7 +130,7 @@
 }
 
 .event-time {
-  color: var(--color-text-muted);
+  color: var(--text-muted);
   min-width: 128px;
   flex-shrink: 0;
 }

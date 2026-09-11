@@ -46,6 +46,19 @@ def query_range(promql: str, start: float, end: float, step: str = "30s"):
     resp.raise_for_status()
     return resp.json()["data"]["result"]
 
+def _safe_query_range(promql: str, start: float, end: float):
+    """Same fail-soft treatment query_range_values()/query_instant()/
+    get_drift_details() already give every other Prometheus call in this
+    module - Prometheus being unreachable (no cluster locally, a scrape
+    target down, etc.) should mean "no events derived from this series",
+    same as a query that legitimately has no data, not a 500 out of
+    /timeline (and /summary, which calls build_timeline() too) that the
+    frontend has no good way to render other than a raw error string."""
+    try:
+        return query_range(promql, start, end)
+    except Exception:
+        return []
+
 def build_timeline(window_minutes: int = 360, job: str = DEFAULT_JOB, pod: str = None):
     end = time.time()
     start = end - (window_minutes * 60)
@@ -53,7 +66,7 @@ def build_timeline(window_minutes: int = 360, job: str = DEFAULT_JOB, pod: str =
 
     events = []
 
-    deploy_series = query_range(f'process_start_time_seconds{sel}', start, end)
+    deploy_series = _safe_query_range(f'process_start_time_seconds{sel}', start, end)
     seen_starts = set()
     for series in deploy_series:
         for ts, val in series["values"]:
@@ -68,14 +81,14 @@ def build_timeline(window_minutes: int = 360, job: str = DEFAULT_JOB, pod: str =
     # platform-runner-podmonitor job) has no such gauge, so this
     # legitimately comes back empty for them rather than picking up
     # model-service's series regardless of which model is selected.
-    drift_series = query_range(f'drift_score{sel}', start, end)
+    drift_series = _safe_query_range(f'drift_score{sel}', start, end)
     for series in drift_series:
         for ts, val in series["values"]:
             score = float(val)
             if score > 0:
                 events.append({"timestamp": float(ts), "type": "drift", "detail": f"drift_score={score:.3f}"})
 
-    latency_series = query_range(f'histogram_quantile(0.95, rate(prediction_latency_seconds_bucket{sel}[5m]))', start, end)
+    latency_series = _safe_query_range(f'histogram_quantile(0.95, rate(prediction_latency_seconds_bucket{sel}[5m]))', start, end)
     for series in latency_series:
         for ts, val in series["values"]:
             try:
