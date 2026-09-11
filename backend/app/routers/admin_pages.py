@@ -373,24 +373,70 @@ def admin_overview_page():
 
 @router.get("/admin/users-page", response_class=HTMLResponse)
 def admin_users_page():
+    # Phase 2: migrated to the ds/* design system (see admin_overview_page /
+    # admin_deployments_page / admin_models_page for the reference pattern).
+    # ds/* bundle for this route only; every other admin page still uses
+    # _ASSETS. Shared JS (_SCRIPTS) is theme-agnostic and unchanged.
+    ds_assets = (
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds5">'
+    )
+
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
-    <div class="card-header">
-      <h1 style="font-size:var(--text-lg)">Users</h1>
-      <button class="btn btn-primary" id="new-user-btn" type="button">New user</button>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Users</h1>
+        <div class="page-description">Every user account on the platform.</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-secondary btn-sm" id="refresh-btn" type="button">Refresh</button>
+        <button class="btn btn-primary btn-sm" id="new-user-btn" type="button">New user</button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <span class="input-group" style="flex:1 1 220px">
+        <svg class="input-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m11 11 3 3"/></svg>
+        <input class="input" id="users-filter" type="text" placeholder="Filter by username, name, role, team or status" autocomplete="off" style="flex:1;min-width:0">
+      </span>
+      <span class="toolbar-spacer"></span>
+      <span class="text-muted" id="users-count" style="font-size:var(--text-xs);flex-shrink:0"></span>
     </div>
     <div class="table-wrap">
-      <table class="table">
+      <table class="table" style="min-width:720px">
         <thead>
-          <tr><th>Username</th><th>Name</th><th>Role</th><th>Teams</th><th>Status</th><th>Created</th><th></th></tr>
+          <tr><th>Username</th><th>Name</th><th>Role</th><th>Teams</th><th>Status</th><th>Created</th><th class="num">Actions</th></tr>
         </thead>
-        <tbody id="users-body">""" + "" + """</tbody>
+        <tbody id="users-body"></tbody>
       </table>
     </div>
   </div>
+
+  <div class="slideover-overlay" id="new-user-panel" hidden>
+  <div class="slideover" role="dialog" aria-modal="true" aria-labelledby="new-user-panel-title">
+    <div class="slideover-header">
+      <div class="slideover-title" id="new-user-panel-title">New user</div>
+      <button class="btn btn-ghost btn-sm btn-icon" id="close-new-user-panel" type="button" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="slideover-body">
+      <form class="form" id="new-user-form" novalidate>
+        <div class="field"><label class="field-label" for="nu-username">Username</label><input class="input" id="nu-username" required></div>
+        <div class="field"><label class="field-label" for="nu-name">Full name</label><input class="input" id="nu-name" required></div>
+        <div class="field"><label class="field-label" for="nu-password">Temporary password</label><input class="input" type="password" id="nu-password" required minlength="6"></div>
+        <div class="checkbox-row" style="margin-bottom:var(--space-2)"><input type="checkbox" id="nu-admin"><label for="nu-admin">Grant admin access</label></div>
+        <div class="checkbox-row" style="margin-bottom:var(--space-2)"><input type="checkbox" id="nu-force" checked><label for="nu-force">Require password change at first login</label></div>
+        <div class="field-error" id="nu-error" role="alert"></div>
+        <button class="btn btn-primary btn-block" type="submit" id="nu-submit">Create user</button>
+      </form>
+    </div>
+  </div>
+  </div>
 </div>
-<div class="auth-loading" id="loading-root">Loading…</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
 """
 
     script = """
@@ -399,6 +445,18 @@ def admin_users_page():
   let cachedUsers = [];
   let cachedTeams = [];
 
+  let newUserPanelReturnFocus = null;
+
+  function initUsers(user) {
+    currentUser = user;
+    const refreshBtn = document.getElementById('refresh-btn');
+    if (refreshBtn) refreshBtn.addEventListener('click', () => loadUsers());
+    const filterInput = document.getElementById('users-filter');
+    if (filterInput) filterInput.addEventListener('input', renderUsersTable);
+    wireNewUserPanel();
+    loadUsers();
+  }
+
   async function loadUsers() {
     const body = document.getElementById('users-body');
     body.innerHTML = UI.skeletonRows(7, 4);
@@ -406,9 +464,12 @@ def admin_users_page():
       const [users, teams] = await Promise.all([Api.get('/admin/users'), Api.get('/admin/teams')]);
       cachedUsers = users;
       cachedTeams = teams;
-      renderUsers();
+      renderUsersTable();
     } catch (e) {
+      cachedUsers = [];
       body.innerHTML = '<tr><td colspan="7">' + UI.errorState(e.message, loadUsers) + '</td></tr>';
+      const countEl = document.getElementById('users-count');
+      if (countEl) countEl.textContent = '';
     }
   }
 
@@ -420,38 +481,48 @@ def admin_users_page():
     return names;
   }
 
-  function renderUsers() {
+  // Client-side only: filters the already-loaded cachedUsers. Row actions
+  // are keyed by user id (data-deactivate="u.id" etc.), not array
+  // position, so - unlike the Models registry filter - there's no index
+  // to remap here; filtering never changes which user a button acts on.
+  function renderUsersTable() {
     const body = document.getElementById('users-body');
+    const countEl = document.getElementById('users-count');
+    const q = (document.getElementById('users-filter').value || '').trim().toLowerCase();
+
     if (!cachedUsers.length) {
       body.innerHTML = '<tr><td colspan="7">' + UI.emptyState('No users yet', 'Create the first user to get started.') + '</td></tr>';
+      if (countEl) countEl.textContent = '';
       return;
     }
-    body.innerHTML = cachedUsers.map(u => {
-      const teams = teamsForUser(u.id);
-      const teamBadges = teams.length ? teams.map(t => UI.badge(t, 'neutral')).join(' ') : '<span class="text-muted">—</span>';
-      const isSelf = currentUser && u.id === currentUser.id;
-      let action;
-      if (isSelf) {
-        action = '<span class="text-muted" style="font-size:var(--text-xs)">You</span>';
-      } else {
-        const toggleBtn = u.is_active
-          ? '<button class="link-action link-danger" data-deactivate="' + u.id + '" data-username="' + UI.escapeHtml(u.username) + '" type="button">Deactivate</button>'
-          : '<button class="link-action" data-reactivate="' + u.id + '" data-username="' + UI.escapeHtml(u.username) + '" type="button">Reactivate</button>';
-        action = toggleBtn + ' <button class="link-action link-danger" data-delete="' + u.id + '" data-username="' + UI.escapeHtml(u.username) + '" type="button">Delete</button>';
-      }
-      return '<tr>' +
-        '<td class="mono">' + UI.escapeHtml(u.username) + '</td>' +
-        '<td>' + UI.escapeHtml(u.name) + '</td>' +
-        '<td>' + UI.badge(u.is_admin ? 'Admin' : 'Member', u.is_admin ? 'info' : 'neutral') + '</td>' +
-        '<td>' + teamBadges + '</td>' +
-        '<td>' + UI.statusBadge(u.is_active ? 'active' : 'inactive') + (u.force_password_change ? ' ' + UI.statusDot('Pending first login', 'warning') : '') + '</td>' +
-        '<td class="text-secondary">' + UI.fmtDate(u.created_at) + '</td>' +
-        '<td style="text-align:right">' + action + '</td>' +
-        '</tr>';
-    }).join('');
+
+    const rows = cachedUsers.filter(u => {
+      if (!q) return true;
+      const role = u.is_admin ? 'admin' : 'member';
+      const status = u.is_active ? 'active' : 'inactive';
+      const teams = teamsForUser(u.id).join(' ').toLowerCase();
+      return (u.username || '').toLowerCase().includes(q)
+        || (u.name || '').toLowerCase().includes(q)
+        || role.includes(q)
+        || status.includes(q)
+        || teams.includes(q);
+    });
+
+    if (countEl) {
+      countEl.textContent = q
+        ? rows.length + ' of ' + cachedUsers.length
+        : cachedUsers.length + (cachedUsers.length === 1 ? ' user' : ' users');
+    }
+
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="7">' + UI.emptyState('No matches', 'No user matches that filter.') + '</td></tr>';
+      return;
+    }
+
+    body.innerHTML = rows.map(renderUserRow).join('');
 
     body.querySelectorAll('[data-deactivate]').forEach(btn => {
-      btn.addEventListener('click', () => deactivateUser(btn.dataset.deactivate, btn.dataset.username));
+      btn.addEventListener('click', () => confirmDeactivateUser(btn.dataset.deactivate, btn.dataset.username));
     });
     body.querySelectorAll('[data-reactivate]').forEach(btn => {
       btn.addEventListener('click', () => reactivateUser(btn.dataset.reactivate, btn.dataset.username));
@@ -461,15 +532,63 @@ def admin_users_page():
     });
   }
 
-  async function deactivateUser(id, username) {
-    if (!confirm('Deactivate ' + username + '? They will no longer be able to log in.')) return;
-    try {
-      await Api.patch('/admin/users/' + id + '/deactivate');
-      UI.toast(username + ' deactivated', 'success');
-      loadUsers();
-    } catch (e) {
-      UI.toast(e.message || 'Could not deactivate user', 'danger');
+  // Role and team both read as plain neutral labels - .badge carries no
+  // colour variants in this system, colour is reserved for real status
+  // (the Status column below).
+  function renderUserRow(u) {
+    const teams = teamsForUser(u.id);
+    const teamBadges = teams.length ? teams.map(t => UI.badge(t, 'neutral')).join(' ') : '<span class="text-muted">—</span>';
+    const isSelf = currentUser && u.id === currentUser.id;
+    let action;
+    if (isSelf) {
+      action = '<span class="text-muted" style="font-size:var(--text-xs)">You</span>';
+    } else {
+      const toggleBtn = u.is_active
+        ? '<button class="link-action link-danger" data-deactivate="' + u.id + '" data-username="' + UI.escapeHtml(u.username) + '" type="button">Deactivate</button>'
+        : '<button class="link-action" data-reactivate="' + u.id + '" data-username="' + UI.escapeHtml(u.username) + '" type="button">Reactivate</button>';
+      action = toggleBtn + ' <button class="link-action link-danger" data-delete="' + u.id + '" data-username="' + UI.escapeHtml(u.username) + '" type="button">Delete</button>';
     }
+    return '<tr>' +
+      '<td class="mono">' + UI.escapeHtml(u.username) + '</td>' +
+      '<td>' + UI.escapeHtml(u.name) + '</td>' +
+      '<td>' + UI.badge(u.is_admin ? 'Admin' : 'Member', 'neutral') + '</td>' +
+      '<td>' + teamBadges + '</td>' +
+      '<td>' + UI.statusBadge(u.is_active ? 'active' : 'inactive') + (u.force_password_change ? ' ' + UI.statusDot('Pending first login', 'warning') : '') + '</td>' +
+      '<td class="text-secondary">' + UI.fmtDate(u.created_at) + '</td>' +
+      '<td class="num"><span style="display:inline-flex;gap:var(--space-3);align-items:center;justify-content:flex-end;flex-wrap:wrap">' + action + '</span></td>' +
+      '</tr>';
+  }
+
+  // Reversible, so a single DS-styled confirm modal (no type-to-confirm) -
+  // replaces the native confirm() the legacy page used. The underlying
+  // call is exactly the same PATCH .../deactivate as before.
+  function confirmDeactivateUser(id, username) {
+    const overlay = UI.openModal({
+      title: 'Deactivate ' + username,
+      bodyHtml: `
+        <div class="alert alert-warning">
+          <div><div class="alert-title">${UI.escapeHtml(username)} will be signed out</div>They won't be able to log in until reactivated &mdash; this can be undone at any time.</div></div>
+        </div>
+      `,
+      footerHtml: `<button class="btn btn-ghost" id="deact-cancel" type="button">Cancel</button>
+                   <button class="btn btn-danger" id="deact-confirm" type="button">Deactivate</button>`,
+    });
+    overlay.querySelector('#deact-cancel').addEventListener('click', UI.closeModal);
+    const confirmBtn = overlay.querySelector('#deact-confirm');
+    confirmBtn.addEventListener('click', async () => {
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Deactivating…';
+      try {
+        await Api.patch('/admin/users/' + id + '/deactivate');
+        UI.closeModal();
+        UI.toast(username + ' deactivated', 'success');
+        loadUsers();
+      } catch (e) {
+        UI.toast(e.message || 'Could not deactivate user', 'danger');
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Deactivate';
+      }
+    });
   }
 
   async function reactivateUser(id, username) {
@@ -486,8 +605,8 @@ def admin_users_page():
     const overlay = UI.openModal({
       title: 'Delete ' + username,
       bodyHtml: `
-        <div class="alert alert-danger" style="margin-bottom:.75rem">
-          <div><div class="alert-title">This cannot be undone</div><div class="alert-body">This will permanently delete the user and all their data. Type the username to confirm.</div></div>
+        <div class="alert alert-danger" style="margin-bottom:var(--space-3)">
+          <div><div class="alert-title">This cannot be undone</div><div>This will permanently delete the user and all their data. Type the username to confirm.</div></div>
         </div>
         <div class="field">
           <label class="field-label" for="del-user-confirm-name">Username</label>
@@ -524,54 +643,86 @@ def admin_users_page():
     });
   }
 
-  function openNewUserModal() {
-    const overlay = UI.openModal({
-      title: 'New user',
-      bodyHtml: `
-        <form id="new-user-form" novalidate>
-          <div class="field"><label class="field-label" for="nu-username">Username</label><input class="input" id="nu-username" required></div>
-          <div class="field"><label class="field-label" for="nu-name">Full name</label><input class="input" id="nu-name" required></div>
-          <div class="field"><label class="field-label" for="nu-password">Temporary password</label><input class="input" type="password" id="nu-password" required minlength="6"></div>
-          <div class="checkbox-row" style="margin-bottom:.5rem"><input type="checkbox" id="nu-admin"><label for="nu-admin">Grant admin access</label></div>
-          <div class="checkbox-row" style="margin-bottom:.5rem"><input type="checkbox" id="nu-force" checked><label for="nu-force">Require password change at first login</label></div>
-          <div class="field-error" id="nu-error" role="alert"></div>
-        </form>`,
-      footerHtml: `<button class="btn btn-ghost" id="nu-cancel" type="button">Cancel</button>
-                   <button class="btn btn-primary" id="nu-submit" type="submit" form="new-user-form">Create user</button>`,
+  // CREATION flow -> slide-over (matches the "Deploy model" pattern on
+  // /admin/deployments); CONFIRMATION dialogs (deactivate, delete above)
+  // stay as modals. Same form, same ids, same validation, same POST -
+  // only the surface it lives in changed.
+  function wireNewUserPanel() {
+    const panel = document.getElementById('new-user-panel');
+    const openBtn = document.getElementById('new-user-btn');
+    const closeBtn = document.getElementById('close-new-user-panel');
+    if (!panel || !openBtn) return;
+
+    openBtn.addEventListener('click', () => {
+      newUserPanelReturnFocus = document.activeElement;
+      panel.hidden = false;
+      document.addEventListener('keydown', newUserPanelKeydown);
+      const first = document.getElementById('nu-username');
+      if (first) first.focus();
     });
-    overlay.querySelector('#nu-cancel').addEventListener('click', UI.closeModal);
-    overlay.querySelector('#new-user-form').addEventListener('submit', async (e) => {
+    closeBtn.addEventListener('click', closeNewUserPanel);
+    panel.addEventListener('click', (e) => { if (e.target === panel) closeNewUserPanel(); });
+
+    document.getElementById('new-user-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const errorEl = overlay.querySelector('#nu-error');
-      const username = overlay.querySelector('#nu-username').value.trim();
-      const name = overlay.querySelector('#nu-name').value.trim();
-      const password = overlay.querySelector('#nu-password').value;
-      const is_admin = overlay.querySelector('#nu-admin').checked;
-      const force_password_change = overlay.querySelector('#nu-force').checked;
+      const errorEl = document.getElementById('nu-error');
+      const submitBtn = document.getElementById('nu-submit');
+      const username = document.getElementById('nu-username').value.trim();
+      const name = document.getElementById('nu-name').value.trim();
+      const password = document.getElementById('nu-password').value;
+      const is_admin = document.getElementById('nu-admin').checked;
+      const force_password_change = document.getElementById('nu-force').checked;
       if (!username || !name || password.length < 6) {
         errorEl.textContent = 'Fill in all fields - password needs at least 6 characters.';
         return;
       }
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Creating…';
       try {
         await Api.post('/admin/users', { username, name, password, is_admin, force_password_change });
         UI.toast('User ' + username + ' created', 'success');
-        UI.closeModal();
+        closeNewUserPanel();
         loadUsers();
       } catch (err) {
         errorEl.textContent = err.message || 'Could not create user.';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Create user';
       }
     });
   }
 
-  document.getElementById('new-user-btn').addEventListener('click', openNewUserModal);
+  function closeNewUserPanel() {
+    const panel = document.getElementById('new-user-panel');
+    if (!panel || panel.hidden) return;
+    panel.hidden = true;
+    document.removeEventListener('keydown', newUserPanelKeydown);
+    document.getElementById('new-user-form').reset();
+    document.getElementById('nu-error').textContent = '';
+    if (newUserPanelReturnFocus && document.contains(newUserPanelReturnFocus)) newUserPanelReturnFocus.focus();
+    newUserPanelReturnFocus = null;
+  }
+
+  function newUserPanelKeydown(e) {
+    if (e.key === 'Escape') { closeNewUserPanel(); return; }
+    if (e.key !== 'Tab') return;
+    const panel = document.getElementById('new-user-panel');
+    const focusables = Array.from(panel.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
+    )).filter(el => el.offsetParent !== null);
+    if (!focusables.length) return;
+    const first = focusables[0], last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
 </script>"""
 
-    ready = "currentUser = user; loadUsers();"
+    ready = "initUsers(user);"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Users - Vela Admin</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        "<title>Users - Vela Admin</title>\n" + ds_assets + "\n</head>\n<body>\n"
         + body
         + "\n" + _SCRIPTS + "\n" + script
         + _boot_script("/admin/users-page", "Users", ready)
