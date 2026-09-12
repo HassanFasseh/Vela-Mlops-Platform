@@ -199,14 +199,24 @@ body.has-shell {
   background: var(--bg);
   z-index: var(--z-topbar);
 }
+/* Off-canvas drawer opener - a real bordered button (not a bare icon)
+   so it unmistakably reads as tappable; hidden entirely at desktop
+   widths, see the ≤900px block below. */
 .shell-mobile-toggle {
   display: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
   background: none;
-  border: none;
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm);
   color: var(--text-secondary);
   cursor: pointer;
-  padding: var(--space-1);
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease);
 }
+.shell-mobile-toggle:hover { background: var(--surface-hover); color: var(--text); border-color: var(--border-strong); }
 
 .shell-breadcrumbs {
   display: flex;
@@ -224,22 +234,14 @@ body.has-shell {
 
 .shell-topbar-spacer { flex: 1; }
 
-.shell-search-btn {
+/* Right-hand cluster (notifications, user menu) - its own generous gap,
+   independent of .shell-topbar's tighter structural gap, so the two
+   controls read as deliberately spaced rather than crowded together. */
+.shell-topbar-actions {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  background: var(--surface-raised);
-  border: var(--border-width) solid var(--border);
-  color: var(--text-muted);
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  padding: 0 var(--space-2);
-  height: 26px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
+  gap: var(--space-4);
 }
-.shell-search-btn:hover { border-color: var(--border-strong); color: var(--text-secondary); }
-.shell-search-btn .kbd { margin-left: var(--space-3); }
 
 .shell-icon-btn {
   position: relative;
@@ -292,12 +294,6 @@ body.has-shell {
   font-size: 10px;
   font-weight: var(--fw-semibold);
   flex-shrink: 0;
-}
-.shell-user-name {
-  font-size: var(--text-sm);
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .shell-user-dropdown { right: 0; top: calc(100% + 6px); }
 .shell-user-dropdown-header {
@@ -383,61 +379,6 @@ body.has-shell {
 .toolbar .select { height: 28px; width: auto; }
 
 /* ===================================================================
-   Command palette
-   =================================================================== */
-
-.shell-command-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 12vh;
-  z-index: var(--z-command);
-  animation: ds-fade-in var(--dur-2) var(--ease-out);
-}
-.shell-command-overlay[hidden] { display: none; }
-.shell-command-palette {
-  width: 100%;
-  max-width: 520px;
-  background: var(--surface);
-  border: var(--border-width) solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  overflow: hidden;
-}
-.shell-command-input {
-  width: 100%;
-  border: none;
-  border-bottom: var(--border-width) solid var(--border-subtle);
-  background: none;
-  color: var(--text);
-  font-family: var(--font-sans);
-  font-size: var(--text-md);
-  padding: var(--space-4);
-}
-.shell-command-input:focus-visible { outline: none; box-shadow: none; }
-.shell-command-results { max-height: 320px; overflow-y: auto; padding: var(--space-1); }
-.shell-command-result {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-.shell-command-result.is-active { background: var(--accent-bg); color: var(--text); }
-.shell-command-empty {
-  padding: var(--space-4);
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  text-align: center;
-}
-
-/* ===================================================================
    Responsive — the sidebar becomes an off-canvas drawer below the
    content breakpoint, then the top bar and page furniture tighten and
    stack down to ~380px.
@@ -474,8 +415,6 @@ body.has-shell {
 
   .shell-mobile-toggle { display: flex; }
   .shell-collapse-btn { display: none; }
-  .shell-user-name { display: none; }
-  .shell-search-btn .kbd { display: none; }
   .shell-main { padding: var(--space-4); }
   .page-header { flex-direction: column; }
   .page-actions { width: 100%; }
@@ -494,12 +433,11 @@ body.has-shell {
   .shell-breadcrumbs a,
   .shell-breadcrumbs span[aria-hidden],
   .shell-breadcrumb-sep { display: none; }
-  .shell-search-btn span { display: none; }
-  .shell-search-btn { padding: 0; width: 28px; justify-content: center; }
   .shell-main { padding: var(--space-3); }
   .toolbar > * { flex: 1 1 100%; }
   .toolbar .input,
   .toolbar .select { width: 100%; }
   .toolbar-spacer { display: none; }
   .page-actions .btn { flex: 1; }
+  .shell-topbar-actions { gap: var(--space-2); }
 }

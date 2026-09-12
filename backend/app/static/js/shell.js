@@ -20,6 +20,29 @@
  */
 
 const Shell = (() => {
+  // ---- Theme ---------------------------------------------------------
+  // Dark is the default - no data-theme attribute matches :root in
+  // tokens.css. "light" sets data-theme="light" to pick up the light
+  // overrides there. Applied immediately below, as the first thing this
+  // script does on load (before Shell.mount() or any async auth call
+  // runs), so a stored "light" preference is already on <html> before
+  // the "Loading…" spinner - the only thing visible pre-mount - ever
+  // paints. Persists via localStorage and applies app-wide because every
+  // page loads this same script.
+  const THEME_KEY = "vela_theme";
+  function currentTheme() {
+    return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+  }
+  function applyTheme(theme) {
+    if (theme === "light") document.documentElement.setAttribute("data-theme", "light");
+    else document.documentElement.removeAttribute("data-theme");
+  }
+  (function initTheme() {
+    let stored = null;
+    try { stored = localStorage.getItem(THEME_KEY); } catch (e) {}
+    applyTheme(stored === "light" ? "light" : "dark");
+  })();
+
   const ICONS = {
     mark: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 20 L12 3 L12 20 Z"/></svg>',
     grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="3.5" width="7" height="7" rx="1"/><rect x="13.5" y="3.5" width="7" height="7" rx="1"/><rect x="3.5" y="13.5" width="7" height="7" rx="1"/><rect x="13.5" y="13.5" width="7" height="7" rx="1"/></svg>',
@@ -37,14 +60,26 @@ const Shell = (() => {
     ticket: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a1.5 1.5 0 0 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a1.5 1.5 0 0 0 0-4Z"/></svg>',
     book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H12v18H6.5A2.5 2.5 0 0 0 4 23.5Z"/><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H12v18h5.5a2.5 2.5 0 0 1 2.5 2.5Z"/></svg>',
     settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.4M12 18.6V21M21 12h-2.4M5.4 12H3M18.4 5.6l-1.7 1.7M7.3 16.7l-1.7 1.7M18.4 18.4l-1.7-1.7M7.3 7.3 5.6 5.6"/></svg>',
-    search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20 L15.5 15.5"/></svg>',
     bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M6 10a6 6 0 0 1 12 0c0 4.5 1.5 6 1.5 6h-15S6 14.5 6 10Z"/><path d="M9.5 19a2.5 2.5 0 0 0 5 0"/></svg>',
+    sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v3M12 18.5v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2.5 12h3M18.5 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>',
+    moon: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11Z"/></svg>',
     chevronDown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="6,9 12,15 18,9"/></svg>',
     menu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>',
   };
 
   function icon(name) {
     return `<span class="shell-nav-item-icon" aria-hidden="true">${ICONS[name] || ""}</span>`;
+  }
+
+  // Sun/moon + a plain-language label, e.g. "Dark theme" - both the icon
+  // and the answer are always the state you're CURRENTLY in, matching
+  // the labeled dot+text convention used everywhere else (statusBadge).
+  // Lives in the user dropdown (not the sidebar), so its text is a plain
+  // span - not .shell-nav-label, which .shell.is-collapsed hides and
+  // would otherwise wrongly reach into this unrelated topbar dropdown.
+  function themeToggleInner() {
+    const light = currentTheme() === "light";
+    return `${icon(light ? "sun" : "moon")}<span>${light ? "Light theme" : "Dark theme"}</span>`;
   }
 
   const NAV = {
@@ -114,13 +149,6 @@ const Shell = (() => {
     const parts = String(name || "?").trim().split(/\s+/).filter(Boolean);
     if (!parts.length) return "?";
     return (parts[0][0] + (parts[1] ? parts[1][0] : "")).toUpperCase();
-  }
-
-  function flatNav(role) {
-    const sections = NAV[role] || NAV.member;
-    const out = [];
-    sections.forEach((s) => s.items.forEach((i) => out.push(i)));
-    return out;
   }
 
   function isActive(href, activePath) {
@@ -207,40 +235,37 @@ const Shell = (() => {
       </aside>
       <div class="shell-body">
         <header class="shell-topbar">
-          <button class="shell-mobile-toggle" id="shell-mobile-toggle" type="button" aria-label="Open navigation">
-            ${ICONS.menu}
+          <button class="shell-mobile-toggle" id="shell-mobile-toggle" type="button" aria-label="Open navigation menu" aria-expanded="false">
+            ${icon("menu")}
           </button>
           <nav class="shell-breadcrumbs" aria-label="Breadcrumb">${renderBreadcrumbs(breadcrumbs)}</nav>
           <div class="shell-topbar-spacer"></div>
-          <button class="shell-search-btn" id="shell-search-btn" type="button">
-            ${ICONS.search}<span>Search…</span><kbd>&#8984;K</kbd>
-          </button>
-          <button class="shell-icon-btn" id="shell-notif-btn" type="button" aria-label="Notifications">
-            ${ICONS.bell}${notificationCount > 0 ? '<span class="shell-notif-dot"></span>' : ""}
-          </button>
-          <div class="shell-user-menu">
-            <button class="shell-user-btn" id="shell-user-btn" type="button" aria-haspopup="true" aria-expanded="false">
-              <span class="shell-avatar">${escapeHtml(initials(user.name))}</span>
-              <span class="shell-user-name">${escapeHtml(user.name)}</span>
-              ${ICONS.chevronDown}
+          <div class="shell-topbar-actions">
+            <button class="shell-icon-btn" id="shell-notif-btn" type="button" aria-label="Notifications">
+              ${ICONS.bell}${notificationCount > 0 ? '<span class="shell-notif-dot"></span>' : ""}
             </button>
-            <div class="dropdown-menu shell-user-dropdown" id="shell-user-dropdown" hidden>
-              <div class="shell-user-dropdown-header">
-                <div class="shell-user-dropdown-name">${escapeHtml(user.name)}</div>
-                <div class="shell-user-dropdown-role">${user.is_admin ? "Administrator" : "Team member"}</div>
+            <div class="shell-user-menu">
+              <button class="shell-user-btn" id="shell-user-btn" type="button" aria-haspopup="true" aria-expanded="false">
+                <span class="shell-avatar">${escapeHtml(initials(user.name))}</span>
+                ${icon("chevronDown")}
+              </button>
+              <div class="dropdown-menu shell-user-dropdown" id="shell-user-dropdown" hidden>
+                <div class="shell-user-dropdown-header">
+                  <div class="shell-user-dropdown-name">${escapeHtml(user.name)}</div>
+                  <div class="shell-user-dropdown-role">${user.is_admin ? "Administrator" : "Team member"}</div>
+                </div>
+                <button class="dropdown-item" id="shell-theme-toggle" type="button"
+                  role="menuitemcheckbox" aria-checked="${currentTheme() === "light"}">
+                  ${themeToggleInner()}
+                </button>
+                <div class="dropdown-divider"></div>
+                <a class="dropdown-item" href="/change-password">Change password</a>
+                <button class="dropdown-item" id="shell-logout-btn" type="button">Log out</button>
               </div>
-              <a class="dropdown-item" href="/change-password">Change password</a>
-              <button class="dropdown-item" id="shell-logout-btn" type="button">Log out</button>
             </div>
           </div>
         </header>
         <main class="shell-main" id="shell-main" tabindex="-1"></main>
-      </div>
-      <div class="shell-command-overlay" id="shell-command-overlay" hidden>
-        <div class="shell-command-palette" role="dialog" aria-label="Jump to">
-          <input class="shell-command-input" id="shell-command-input" type="text" placeholder="Jump to…" aria-label="Jump to a page" autocomplete="off">
-          <div class="shell-command-results" id="shell-command-results"></div>
-        </div>
       </div>
     `;
 
@@ -273,10 +298,32 @@ const Shell = (() => {
     // Sidebar off-canvas (mobile)
     const mobileToggle = shell.querySelector("#shell-mobile-toggle");
     mobileToggle.addEventListener("click", () => {
-      shell.classList.toggle("is-mobile-open");
+      const open = shell.classList.toggle("is-mobile-open");
+      mobileToggle.setAttribute("aria-expanded", String(open));
     });
     shell.querySelectorAll(".shell-nav-item").forEach((el) => {
-      el.addEventListener("click", () => shell.classList.remove("is-mobile-open"));
+      el.addEventListener("click", () => {
+        shell.classList.remove("is-mobile-open");
+        mobileToggle.setAttribute("aria-expanded", "false");
+      });
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && shell.classList.contains("is-mobile-open")) {
+        shell.classList.remove("is-mobile-open");
+        mobileToggle.setAttribute("aria-expanded", "false");
+      }
+    });
+
+    // Theme toggle - lives in the user dropdown now; clicking it flips
+    // the theme in place without closing the menu (it's not in
+    // userDropdown's outside-click path since it's inside userDropdown).
+    const themeToggleBtn = shell.querySelector("#shell-theme-toggle");
+    themeToggleBtn.addEventListener("click", () => {
+      const next = currentTheme() === "light" ? "dark" : "light";
+      applyTheme(next);
+      try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+      themeToggleBtn.innerHTML = themeToggleInner();
+      themeToggleBtn.setAttribute("aria-checked", String(next === "light"));
     });
 
     // User menu
@@ -295,71 +342,6 @@ const Shell = (() => {
       }
     });
     shell.querySelector("#shell-logout-btn").addEventListener("click", () => Api.logout());
-
-    // Command palette
-    const overlay = shell.querySelector("#shell-command-overlay");
-    const input = shell.querySelector("#shell-command-input");
-    const results = shell.querySelector("#shell-command-results");
-    const items = flatNav(role);
-
-    function renderResults(query) {
-      const q = query.trim().toLowerCase();
-      const filtered = q ? items.filter((i) => i.label.toLowerCase().includes(q)) : items;
-      if (!filtered.length) {
-        results.innerHTML = '<div class="shell-command-empty">No matches</div>';
-        return;
-      }
-      results.innerHTML = filtered
-        .map(
-          (i, idx) =>
-            `<div class="shell-command-result${idx === 0 ? " is-active" : ""}" data-href="${i.href}">${icon(i.icon)}<span>${escapeHtml(i.label)}</span></div>`
-        )
-        .join("");
-    }
-
-    function openPalette() {
-      overlay.hidden = false;
-      input.value = "";
-      renderResults("");
-      input.focus();
-    }
-    function closePalette() {
-      overlay.hidden = true;
-    }
-
-    shell.querySelector("#shell-search-btn").addEventListener("click", openPalette);
-    document.addEventListener("keydown", (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        overlay.hidden ? openPalette() : closePalette();
-      } else if (e.key === "Escape" && !overlay.hidden) {
-        closePalette();
-      }
-    });
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) closePalette();
-    });
-    input.addEventListener("input", () => renderResults(input.value));
-    results.addEventListener("click", (e) => {
-      const row = e.target.closest(".shell-command-result");
-      if (row && row.dataset.href) window.location.href = row.dataset.href;
-    });
-    input.addEventListener("keydown", (e) => {
-      const rows = Array.from(results.querySelectorAll(".shell-command-result"));
-      if (!rows.length) return;
-      const activeIdx = rows.findIndex((r) => r.classList.contains("is-active"));
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
-        const dir = e.key === "ArrowDown" ? 1 : -1;
-        const nextIdx = (activeIdx + dir + rows.length) % rows.length;
-        rows.forEach((r) => r.classList.remove("is-active"));
-        rows[nextIdx].classList.add("is-active");
-        rows[nextIdx].scrollIntoView({ block: "nearest" });
-      } else if (e.key === "Enter") {
-        const active = rows[activeIdx] || rows[0];
-        if (active) window.location.href = active.dataset.href;
-      }
-    });
   }
 
   return { mount, ICONS, icon, escapeHtml, initials };

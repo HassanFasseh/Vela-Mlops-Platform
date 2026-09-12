@@ -26,7 +26,7 @@ CHART_JS_CDN = '<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4
 # HTML (fresh, since FastAPI never caches it), stale JS silently doing
 # nothing with the new page's element ids. Bump this string on every
 # change to these files.
-_STATIC_V = "10"
+_STATIC_V = "12"
 MONITORING_CSS = f'<link rel="stylesheet" href="/static/css/monitoring.css?v={_STATIC_V}">'
 MODEL_CATALOG_JS = f'<script src="/static/js/models.js?v={_STATIC_V}"></script>'
 
@@ -41,7 +41,7 @@ DS_ASSETS = (
     '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
     '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
     '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-    '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds5">'
+    '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds7">'
 )
 
 MONITORING_BODY = """
