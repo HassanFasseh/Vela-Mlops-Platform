@@ -63,6 +63,7 @@ const Shell = (() => {
     bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M6 10a6 6 0 0 1 12 0c0 4.5 1.5 6 1.5 6h-15S6 14.5 6 10Z"/><path d="M9.5 19a2.5 2.5 0 0 0 5 0"/></svg>',
     sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v3M12 18.5v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2.5 12h3M18.5 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>',
     moon: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11Z"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="5,13 10,18 19,7"/></svg>',
     chevronDown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="6,9 12,15 18,9"/></svg>',
     menu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>',
   };
@@ -241,9 +242,18 @@ const Shell = (() => {
           <nav class="shell-breadcrumbs" aria-label="Breadcrumb">${renderBreadcrumbs(breadcrumbs)}</nav>
           <div class="shell-topbar-spacer"></div>
           <div class="shell-topbar-actions">
-            <button class="shell-icon-btn" id="shell-notif-btn" type="button" aria-label="Notifications">
-              ${ICONS.bell}${notificationCount > 0 ? '<span class="shell-notif-dot"></span>' : ""}
-            </button>
+            <div class="shell-notif-menu" id="shell-notif-menu"${role === "admin" ? "" : " hidden"}>
+              <button class="shell-icon-btn" id="shell-notif-btn" type="button" aria-label="Notifications" aria-haspopup="true" aria-expanded="false">
+                ${ICONS.bell}<span class="shell-notif-dot" id="shell-notif-dot" hidden></span>
+              </button>
+              <div class="dropdown-menu shell-notif-panel" id="shell-notif-panel" hidden>
+                <div class="shell-notif-panel-header">
+                  <span>Notifications</span>
+                  <button class="link-action" id="shell-notif-mark-all" type="button">Mark all read</button>
+                </div>
+                <div class="shell-notif-panel-body" id="shell-notif-body"></div>
+              </div>
+            </div>
             <div class="shell-user-menu">
               <button class="shell-user-btn" id="shell-user-btn" type="button" aria-haspopup="true" aria-expanded="false">
                 <span class="shell-avatar">${escapeHtml(initials(user.name))}</span>
@@ -275,6 +285,18 @@ const Shell = (() => {
     main.appendChild(pageContent);
 
     wireEvents(shell, role);
+
+    // Admin-only, cheap sources only (tickets + remediation logs) - just
+    // enough to light the unread dot on every page load without adding
+    // the expensive per-model health probe to every navigation. See
+    // notifications.js for the full aggregation + the health probe,
+    // which only runs once the panel is actually opened.
+    if (role === "admin" && typeof Notifications !== "undefined") {
+      Notifications.init({
+        dotEl: shell.querySelector("#shell-notif-dot"),
+        bodyEl: shell.querySelector("#shell-notif-body"),
+      });
+    }
 
     // Added last, after the whole shell subtree is in place - both the
     // light dashboard theme (tokens.css: body.has-shell token overrides)
@@ -342,6 +364,28 @@ const Shell = (() => {
       }
     });
     shell.querySelector("#shell-logout-btn").addEventListener("click", () => Api.logout());
+
+    // Notifications - admin-only (the menu is hidden in the template
+    // above for members, and notifications.js isn't even loaded on
+    // member pages - see _SCRIPTS in member_pages.py).
+    if (role === "admin" && typeof Notifications !== "undefined") {
+      const notifBtn = shell.querySelector("#shell-notif-btn");
+      const notifPanel = shell.querySelector("#shell-notif-panel");
+      notifBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const open = !notifPanel.hidden;
+        notifPanel.hidden = open;
+        notifBtn.setAttribute("aria-expanded", String(!open));
+        if (!open) Notifications.onPanelOpen();
+      });
+      document.addEventListener("click", (e) => {
+        if (!notifPanel.hidden && !notifPanel.contains(e.target) && e.target !== notifBtn) {
+          notifPanel.hidden = true;
+          notifBtn.setAttribute("aria-expanded", "false");
+        }
+      });
+      shell.querySelector("#shell-notif-mark-all").addEventListener("click", () => Notifications.markAllRead());
+    }
   }
 
   return { mount, ICONS, icon, escapeHtml, initials };
