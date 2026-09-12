@@ -25,3 +25,4 @@ null
 ocid1.*
 local.db
 local_test.db
+run.sh

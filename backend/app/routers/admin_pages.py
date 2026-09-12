@@ -1248,60 +1248,161 @@ def admin_teams_page():
 
 @router.get("/admin/tickets-page", response_class=HTMLResponse)
 def admin_tickets_page():
+    ds_assets = (
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds5">'
+    )
+
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
-    <div class="card-header">
-      <h1 style="font-size:var(--text-lg)">Tickets</h1>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Tickets</h1>
+        <div class="page-description">Model risk and incident tickets filed by teams.</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-secondary btn-sm" id="refresh-btn" type="button">Refresh</button>
+      </div>
     </div>
-    <div class="tabs" id="status-tabs" role="tablist">
-      <button class="tab" data-status="" role="tab" aria-selected="true">All</button>
-      <button class="tab" data-status="open" role="tab" aria-selected="false">Open</button>
-      <button class="tab" data-status="investigating" role="tab" aria-selected="false">Investigating</button>
-      <button class="tab" data-status="resolved" role="tab" aria-selected="false">Resolved</button>
-      <button class="tab" data-status="closed" role="tab" aria-selected="false">Closed</button>
+
+    <div class="toolbar">
+      <span class="input-group" style="flex:1 1 200px">
+        <svg class="input-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m11 11 3 3"/></svg>
+        <input class="input" id="tickets-filter" type="text" placeholder="Filter by title, model or team" autocomplete="off" style="flex:1;min-width:0">
+      </span>
+      <select class="select" id="tickets-status-filter" aria-label="Filter by status">
+        <option value="">All statuses</option>
+        <option value="open">Open</option>
+        <option value="investigating">Investigating</option>
+        <option value="resolved">Resolved</option>
+        <option value="closed">Closed</option>
+      </select>
+      <select class="select" id="tickets-severity-filter" aria-label="Filter by severity">
+        <option value="">All severities</option>
+        <option value="critical">Critical</option>
+        <option value="high">High</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+      </select>
+      <select class="select" id="tickets-model-filter" aria-label="Filter by model">
+        <option value="">All models</option>
+      </select>
+      <span class="toolbar-spacer"></span>
+      <span class="text-muted" id="tickets-count" style="font-size:var(--text-xs);flex-shrink:0"></span>
     </div>
-    <div class="table-wrap" style="margin-top:var(--space-3)">
-      <table class="table">
+    <div class="table-wrap">
+      <table class="table" style="min-width:760px">
         <thead>
           <tr><th>Title</th><th>Type</th><th>Severity</th><th>Status</th><th>Model</th><th>Team</th><th>Filed by</th><th>Filed</th><th></th></tr>
         </thead>
-        <tbody id="tickets-body">""" + "" + """</tbody>
+        <tbody id="tickets-body"></tbody>
       </table>
     </div>
   </div>
 </div>
-<div class="auth-loading" id="loading-root">Loading…</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
 """
 
     script = """
 <script>
+  // Severity is this screen's primary signal, so it gets its own local
+  // dot mapping rather than the shared UI.severityBadge - that helper
+  // also backs the member ticket pages and the admin overview widget,
+  // and this screen's spec (critical/high colored, medium/low neutral)
+  // is deliberately louder than theirs. Status stays on UI.statusBadge
+  // as-is (open=info, investigating=warning, resolved=running,
+  // closed=offline already reads as the right dot+text hierarchy).
+  const TICKET_SEVERITY_VARIANT = { critical: 'error', high: 'warning', medium: 'neutral', low: 'neutral' };
+  function ticketSeverityDot(sev) {
+    const s = String(sev || 'medium').toLowerCase();
+    return UI.statusDot(s.charAt(0).toUpperCase() + s.slice(1), TICKET_SEVERITY_VARIANT[s] || 'neutral');
+  }
+
   let allTickets = [];
-  let activeStatus = '';
+
+  function initTickets() {
+    const refreshBtn = document.getElementById('refresh-btn');
+    if (refreshBtn) refreshBtn.addEventListener('click', () => loadTickets());
+    document.getElementById('tickets-filter').addEventListener('input', renderTickets);
+    document.getElementById('tickets-status-filter').addEventListener('change', renderTickets);
+    document.getElementById('tickets-severity-filter').addEventListener('change', renderTickets);
+    document.getElementById('tickets-model-filter').addEventListener('change', renderTickets);
+    loadTickets();
+  }
 
   async function loadTickets() {
     const body = document.getElementById('tickets-body');
-    body.innerHTML = UI.skeletonRows(9, 5);
+    body.innerHTML = UI.skeletonRows(9, 6);
     try {
       allTickets = await Api.get('/admin/tickets');
+      renderModelFilterOptions();
       renderTickets();
     } catch (e) {
+      allTickets = [];
       body.innerHTML = '<tr><td colspan="9">' + UI.errorState(e.message, loadTickets) + '</td></tr>';
+      const countEl = document.getElementById('tickets-count');
+      if (countEl) countEl.textContent = '';
     }
   }
 
+  // Model options are data-driven (whatever's actually been ticketed
+  // against), rebuilt on every load but keeping the current selection
+  // if it's still one of the options.
+  function renderModelFilterOptions() {
+    const sel = document.getElementById('tickets-model-filter');
+    const current = sel.value;
+    const names = Array.from(new Set(allTickets.map(t => t.model_name || t.deployment_name).filter(Boolean))).sort();
+    sel.innerHTML = '<option value="">All models</option>' + names.map(n => '<option value="' + UI.escapeHtml(n) + '">' + UI.escapeHtml(n) + '</option>').join('');
+    if (names.includes(current)) sel.value = current;
+  }
+
+  // Client-side only, same pattern as the other migrated tables: one
+  // cached load, filtered in place by the text query plus the three
+  // dropdowns.
   function renderTickets() {
     const body = document.getElementById('tickets-body');
-    const rows = activeStatus ? allTickets.filter(t => t.status === activeStatus) : allTickets;
-    if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="9">' + UI.emptyState('No tickets here', 'Nothing matches this filter yet.') + '</td></tr>';
+    const countEl = document.getElementById('tickets-count');
+    const q = (document.getElementById('tickets-filter').value || '').trim().toLowerCase();
+    const status = document.getElementById('tickets-status-filter').value;
+    const severity = document.getElementById('tickets-severity-filter').value;
+    const model = document.getElementById('tickets-model-filter').value;
+
+    if (!allTickets.length) {
+      body.innerHTML = '<tr><td colspan="9">' + UI.emptyState('No tickets yet', 'Tickets filed by teams will show up here.') + '</td></tr>';
+      if (countEl) countEl.textContent = '';
       return;
     }
+
+    const rows = allTickets.filter(t => {
+      if (status && t.status !== status) return false;
+      if (severity && String(t.severity).toLowerCase() !== severity) return false;
+      if (model && (t.model_name || t.deployment_name) !== model) return false;
+      if (!q) return true;
+      const name = t.model_name || t.deployment_name || '';
+      return (t.title || '').toLowerCase().includes(q)
+        || name.toLowerCase().includes(q)
+        || (t.team_name || '').toLowerCase().includes(q);
+    });
+
+    if (countEl) {
+      countEl.textContent = (q || status || severity || model)
+        ? rows.length + ' of ' + allTickets.length
+        : allTickets.length + (allTickets.length === 1 ? ' ticket' : ' tickets');
+    }
+
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="9">' + UI.emptyState('No matches', 'No ticket matches these filters.') + '</td></tr>';
+      return;
+    }
+
     body.innerHTML = rows.map(t =>
       '<tr class="is-interactive" data-open-ticket="' + t.id + '">' +
       '<td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + UI.escapeHtml(t.title) + '</td>' +
       '<td>' + UI.badge(t.ticket_type, 'neutral') + '</td>' +
-      '<td>' + UI.severityBadge(t.severity) + '</td>' +
+      '<td>' + ticketSeverityDot(t.severity) + '</td>' +
       '<td>' + UI.statusBadge(t.status) + '</td>' +
       '<td class="text-secondary">' + UI.escapeHtml(t.model_name || t.deployment_name || '—') + '</td>' +
       '<td class="text-secondary">' + UI.escapeHtml(t.team_name || '—') + '</td>' +
@@ -1321,7 +1422,7 @@ def admin_tickets_page():
     const overlay = UI.openModal({
       title: t.title,
       bodyHtml: `
-        <div style="margin-bottom:.75rem">${UI.severityBadge(t.severity)} ${UI.statusBadge(t.status)} ${UI.badge(t.ticket_type, 'neutral')}</div>
+        <div style="margin-bottom:.75rem;display:flex;gap:.5rem;flex-wrap:wrap">${ticketSeverityDot(t.severity)}${UI.statusBadge(t.status)}${UI.badge(t.ticket_type, 'neutral')}</div>
         <div class="text-secondary" style="font-size:var(--text-sm);white-space:pre-wrap;margin-bottom:.75rem">${UI.escapeHtml(t.description)}</div>
         ${t.evidence ? '<div class="section-label">Evidence</div><div class="text-secondary" style="font-size:var(--text-xs);white-space:pre-wrap;margin-bottom:.75rem">' + UI.escapeHtml(t.evidence) + '</div>' : ''}
         <div class="text-muted" style="font-size:var(--text-xs);margin-bottom:1rem">
@@ -1352,35 +1453,33 @@ def admin_tickets_page():
     overlay.querySelector('#tk-cancel').addEventListener('click', UI.closeModal);
     overlay.querySelector('#ticket-form').addEventListener('submit', async (e) => {
       e.preventDefault();
+      const submitBtn = overlay.querySelector('#tk-submit');
       const status = overlay.querySelector('#tk-status').value;
       const resolution_note = overlay.querySelector('#tk-note').value;
+      const errorEl = overlay.querySelector('#tk-error');
+      errorEl.textContent = '';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Saving…';
       try {
         await Api.patch('/admin/tickets/' + t.id, { status, resolution_note });
         UI.toast('Ticket updated', 'success');
         UI.closeModal();
         loadTickets();
       } catch (err) {
-        overlay.querySelector('#tk-error').textContent = err.message || 'Could not update ticket.';
+        errorEl.textContent = err.message || 'Could not update ticket.';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Save';
       }
     });
   }
-
-  document.querySelectorAll('#status-tabs .tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('#status-tabs .tab').forEach(t => t.setAttribute('aria-selected', 'false'));
-      tab.setAttribute('aria-selected', 'true');
-      activeStatus = tab.dataset.status;
-      renderTickets();
-    });
-  });
 </script>"""
 
-    ready = "loadTickets();"
+    ready = "initTickets();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Tickets - Vela Admin</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        "<title>Tickets - Vela Admin</title>\n" + ds_assets + "\n</head>\n<body>\n"
         + body
         + "\n" + _SCRIPTS + "\n" + script
         + _boot_script("/admin/tickets-page", "Tickets", ready)
@@ -1423,6 +1522,11 @@ def admin_drift_page():
 # =========================================================================
 # Remediation - /admin/remediation (spec §15 "Automated remediation")
 #
+# Phase 2: migrated to the ds/* design system (see admin_teams_page for
+# the reference pattern - creation in a slide-over, confirmations as
+# modals, shared openSlideover/closeSlideoverChrome helper). Presentation
+# only: every loader and the create/test calls below are unchanged.
+#
 # The four backing endpoints (/api/v1/remediations, /api/v1/remediations/
 # {workspace_id}, /api/v1/remediation-logs/{workspace_id}, /api/v1/
 # remediations/{id}/test) now accept the admin's own JWT as an
@@ -1436,6 +1540,28 @@ def admin_drift_page():
 # "Webhooks" and "Retraining" aren't separate resources - they're just
 # action_type values on the same RemediationConfig - so there's one page
 # here, not three; the sidebar was consolidated to match.
+#
+# There is no delete/deactivate/edit endpoint for a config - only create,
+# list and test - so no delete/edit action is invented on this page.
+# "Test" isn't a dry run (see services/remediation.py's fire_*
+# functions): it really opens a GitHub issue / POSTs the webhook /
+# dispatches the retrain workflow with test data, so it gets a Cancel/
+# Confirm modal that says so plainly - nothing in Vela's own data is at
+# risk (same reversible bucket as Teams' remove-member/revoke-access),
+# but the real external side effect deserves a deliberate click.
+#
+# Color budget: the Configured rules table is configuration (calm,
+# neutral, matches every other admin table); the Remediation logs table
+# is the actual drift/trigger EVENT history, so that's where this screen
+# spends color - drift score gets the same purple drift token Monitoring
+# uses, and a log's status gets it too: "error" is a real problem so it's
+# the real error/red status-dot, "success" stays uncolored (same house
+# rule as everywhere else - a normal/working outcome is never colored,
+# only the exception is). Both statuses are handled directly rather than
+# through UI.statusBadge()'s STATUS_VARIANT map, which doesn't have
+# "success" or "error" as keys (only "failed" maps to the error variant)
+# - going through it as-is would silently render a real error as a
+# neutral gray dot, burying exactly the signal this page exists to show.
 # =========================================================================
 
 @router.get("/admin/automation")
@@ -1445,101 +1571,268 @@ def admin_automation_redirect():
 
 @router.get("/admin/remediation", response_class=HTMLResponse)
 def admin_remediation_page():
+    ds_assets = (
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds5">'
+    )
+
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
-    <h1 style="font-size:var(--text-lg);margin-bottom:2px">Remediation</h1>
-    <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)">
-      Configure automatic actions when model drift exceeds a threshold. When triggered, Vela can open a GitHub issue, call a webhook, or start a retraining workflow.
-    </p>
-
-    <div id="remediation-content" class="grid-split">
+    <div class="page-header">
       <div>
-        <div class="section-label" style="margin-top:0">New config</div>
-        <form id="new-config-form" novalidate>
-          <div class="field">
-            <label class="field-label" for="nc-dep">Deployment</label>
-            <select class="select" id="nc-dep" required></select>
-          </div>
-          <div class="field"><label class="field-label" for="nc-threshold">Drift threshold</label><input class="input" type="number" id="nc-threshold" step="0.01" min="0" max="1" value="0.5"></div>
-          <div class="field">
-            <label class="field-label" for="nc-action">Action</label>
-            <select class="select" id="nc-action">
-              <option value="github_issue">GitHub issue</option>
-              <option value="webhook">Webhook</option>
-              <option value="retrain">Retrain</option>
-            </select>
-          </div>
-          <div class="field">
-            <label class="field-label" for="nc-target">Target</label>
-            <input class="input" id="nc-target" placeholder="">
-            <div class="field-hint" id="nc-target-hint"></div>
-          </div>
-          <div class="field-error" id="nc-error" role="alert"></div>
-          <button class="btn btn-primary" type="submit" id="nc-submit">Create config</button>
-        </form>
+        <h1 class="page-title">Remediation</h1>
+        <div class="page-description">Configure automatic actions when model drift exceeds a threshold. When triggered, Vela can open a GitHub issue, call a webhook, or start a retraining workflow.</div>
       </div>
-
-      <div>
-        <div class="section-label" style="margin-top:0">Configured rules</div>
-        <div class="table-wrap" style="margin-bottom:var(--space-5)">
-          <table class="table">
-            <thead><tr><th>Deployment</th><th>Threshold</th><th>Action</th><th>Target</th><th>Status</th><th>Last triggered</th><th></th></tr></thead>
-            <tbody id="configs-body"></tbody>
-          </table>
-        </div>
-
-        <div class="section-label">Remediation logs</div>
-        <div class="table-wrap">
-          <table class="table">
-            <thead><tr><th>Deployment</th><th>Drift score</th><th>Action</th><th>Status</th><th>Triggered</th></tr></thead>
-            <tbody id="logs-body"></tbody>
-          </table>
-        </div>
+      <div class="page-actions">
+        <button class="btn btn-secondary btn-sm" id="refresh-btn" type="button">Refresh</button>
+        <button class="btn btn-primary btn-sm" id="new-config-btn" type="button">New config</button>
       </div>
     </div>
+
+    <div class="toolbar">
+      <span class="input-group" style="flex:1 1 220px">
+        <svg class="input-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m11 11 3 3"/></svg>
+        <input class="input" id="configs-filter" type="text" placeholder="Filter by deployment, action or target" autocomplete="off" style="flex:1;min-width:0">
+      </span>
+      <span class="toolbar-spacer"></span>
+      <span class="text-muted" id="configs-count" style="font-size:var(--text-xs);flex-shrink:0"></span>
+    </div>
+    <div class="table-wrap" style="margin-bottom:var(--space-5)">
+      <table class="table" style="min-width:720px">
+        <thead><tr><th>Deployment</th><th>Threshold</th><th>Action</th><th>Target</th><th>Status</th><th>Last triggered</th><th class="num">Actions</th></tr></thead>
+        <tbody id="configs-body"></tbody>
+      </table>
+    </div>
+
+    <div class="section-label">Remediation logs</div>
+    <div class="table-wrap">
+      <table class="table" style="min-width:560px">
+        <thead><tr><th>Deployment</th><th>Drift score</th><th>Action</th><th>Status</th><th>Triggered</th></tr></thead>
+        <tbody id="logs-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="slideover-overlay" id="new-config-panel" hidden>
+  <div class="slideover" role="dialog" aria-modal="true" aria-labelledby="new-config-panel-title">
+    <div class="slideover-header">
+      <div class="slideover-title" id="new-config-panel-title">New config</div>
+      <button class="btn btn-ghost btn-sm btn-icon" id="close-new-config-panel" type="button" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="slideover-body">
+      <form class="form" id="new-config-form" novalidate>
+        <div class="field">
+          <label class="field-label" for="nc-dep">Deployment</label>
+          <select class="select" id="nc-dep" required></select>
+        </div>
+        <div class="field"><label class="field-label" for="nc-threshold">Drift threshold</label><input class="input" type="number" id="nc-threshold" step="0.01" min="0" max="1" value="0.5"></div>
+        <div class="field">
+          <label class="field-label" for="nc-action">Action</label>
+          <select class="select" id="nc-action">
+            <option value="github_issue">GitHub issue</option>
+            <option value="webhook">Webhook</option>
+            <option value="retrain">Retrain</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label" for="nc-target">Target</label>
+          <input class="input" id="nc-target" placeholder="">
+          <div class="field-hint" id="nc-target-hint"></div>
+        </div>
+        <div class="field-error" id="nc-error" role="alert"></div>
+        <button class="btn btn-primary btn-block" type="submit" id="nc-submit">Create config</button>
+      </form>
+    </div>
+  </div>
   </div>
 </div>
-<div class="auth-loading" id="loading-root">Loading&hellip;</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
 """
 
     script = """
 <script>
   // Registry rows this admin has already loaded - used to resolve a
   // config/log's deployment_id to a real name instead of just "#N", and
-  // to populate the New config modal's deployment picker. Also, since an
+  // to populate the New config panel's deployment picker. Also, since an
   // admin JWT isn't scoped to one workspace the way an API key is, this
   // is what determines *which* workspaces to ask /api/v1/remediations/
   // {workspace_id} and /api/v1/remediation-logs/{workspace_id} about -
   // every workspace with at least one deployment, unioned together.
   let registryDeployments = [];
+  let cachedConfigs = [];
 
   function deploymentLabel(id) {
     const d = registryDeployments.find(r => r.id === id);
     return d ? d.name : ('Deployment #' + id);
   }
 
+  function initRemediation() {
+    const refreshBtn = document.getElementById('refresh-btn');
+    if (refreshBtn) refreshBtn.addEventListener('click', () => loadAll());
+    const filterInput = document.getElementById('configs-filter');
+    if (filterInput) filterInput.addEventListener('input', renderConfigsTable);
+    wireNewConfigPanel();
+    loadAll();
+  }
+
   async function loadAll() {
-    const body = document.getElementById('configs-body');
-    body.innerHTML = UI.skeletonRows(3, 7);
+    const configsBody = document.getElementById('configs-body');
+    const logsBody = document.getElementById('logs-body');
+    configsBody.innerHTML = UI.skeletonRows(7, 3);
+    logsBody.innerHTML = UI.skeletonRows(5, 3);
     try {
       registryDeployments = await Api.get('/admin/deployment-registry');
-      renderDeploymentPicker();
       const workspaceIds = Array.from(new Set(registryDeployments.map(d => d.workspace_id).filter(id => id != null)));
 
       const [configResults, logResults] = await Promise.all([
         Promise.allSettled(workspaceIds.map(ws => Api.get('/api/v1/remediations/' + ws))),
         Promise.allSettled(workspaceIds.map(ws => Api.get('/api/v1/remediation-logs/' + ws))),
       ]);
-      const configs = configResults.filter(r => r.status === 'fulfilled').flatMap(r => r.value);
+      cachedConfigs = configResults.filter(r => r.status === 'fulfilled').flatMap(r => r.value);
       const logs = logResults.filter(r => r.status === 'fulfilled').flatMap(r => r.value);
 
-      renderConfigs(configs);
+      renderConfigsTable();
       renderLogs(logs);
     } catch (e) {
-      body.innerHTML = '<tr><td colspan="7">' + UI.errorState(e.message, loadAll) + '</td></tr>';
+      // Both tables share this one load - a failure here means neither
+      // has real data, so both need to leave their skeleton state,
+      // not just the one whose <tbody> happens to be listed first.
+      cachedConfigs = [];
+      configsBody.innerHTML = '<tr><td colspan="7">' + UI.errorState(e.message, loadAll) + '</td></tr>';
+      logsBody.innerHTML = '<tr><td colspan="5">' + UI.errorState(e.message, loadAll) + '</td></tr>';
+      const countEl = document.getElementById('configs-count');
+      if (countEl) countEl.textContent = '';
     }
   }
+
+  // Client-side only: filters the already-loaded cachedConfigs, same
+  // pattern as the other migrated tables' filters.
+  function renderConfigsTable() {
+    const body = document.getElementById('configs-body');
+    const countEl = document.getElementById('configs-count');
+    const q = (document.getElementById('configs-filter').value || '').trim().toLowerCase();
+
+    if (!cachedConfigs.length) {
+      body.innerHTML = '<tr><td colspan="7">' + UI.emptyState('No remediation configs yet', 'Create one to automatically react when drift crosses a threshold.') + '</td></tr>';
+      if (countEl) countEl.textContent = '';
+      return;
+    }
+
+    const rows = cachedConfigs.filter(c => {
+      if (!q) return true;
+      return deploymentLabel(c.deployment_id).toLowerCase().includes(q)
+        || (c.action_type || '').toLowerCase().includes(q)
+        || (c.target || '').toLowerCase().includes(q);
+    });
+
+    if (countEl) {
+      countEl.textContent = q
+        ? rows.length + ' of ' + cachedConfigs.length
+        : cachedConfigs.length + (cachedConfigs.length === 1 ? ' config' : ' configs');
+    }
+
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="7">' + UI.emptyState('No matches', 'No config matches that filter.') + '</td></tr>';
+      return;
+    }
+
+    body.innerHTML = rows.map(renderConfigRow).join('');
+    body.querySelectorAll('[data-test]').forEach(btn => {
+      btn.addEventListener('click', () => confirmTestConfig(btn.dataset.test, btn.dataset.name));
+    });
+  }
+
+  // Plain configuration, not a live event - neutral throughout (Status
+  // and Last triggered are facts about a rule, not the drift/trigger
+  // events themselves; those get this screen's color budget, below).
+  function renderConfigRow(c) {
+    const label = deploymentLabel(c.deployment_id);
+    return '<tr>' +
+      '<td class="mono">' + UI.escapeHtml(label) + '</td>' +
+      '<td>' + c.drift_threshold + '</td>' +
+      '<td><span class="chip-mono">' + UI.escapeHtml(c.action_type) + '</span></td>' +
+      '<td class="text-secondary" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + UI.escapeHtml(c.target || '—') + '</td>' +
+      '<td>' + UI.statusBadge(c.is_active ? 'active' : 'inactive') + '</td>' +
+      '<td class="text-secondary">' + (c.last_triggered_at ? UI.timeAgo(c.last_triggered_at) : 'Never') + '</td>' +
+      '<td class="num"><button class="link-action" data-test="' + c.id + '" data-name="' + UI.escapeHtml(c.action_type) + ' for ' + UI.escapeHtml(label) + '" type="button">Test</button></td>' +
+      '</tr>';
+  }
+
+  // The real drift/trigger event history - this table gets this screen's
+  // color budget (see the route comment above): drift score always
+  // reads as the drift-purple status-dot (every logged score crossed
+  // its config's threshold, so it's always drift-relevant), and a
+  // log's status is mapped directly rather than through
+  // UI.statusBadge() - "error" is the real error/red variant, "success"
+  // stays plain/uncolored, matching the rest of this system's rule that
+  // only the exception ever takes color.
+  function renderLogs(logs) {
+    const body = document.getElementById('logs-body');
+    if (!logs.length) {
+      body.innerHTML = '<tr><td colspan="5">' + UI.emptyState('No remediation runs yet', 'Triggered actions will be logged here.') + '</td></tr>';
+      return;
+    }
+    body.innerHTML = logs.map(l => {
+      const isError = String(l.status).toLowerCase() === 'error';
+      return '<tr>' +
+        '<td class="mono">' + UI.escapeHtml(deploymentLabel(l.deployment_id)) + '</td>' +
+        '<td>' + UI.statusDot(Number(l.drift_score).toFixed(3), 'drift') + '</td>' +
+        '<td><span class="chip-mono">' + UI.escapeHtml(l.action_type) + '</span></td>' +
+        '<td>' + UI.statusDot(isError ? 'Error' : 'Success', isError ? 'error' : 'neutral') + '</td>' +
+        '<td class="text-secondary">' + UI.timeAgo(l.triggered_at) + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  // Not a dry run (see the route comment above) - this really fires the
+  // configured action with test data, so it gets a plain Cancel/Confirm
+  // before the same POST .../test call the legacy page made
+  // unconditionally on click.
+  function confirmTestConfig(id, name) {
+    const overlay = UI.openModal({
+      title: 'Test ' + name,
+      bodyHtml: `
+        <div class="alert alert-warning">
+          <div><div class="alert-title">This is not a dry run</div>This will really fire this config's action right now &mdash; e.g. open a real GitHub issue or POST to the real webhook &mdash; using test data (a fake deployment, drift score 0.99).</div></div>
+        </div>
+      `,
+      footerHtml: `<button class="btn btn-ghost" id="test-cancel" type="button">Cancel</button>
+                   <button class="btn btn-primary" id="test-confirm" type="button">Fire test</button>`,
+    });
+    overlay.querySelector('#test-cancel').addEventListener('click', UI.closeModal);
+    const confirmBtn = overlay.querySelector('#test-confirm');
+    confirmBtn.addEventListener('click', async () => {
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Firing…';
+      try {
+        const result = await Api.post('/api/v1/remediations/' + id + '/test', {});
+        const ok = result.status === 'success';
+        UI.closeModal();
+        UI.toast('Test ' + (ok ? 'succeeded' : 'failed') + ': ' + (result.response || result.status), ok ? 'success' : 'danger', 6000);
+        loadAll();
+      } catch (e) {
+        UI.toast('Test failed: ' + (e.message || 'unknown error'), 'danger');
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Fire test';
+      }
+    });
+  }
+
+  function targetHintFor(actionType) {
+    if (actionType === 'github_issue') return 'GitHub repo as "owner/repo" - optional, falls back to the server-configured repo if left blank.';
+    if (actionType === 'webhook') return 'Webhook URL to POST a JSON payload to - required.';
+    if (actionType === 'retrain') return 'GitHub Actions workflow filename to dispatch - optional, defaults to retrain.yml.';
+    return '';
+  }
+
+  // ================================================================
+  // New config slide-over - same 4 fields, same validation, same POST
+  // as before; only the surface it lives in changed (this used to be an
+  // always-visible form next to the tables).
+  // ================================================================
 
   function renderDeploymentPicker() {
     const sel = document.getElementById('nc-dep');
@@ -1552,99 +1845,108 @@ def admin_remediation_page():
     sel.innerHTML = registryDeployments.map(d => '<option value="' + d.id + '">' + UI.escapeHtml(d.name) + ' (ID ' + d.id + ')</option>').join('');
   }
 
-  function renderConfigs(configs) {
-    const body = document.getElementById('configs-body');
-    if (!configs.length) {
-      body.innerHTML = '<tr><td colspan="7">' + UI.emptyState('No remediation configs yet', 'Create one to automatically react when drift crosses a threshold.') + '</td></tr>';
-      return;
-    }
-    body.innerHTML = configs.map(c =>
-      '<tr>' +
-      '<td class="mono">' + UI.escapeHtml(deploymentLabel(c.deployment_id)) + '</td>' +
-      '<td>' + c.drift_threshold + '</td>' +
-      '<td><span class="chip-mono">' + UI.escapeHtml(c.action_type) + '</span></td>' +
-      '<td class="text-secondary" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + UI.escapeHtml(c.target || '—') + '</td>' +
-      '<td>' + UI.statusBadge(c.is_active ? 'active' : 'inactive') + '</td>' +
-      '<td class="text-secondary">' + (c.last_triggered_at ? UI.timeAgo(c.last_triggered_at) : 'never') + '</td>' +
-      '<td style="text-align:right"><button class="link-action" data-test="' + c.id + '" type="button">Test</button></td>' +
-      '</tr>'
-    ).join('');
-    body.querySelectorAll('[data-test]').forEach(btn => {
-      btn.addEventListener('click', () => testConfig(btn.dataset.test));
+  function wireNewConfigPanel() {
+    const panel = document.getElementById('new-config-panel');
+    const openBtn = document.getElementById('new-config-btn');
+    const closeBtn = document.getElementById('close-new-config-panel');
+    if (!panel || !openBtn) return;
+
+    openBtn.addEventListener('click', () => {
+      // Always populated right before showing, so it reflects whatever
+      // loadAll() most recently fetched even if that changed since the
+      // panel was last opened.
+      renderDeploymentPicker();
+      openSlideover('new-config-panel', '#nc-dep', closeNewConfigPanel);
+    });
+    closeBtn.addEventListener('click', closeNewConfigPanel);
+    panel.addEventListener('click', (e) => { if (e.target === panel) closeNewConfigPanel(); });
+
+    document.getElementById('nc-action').addEventListener('change', (e) => {
+      document.getElementById('nc-target-hint').textContent = targetHintFor(e.target.value);
+    });
+    document.getElementById('nc-target-hint').textContent = targetHintFor('github_issue');
+
+    document.getElementById('new-config-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('nc-error');
+      const submitBtn = document.getElementById('nc-submit');
+      const deployment_id = parseInt(document.getElementById('nc-dep').value, 10);
+      const drift_threshold = parseFloat(document.getElementById('nc-threshold').value);
+      const action_type = document.getElementById('nc-action').value;
+      const target = document.getElementById('nc-target').value.trim();
+      errorEl.textContent = '';
+      if (!deployment_id) { errorEl.textContent = 'Deployment is required.'; return; }
+      if (action_type === 'webhook' && !target) { errorEl.textContent = 'Webhook actions require a target URL.'; return; }
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Creating…';
+      try {
+        await Api.post('/api/v1/remediations', { deployment_id, drift_threshold, action_type, target });
+        UI.toast('Remediation config created', 'success');
+        closeNewConfigPanel();
+        loadAll();
+      } catch (err) {
+        errorEl.textContent = err.message || 'Could not create config.';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Create config';
+      }
     });
   }
 
-  function renderLogs(logs) {
-    const body = document.getElementById('logs-body');
-    if (!logs.length) {
-      body.innerHTML = '<tr><td colspan="5">' + UI.emptyState('No remediation runs yet', 'Triggered actions will be logged here.') + '</td></tr>';
-      return;
-    }
-    body.innerHTML = logs.map(l =>
-      '<tr>' +
-      '<td class="mono">' + UI.escapeHtml(deploymentLabel(l.deployment_id)) + '</td>' +
-      '<td>' + Number(l.drift_score).toFixed(3) + '</td>' +
-      '<td><span class="chip-mono">' + UI.escapeHtml(l.action_type) + '</span></td>' +
-      '<td>' + UI.statusBadge(l.status) + '</td>' +
-      '<td class="text-secondary">' + UI.timeAgo(l.triggered_at) + '</td>' +
-      '</tr>'
-    ).join('');
+  function closeNewConfigPanel() {
+    closeSlideoverChrome('new-config-panel');
+    document.getElementById('new-config-form').reset();
+    document.getElementById('nc-error').textContent = '';
+    document.getElementById('nc-target-hint').textContent = targetHintFor('github_issue');
   }
 
-  async function testConfig(id) {
-    try {
-      const result = await Api.post('/api/v1/remediations/' + id + '/test', {});
-      const ok = result.status === 'success';
-      UI.toast('Test ' + (ok ? 'succeeded' : 'failed') + ': ' + (result.response || result.status), ok ? 'success' : 'danger', 6000);
-      loadAll();
-    } catch (e) {
-      UI.toast('Test failed: ' + e.message, 'danger');
-    }
+  // ================================================================
+  // Shared slide-over chrome (open/close/focus-trap) - same helper as
+  // admin_teams_page/admin_api_keys_page, duplicated here since each
+  // route's <script> is self-contained (no shared ds.js module yet).
+  // ================================================================
+
+  const slideoverState = {};
+
+  function openSlideover(id, focusSelector, onClose) {
+    const panel = document.getElementById(id);
+    if (!panel) return;
+    const state = { returnFocus: document.activeElement };
+    state.keydownHandler = (e) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab') return;
+      const focusables = Array.from(panel.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
+      )).filter(el => el.offsetParent !== null);
+      if (!focusables.length) return;
+      const first = focusables[0], last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    slideoverState[id] = state;
+    panel.hidden = false;
+    document.addEventListener('keydown', state.keydownHandler);
+    const first = focusSelector ? panel.querySelector(focusSelector) : null;
+    if (first) first.focus();
   }
 
-  function targetHintFor(actionType) {
-    if (actionType === 'github_issue') return 'GitHub repo as "owner/repo" - optional, falls back to the server-configured repo if left blank.';
-    if (actionType === 'webhook') return 'Webhook URL to POST a JSON payload to - required.';
-    if (actionType === 'retrain') return 'GitHub Actions workflow filename to dispatch - optional, defaults to retrain.yml.';
-    return '';
+  function closeSlideoverChrome(id) {
+    const panel = document.getElementById(id);
+    const state = slideoverState[id];
+    if (!panel || panel.hidden) return;
+    panel.hidden = true;
+    if (state && state.keydownHandler) document.removeEventListener('keydown', state.keydownHandler);
+    if (state && state.returnFocus && document.contains(state.returnFocus)) state.returnFocus.focus();
+    delete slideoverState[id];
   }
-
-  document.getElementById('nc-action').addEventListener('change', (e) => {
-    document.getElementById('nc-target-hint').textContent = targetHintFor(e.target.value);
-  });
-  document.getElementById('nc-target-hint').textContent = targetHintFor('github_issue');
-
-  document.getElementById('new-config-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const errorEl = document.getElementById('nc-error');
-    const submitBtn = document.getElementById('nc-submit');
-    const deployment_id = parseInt(document.getElementById('nc-dep').value, 10);
-    const drift_threshold = parseFloat(document.getElementById('nc-threshold').value);
-    const action_type = document.getElementById('nc-action').value;
-    const target = document.getElementById('nc-target').value.trim();
-    errorEl.textContent = '';
-    if (!deployment_id) { errorEl.textContent = 'Deployment is required.'; return; }
-    if (action_type === 'webhook' && !target) { errorEl.textContent = 'Webhook actions require a target URL.'; return; }
-    submitBtn.disabled = true;
-    try {
-      await Api.post('/api/v1/remediations', { deployment_id, drift_threshold, action_type, target });
-      UI.toast('Remediation config created', 'success');
-      document.getElementById('new-config-form').reset();
-      loadAll();
-    } catch (err) {
-      errorEl.textContent = err.message || 'Could not create config.';
-    } finally {
-      submitBtn.disabled = false;
-    }
-  });
 </script>"""
 
-    ready = "loadAll();"
+    ready = "initRemediation();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Remediation - Vela Admin</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        "<title>Remediation - Vela Admin</title>\n" + ds_assets + "\n</head>\n<body>\n"
         + body
         + "\n" + _SCRIPTS + "\n" + script
         + _boot_script("/admin/remediation", "Remediation", ready)
