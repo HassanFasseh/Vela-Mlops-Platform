@@ -139,332 +139,363 @@ def root():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vela - Self-hosted MLOps</title>
+<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">
+<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">
+<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">
 <style>
-  :root{
-    --bg:#f7f6f3; --ink:#0a0a0f; --sub:#5c5c66; --line:#d8d6cf;
-    --accent:#2b5a8a; --accent-soft:#2b5a8a55; --teal:#0d9aa6;
-  }
-  *{box-sizing:border-box}
-  html,body{height:100%;margin:0;overflow:hidden}
-  body{
-    font-family:ui-monospace,"JetBrains Mono","SFMono-Regular",Menlo,Consolas,monospace;
-    background:var(--bg); color:var(--ink);
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    position:relative;
-  }
-  /* subtle technical grid */
-  .grid{position:absolute; inset:0; opacity:.5;
+  /* Landing-only layout on top of the real ds/* tokens - same palette,
+     type and spacing as the dashboard, not a re-approximation of it.
+     No ds/shell.css here: this page has no sidebar/topbar.
+
+     Single fixed viewport, no scroll: header (auto height) + hero row
+     (flex:1, vertically centers whatever room is left) + flow row (auto)
+     + footer (auto). Composition, not a scrolling sequence. */
+  html, body{ height:100%; margin:0; overflow:hidden; }
+  body{ display:flex; flex-direction:column; position:relative; }
+
+  /* A faint, STATIC technical grid - no animation, restrained texture. */
+  .ld-grid{
+    position:absolute; inset:0; opacity:.5; pointer-events:none; z-index:0;
     background-image:
-      linear-gradient(var(--line) 1px, transparent 1px),
-      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+      linear-gradient(var(--border-subtle) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
     background-size:56px 56px;
-    -webkit-mask-image:radial-gradient(ellipse at 50% 40%, #000 0%, transparent 72%);
-            mask-image:radial-gradient(ellipse at 50% 40%, #000 0%, transparent 72%);
+    -webkit-mask-image:radial-gradient(ellipse at 50% 35%, #000 0%, transparent 70%);
+            mask-image:radial-gradient(ellipse at 50% 35%, #000 0%, transparent 70%);
   }
-  /* Constellation - a live canvas network (not SVG): nodes drift in random
-     directions, bounce off the viewport edges, and connect to nearby
-     nodes as they pass within range, like a star chart or a shipping
-     network used for navigation. Rendered/animated in the script below;
-     this just sizes and dims the canvas. */
-  .graphic{position:absolute; inset:0; display:block; width:100%; height:100%; opacity:.35; pointer-events:none}
+  /* Ambient glow - a single soft neutral blob at very low opacity,
+     drifting a few percent over a slow 28s loop. Meant to be felt, not
+     seen: no particles, no bounce, no spin, and it stays monochrome
+     (--text) - --accent is reserved for navigation, not decoration.
+     Respects prefers-reduced-motion. */
+  .ld-glow{
+    position:absolute; inset:-20%; z-index:0; pointer-events:none;
+    background:radial-gradient(600px circle at 30% 25%, color-mix(in srgb, var(--text) 6%, transparent), transparent 60%);
+    filter:blur(60px);
+    animation:ld-glow-drift 28s ease-in-out infinite alternate;
+  }
+  @keyframes ld-glow-drift{ from{ transform:translate(0,0); } to{ transform:translate(4%, 3%); } }
+  @media (prefers-reduced-motion: reduce){ .ld-glow{ animation:none; } }
 
-  /* Waves - a slow, seamless horizontal scroll built from a path that
-     repeats every 1200 units inside a 2400-wide viewBox; translating by
-     exactly -50% loops it with no visible seam. Real ocean-wave amplitude,
-     saturated teal - an accent that actually reads as water, not a
-     hairline gradient. */
-  .waves{position:absolute; left:0; right:0; bottom:0; height:180px; overflow:hidden; pointer-events:none}
-  .wave{position:absolute; bottom:0; left:0; width:200%; height:100%; animation:wave-scroll linear infinite}
-  .wave-back{fill:var(--accent); opacity:.18; animation-duration:32s}
-  .wave-front{fill:var(--teal); opacity:.4; animation-duration:20s}
-  @keyframes wave-scroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
-  @media (prefers-reduced-motion: reduce){.wave{animation:none}}
+  /* ---- Header ---------------------------------------------------------
+     Slim nav bar: mark left, GitHub link + a quiet "Log in" text link
+     right - both muted secondary links, no button chrome. The hero's
+     "Get Started" stays the single prominent primary CTA on the page. */
+  .ld-header{
+    position:relative; z-index:1; flex-shrink:0;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:var(--space-4) var(--page-px);
+    border-bottom:var(--border-width) solid var(--border-subtle);
+  }
+  .ld-mark{ display:flex; align-items:center; gap:var(--space-2); }
+  .ld-mark svg{ width:16px; height:16px; color:var(--text); }
+  .ld-mark span{ font-size:var(--text-sm); font-weight:var(--fw-semibold); letter-spacing:0.08em; color:var(--text); }
+  .ld-header-actions{ display:flex; align-items:center; gap:var(--space-4); }
+  .ld-header-link{ font-size:var(--text-sm); color:var(--text-muted); }
+  .ld-header-link:hover{ color:var(--text); text-decoration:none; }
 
-  main{position:relative; z-index:1; text-align:center; padding:0 1.5rem; max-width:640px}
-  .wordmark{
-    display:flex; align-items:center; justify-content:center; gap:.5rem;
-    font-size:clamp(2.2rem, 6vw, 3.4rem); font-weight:800; letter-spacing:.02em;
-    margin:0 0 .9rem;
+  /* ---- Hero row -------------------------------------------------------
+     Two columns on wide screens (text left, terminal right - the room
+     that actually fits everything above the fold); stacks to one column
+     under 900px. */
+  .ld-hero-row{
+    position:relative; z-index:1; flex:1; min-height:0;
+    display:flex; align-items:center; justify-content:center;
+    gap:var(--space-9); padding:var(--space-5) var(--page-px);
   }
-  .sail-icon{width:1.25em; height:1.25em; flex-shrink:0}
-  .tagline{font-size:clamp(.85rem,1.6vw,1rem); color:var(--sub); line-height:1.7; margin:0 0 1.6rem}
-  /* Headline - 40% larger than the tagline it sits under, bold, and a
-     left-to-right ink-to-accent gradient rather than a flat color. */
-  .tagline .headline{
-    display:inline-block; margin-top:.35rem;
-    font-size:clamp(1.19rem, 2.24vw, 1.4rem); font-weight:800;
-    background:linear-gradient(90deg, #0f172a, #0ea5e9);
-    -webkit-background-clip:text; background-clip:text;
-    color:transparent; -webkit-text-fill-color:transparent;
+  .ld-hero-text{ flex:1 1 380px; max-width:440px; text-align:left; }
+  .ld-h1{
+    font-size:clamp(1.4rem, 3vw, 2rem);
+    line-height:var(--lh-tight); letter-spacing:var(--tracking-tight);
+    margin:0 0 var(--space-4);
   }
-  .cta-row{display:flex; gap:1rem; align-items:center; justify-content:center; flex-wrap:wrap}
-  .btn-primary{
-    background:var(--ink); color:#fff; border:1px solid var(--ink);
-    padding:.65rem 1.4rem; border-radius:6px; font:inherit; font-size:.85rem; font-weight:600;
-    text-decoration:none; cursor:pointer; letter-spacing:.02em;
+  .ld-sub{
+    font-size:var(--text-md); color:var(--text-secondary); line-height:var(--lh-relaxed);
+    margin:0 0 var(--space-6);
   }
-  .btn-primary:hover{background:#232330}
-  .link-secondary{color:var(--accent); font-size:.82rem; text-decoration:none; border-bottom:1px solid transparent}
-  .link-secondary:hover{border-bottom-color:var(--accent)}
 
-  /* Terminal - a small "instrument" showing Vela actually doing things:
-     a deploy, then a drift detection + explanation cycle, looping. */
-  .terminal{
-    margin:1.5rem auto 0; text-align:left; width:100%; max-width:460px;
-    background:#0a0a0f; border:1px solid #1e1e2e; border-radius:10px;
-    box-shadow:0 16px 36px rgba(10,10,15,.16); overflow:hidden;
-  }
-  .terminal-bar{
-    display:flex; align-items:center; gap:.35rem;
-    padding:.5rem .7rem; background:#111119; border-bottom:1px solid #1e1e2e;
-  }
-  .term-dot{width:8px; height:8px; border-radius:50%}
-  .term-dot.r{background:#f77e7e} .term-dot.y{background:#f7c97e} .term-dot.g{background:#7ef7a0}
-  .terminal-title{margin-left:.45rem; font-size:.66rem; color:#6b6b78; letter-spacing:.02em}
-  .terminal-body{
-    padding:.75rem .9rem; height:150px; overflow:hidden;
-    font-size:.7rem; line-height:1.7; color:#c7cfe0; text-align:left;
-  }
-  .term-line{white-space:pre-wrap; word-break:break-word; margin:0}
-  .term-line.cmd{color:#7eb8f7}
-  .term-line.ok{color:#7ef7a0}
-  .term-cursor{
-    display:inline-block; width:6px; height:.9em; margin-left:1px;
-    background:#38bdf8; vertical-align:text-bottom;
-    animation:term-blink 1s step-end infinite;
-  }
-  @keyframes term-blink{50%{opacity:0}}
-  @media (prefers-reduced-motion: reduce){.term-cursor{animation:none}}
+  /* ---- Terminal -------------------------------------------------------
+     Status lines render through the actual .status-dot component - the
+     same dot+text convention as every status column in the dashboard.
+     Each line is a real flex item (dot span + text span, never a bare
+     text node) and forced to one line (nowrap) so nothing can jump
+     height mid-type.
 
-  footer{
-    position:absolute; bottom:0; left:0; right:0; z-index:1;
-    display:flex; gap:1.6rem; justify-content:center; padding:1.4rem 1rem;
-    font-size:.72rem; color:var(--sub);
+     Fixed-size box: .ld-hero-terminal gets an explicit `width` (not just
+     max-width) so it is never fit-content-sized off its own text - under
+     the sub-900px column layout, flex's fit-content-on-the-cross-axis
+     behavior is exactly what made the box visibly widen as longer lines
+     typed in. .ld-term-body's height is a calc() off --term-lines /
+     --term-line-h / --term-pad, sized to the FULL 7-line script up
+     front (not a guessed px number), so nothing is clipped or grows
+     mid-type; the two custom properties are the only thing the
+     short-viewport media queries below touch. */
+  .ld-hero-terminal{ flex:1 1 380px; width:100%; max-width:480px; }
+  .ld-terminal{
+    text-align:left; width:100%;
+    background:var(--surface); border:var(--border-width) solid var(--border);
+    border-radius:var(--radius-lg); box-shadow:var(--shadow-lg); overflow:hidden;
   }
-  footer a{color:var(--sub); text-decoration:none}
-  footer a:hover{color:var(--ink)}
+  .ld-term-bar{
+    display:flex; align-items:center; gap:var(--space-1);
+    padding:var(--space-2) var(--space-3);
+    background:var(--surface-sunken); border-bottom:var(--border-width) solid var(--border-subtle);
+  }
+  .ld-term-dot{ width:8px; height:8px; border-radius:var(--radius-full); flex-shrink:0; }
+  .ld-term-dot.r{ background:var(--error-fg); }
+  .ld-term-dot.y{ background:var(--warning-fg); }
+  .ld-term-dot.g{ background:var(--healthy-fg); }
+  .ld-term-title{ margin-left:var(--space-2); font-size:var(--text-xs); color:var(--text-muted); }
+  .ld-term-body{
+    --term-lines:7; --term-line-h:22px; --term-pad:var(--space-4);
+    padding:var(--term-pad);
+    height:calc(var(--term-pad) * 2 + var(--term-lines) * var(--term-line-h));
+    overflow:hidden; font-family:var(--font-mono);
+  }
+  .ld-term-line{
+    display:flex; align-items:center; gap:var(--space-2);
+    height:var(--term-line-h); line-height:var(--term-line-h); margin:0;
+    font-size:var(--text-sm); white-space:nowrap; overflow:hidden;
+  }
+  .ld-term-line.cmd{ color:var(--text-secondary); }
+  /* Explicit height + line-height:1 on the dot (rather than letting it
+     inherit em-based line-height) so its box and the text span's box
+     share the exact same vertical center - that's what kept them
+     drifting a px or two apart before. */
+  .ld-term-line .status-dot{ flex-shrink:0; height:var(--term-line-h); line-height:1; }
+  .ld-term-text{ height:var(--term-line-h); line-height:var(--term-line-h); overflow:hidden; text-overflow:ellipsis; }
+  .ld-term-cursor{
+    display:inline-block; width:6px; height:1em; margin-left:1px;
+    background:var(--text); vertical-align:text-bottom;
+    animation:ld-blink 1s step-end infinite;
+  }
+  @keyframes ld-blink{ 50%{ opacity:0; } }
+  @media (prefers-reduced-motion: reduce){ .ld-term-cursor{ animation:none; } }
+
+  /* ---- How it works: horizontal pipeline -------------------------------
+     4 DS-toned node tiles (same box/layers/server/activity icons as the
+     dashboard's own icon set) joined by connector tracks. A small dot
+     travels left-to-right along the tracks on a slow, staggered loop -
+     three connectors, three animation-delays on the same keyframe, so
+     one packet reads as flowing continuously through the whole
+     Deploy->Build->Ship->Monitor chain before the cycle resets. Flat
+     node styling (border + surface, no gradient/glow on the tile itself
+     per the DS "no glow" rule) - the packet itself is near-white
+     (--text), not --accent: blue is navigational only in this DS
+     (links, focus ring, active-nav) and never decorative, so a moving
+     flourish stays monochrome instead of borrowing that meaning. */
+  .ld-flow-row{
+    position:relative; z-index:1; flex-shrink:0;
+    display:flex; justify-content:center;
+    padding:var(--space-4) var(--page-px);
+    border-top:var(--border-width) solid var(--border-subtle);
+  }
+  .ld-flow-track{ display:flex; align-items:flex-start; width:100%; max-width:640px; }
+  .ld-node{ display:flex; flex-direction:column; align-items:center; gap:var(--space-2); width:76px; flex-shrink:0; }
+  .ld-node-icon{
+    width:36px; height:36px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    border:var(--border-width) solid var(--border); border-radius:var(--radius-md);
+    background:var(--surface-raised);
+    color:var(--icon);
+  }
+  .ld-node-icon svg{ width:16px; height:16px; }
+  .ld-node-label{ font-size:var(--text-xs); font-weight:var(--fw-medium); color:var(--text-secondary); text-align:center; }
+  .ld-node-desc{ font-size:10px; color:var(--text-muted); text-align:center; line-height:var(--lh-tight); }
+
+  /* Connector: a hairline track the same height as the icon tile above it
+     (both top-aligned in .ld-flow-track), so the packet dot runs through
+     the icons' vertical center with no manual offset hack. */
+  .ld-connector{
+    position:relative; flex:1 1 40px; min-width:20px; max-width:72px;
+    height:36px; display:flex; align-items:center;
+  }
+  .ld-connector-track{ width:100%; height:1px; background:var(--border); }
+  .ld-packet{
+    position:absolute; top:50%; left:0;
+    width:5px; height:5px; border-radius:var(--radius-full);
+    background:var(--text);
+    box-shadow:0 0 6px 1px color-mix(in srgb, var(--text) 55%, transparent);
+    transform:translate(-50%, -50%);
+    opacity:0;
+    animation:ld-packet-flow 5.4s linear infinite;
+  }
+  .ld-flow-track > .ld-connector:nth-child(4) .ld-packet{ animation-delay:1.8s; }
+  .ld-flow-track > .ld-connector:nth-child(6) .ld-packet{ animation-delay:3.6s; }
+  @keyframes ld-packet-flow{
+    0%{ left:0%; opacity:0; }
+    6%{ opacity:1; }
+    28%{ left:100%; opacity:1; }
+    34%{ opacity:0; }
+    100%{ left:100%; opacity:0; }
+  }
+  @media (prefers-reduced-motion: reduce){ .ld-packet{ animation:none; opacity:0; } }
+
+  /* ---- Footer -----------------------------------------------------------*/
+  .ld-footer{
+    position:relative; z-index:1; flex-shrink:0;
+    display:flex; gap:var(--space-6); justify-content:center;
+    padding:var(--space-3) var(--page-px); font-size:var(--text-xs);
+    border-top:var(--border-width) solid var(--border-subtle);
+  }
+  .ld-footer a{ color:var(--text-muted); }
+  .ld-footer a:hover{ color:var(--text); text-decoration:none; }
+
+  @media (max-width:900px){
+    .ld-hero-row{ flex-direction:column; justify-content:center; gap:var(--space-6); padding:var(--space-4) var(--page-px); }
+    .ld-hero-text{ text-align:center; max-width:480px; }
+  }
+  @media (max-width:480px){
+    .ld-header-link.ld-header-github{ display:none; }
+    .ld-node{ width:56px; }
+    .ld-node-desc{ display:none; }
+    .ld-connector{ min-width:12px; }
+  }
   @media (max-height:700px){
-    .terminal-body{height:118px}
+    .ld-term-body{ --term-line-h:18px; --term-pad:var(--space-3); }
+    .ld-hero-row{ gap:var(--space-6); }
+    .ld-node-desc{ display:none; }
   }
-  @media (max-height:560px){
-    .wordmark{font-size:1.8rem;margin-bottom:.5rem}
-    .tagline{margin-bottom:1rem}
-    .terminal{display:none}
-    footer{padding:.8rem 1rem}
-  }
-
-  /* Mobile (phones and small tablets) - the desktop layout above already
-     centers everything and sizes text with clamp(), so most of this is
-     just: let the terminal shrink to the viewport instead of assuming
-     460px of room, stack the CTA row instead of wrapping it awkwardly,
-     and make the primary button (and the Demo link under it) full width
-     and thumb-friendly. Node count for the constellation canvas is
-     reduced on these widths in the script below, not here. */
-  @media (max-width:768px){
-    main{padding:0 1.1rem; max-width:100%}
-    .wordmark{gap:.4rem; flex-wrap:wrap}
-    .terminal{max-width:100%}
-    .terminal-body{padding:.65rem .75rem; font-size:.66rem}
-    .cta-row{flex-direction:column; align-items:stretch; width:100%; gap:.75rem}
-    .btn-primary{width:100%; text-align:center; box-sizing:border-box; padding:.75rem 1.4rem}
-    .link-secondary{width:100%; text-align:center}
+  @media (max-height:520px){
+    .ld-hero-terminal{ display:none; }
+    .ld-flow-row{ padding:var(--space-2) var(--page-px); }
   }
 </style>
 </head>
 <body>
-  <div class="grid" aria-hidden="true"></div>
-  <canvas class="graphic" id="constellation" aria-hidden="true"></canvas>
+  <div class="ld-grid" aria-hidden="true"></div>
+  <div class="ld-glow" aria-hidden="true"></div>
 
-  <div class="waves" aria-hidden="true">
-    <svg class="wave wave-back" viewBox="0 0 2400 200" preserveAspectRatio="none">
-      <path d="M0,80 C150,150 350,10 600,80 C850,150 1050,10 1200,80 C1350,150 1550,10 1800,80 C2050,150 2250,10 2400,80 L2400,200 L0,200 Z"/>
-    </svg>
-    <svg class="wave wave-front" viewBox="0 0 2400 200" preserveAspectRatio="none">
-      <path d="M0,110 C200,40 400,180 600,110 C800,40 1000,180 1200,110 C1400,40 1600,180 1800,110 C2000,40 2200,180 2400,110 L2400,200 L0,200 Z"/>
-    </svg>
+  <header class="ld-header">
+    <div class="ld-mark">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 20 L12 3 L12 20 Z"/></svg>
+      <span>VELA</span>
+    </div>
+    <div class="ld-header-actions">
+      <a class="ld-header-link ld-header-github" href="https://github.com/HassanFasseh/Vela-Mlops-Platform" target="_blank" rel="noopener">GitHub</a>
+      <a class="ld-header-link" href="/login">Log in</a>
+    </div>
+  </header>
+
+  <div class="ld-hero-row">
+    <div class="ld-hero-text">
+      <div class="eyebrow" style="margin-bottom:var(--space-3)">Self-hosted MLOps</div>
+      <h1 class="ld-h1">Deploy and monitor models without your data ever leaving your infrastructure.</h1>
+      <p class="ld-sub">
+        For banks, hospitals, and government teams that can't send data to a public cloud.
+        Vela deploys, monitors, and governs models entirely inside your own Kubernetes:
+        on-prem, air-gapped, or wherever compliance requires it.
+      </p>
+      <a class="btn btn-primary btn-lg" href="/login">Get Started</a>
+    </div>
+
+    <div class="ld-hero-terminal">
+      <div class="ld-terminal" role="img" aria-label="Terminal demo: deploying a model, then detecting and explaining drift">
+        <div class="ld-term-bar">
+          <span class="ld-term-dot r"></span><span class="ld-term-dot y"></span><span class="ld-term-dot g"></span>
+          <span class="ld-term-title">vela: zsh</span>
+        </div>
+        <div class="ld-term-body">
+          <div id="term-log"></div><span class="ld-term-cursor" aria-hidden="true"></span>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <main>
-    <h1 class="wordmark">
-      <svg class="sail-icon" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 20 L12 6 L18 20 Z" fill="var(--ink)" opacity=".12"/>
-        <path d="M4 20 L12 3 L12 20 Z" fill="#0ea5e9"/>
-        <line x1="2.5" y1="20.5" x2="19.5" y2="20.5" stroke="var(--ink)" stroke-width="1.4" stroke-linecap="round"/>
-      </svg>
-      VELA
-    </h1>
-    <p class="tagline">
-      Self-hosted MLOps.<br>
-      <b class="headline">Your models. Your infrastructure. Your data.</b>
-    </p>
-    <div class="cta-row">
-      <a class="btn-primary" href="/login">Get Started</a>
-      <a class="link-secondary" href="http://51.170.140.102/login">Demo</a>
-    </div>
-
-    <div class="terminal" role="img" aria-label="Terminal demo: deploying a model, then detecting and explaining drift">
-      <div class="terminal-bar">
-        <span class="term-dot r"></span><span class="term-dot y"></span><span class="term-dot g"></span>
-        <span class="terminal-title">vela - zsh</span>
+  <div class="ld-flow-row" role="img" aria-label="How it works: deploy a model, build the container, ship to Kubernetes, monitor drift">
+    <div class="ld-flow-track">
+      <div class="ld-node">
+        <div class="ld-node-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3 L20 7.5 V16.5 L12 21 L4 16.5 V7.5 Z"/><path d="M4 7.5 L12 12 L20 7.5"/><path d="M12 12 V21"/></svg></div>
+        <div class="ld-node-label">Deploy</div>
+        <div class="ld-node-desc">Push your model</div>
       </div>
-      <div class="terminal-body">
-        <div id="term-log"></div><span class="term-cursor" aria-hidden="true"></span>
+      <div class="ld-connector"><span class="ld-connector-track"></span><span class="ld-packet"></span></div>
+      <div class="ld-node">
+        <div class="ld-node-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3 L21 8 L12 13 L3 8 Z"/><path d="M3 13 L12 18 L21 13"/></svg></div>
+        <div class="ld-node-label">Build</div>
+        <div class="ld-node-desc">Container image</div>
+      </div>
+      <div class="ld-connector"><span class="ld-connector-track"></span><span class="ld-packet"></span></div>
+      <div class="ld-node">
+        <div class="ld-node-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="4" width="17" height="6" rx="1"/><rect x="3.5" y="14" width="17" height="6" rx="1"/><circle cx="7" cy="7" r=".8" fill="currentColor" stroke="none"/><circle cx="7" cy="17" r=".8" fill="currentColor" stroke="none"/></svg></div>
+        <div class="ld-node-label">Ship</div>
+        <div class="ld-node-desc">Live on Kubernetes</div>
+      </div>
+      <div class="ld-connector"><span class="ld-connector-track"></span><span class="ld-packet"></span></div>
+      <div class="ld-node">
+        <div class="ld-node-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,13 8,13 10,7 14,19 16,13 21,13"/></svg></div>
+        <div class="ld-node-label">Monitor</div>
+        <div class="ld-node-desc">Drift, alerts, logs</div>
       </div>
     </div>
-  </main>
+  </div>
 
-  <footer>
-    <a href="https://github.com/HassanFasseh/vela" target="_blank" rel="noopener">GitHub</a>
+  <footer class="ld-footer">
+    <a href="https://github.com/HassanFasseh/Vela-Mlops-Platform" target="_blank" rel="noopener">GitHub</a>
     <a href="/about">About</a>
-    <a href="https://github.com/HassanFasseh/Vela/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+    <a href="https://github.com/HassanFasseh/Vela-Mlops-Platform/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
   </footer>
 
 <script>
 (function(){
-  // Constellation - ~40 nodes drifting in random directions, bouncing off
-  // the viewport edges, with connections drawn dynamically between any
-  // two nodes within ~150px of each other each frame. Dark navy/slate,
-  // low opacity via the .graphic CSS class - an alive, sailing network
-  // rather than a static star chart.
-  var canvas = document.getElementById('constellation');
-  if (!canvas) return;
-  var ctx = canvas.getContext('2d');
-
-  var MAX_DIST = 150;
-  var SPEED = 0.3;
-  var NODE_COLOR = '30, 41, 59'; // dark navy/slate (#1e293b), rgb triplet for rgba()
-  var MOBILE_BREAKPOINT = 768;
-
-  var DPR = window.devicePixelRatio || 1;
-  var W = 0, H = 0;
-  var nodes = [];
-
-  // Fewer nodes (and so fewer pairwise distance checks + connecting
-  // lines) below 768px - same animation, lighter on a phone's GPU/CPU.
-  // Re-evaluated on every reseed, so rotating a phone or resizing across
-  // the breakpoint picks it up too.
-  function nodeCount(){ return window.innerWidth < MOBILE_BREAKPOINT ? 20 : 40; }
-
-  function rand(min, max){ return min + Math.random() * (max - min); }
-
-  function resize(){
-    W = canvas.offsetWidth;
-    H = canvas.offsetHeight;
-    canvas.width = Math.max(1, Math.round(W * DPR));
-    canvas.height = Math.max(1, Math.round(H * DPR));
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  }
-
-  function seed(){
-    nodes = [];
-    var count = nodeCount();
-    for (var i = 0; i < count; i++) {
-      var angle = rand(0, Math.PI * 2);
-      nodes.push({
-        x: rand(0, W),
-        y: rand(0, H),
-        vx: Math.cos(angle) * SPEED,
-        vy: Math.sin(angle) * SPEED,
-        r: rand(1.4, 3)
-      });
-    }
-  }
-
-  function step(){
-    for (var i = 0; i < nodes.length; i++) {
-      var n = nodes[i];
-      n.x += n.vx;
-      n.y += n.vy;
-      if (n.x <= 0 || n.x >= W) { n.vx *= -1; n.x = Math.min(W, Math.max(0, n.x)); }
-      if (n.y <= 0 || n.y >= H) { n.vy *= -1; n.y = Math.min(H, Math.max(0, n.y)); }
-    }
-  }
-
-  function draw(){
-    ctx.clearRect(0, 0, W, H);
-    for (var i = 0; i < nodes.length; i++) {
-      for (var j = i + 1; j < nodes.length; j++) {
-        var a = nodes[i], b = nodes[j];
-        var dx = a.x - b.x, dy = a.y - b.y;
-        var dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < MAX_DIST) {
-          ctx.strokeStyle = 'rgba(' + NODE_COLOR + ',' + ((1 - dist / MAX_DIST) * 0.5) + ')';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(a.x, a.y);
-          ctx.lineTo(b.x, b.y);
-          ctx.stroke();
-        }
-      }
-    }
-    ctx.fillStyle = 'rgba(' + NODE_COLOR + ', 0.85)';
-    for (var k = 0; k < nodes.length; k++) {
-      var node = nodes[k];
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  var reduceMotion = false;
-  try { reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
-
-  function loop(){
-    step();
-    draw();
-    requestAnimationFrame(loop);
-  }
-
-  resize();
-  seed();
-  draw();
-  if (!reduceMotion) { requestAnimationFrame(loop); }
-
-  var resizeTimer;
-  window.addEventListener('resize', function(){
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(function(){
-      resize();
-      seed();
-      draw();
-    }, 150);
-  });
-})();
-</script>
-<script>
-(function(){
   var LOG = document.getElementById('term-log');
   if (!LOG) return;
+  // Same deploy -> drift -> explain narrative as before. "cmd" lines are
+  // the user's own input (plain, muted, no dot - it's not a status).
+  // Color is reserved for the two genuinely meaningful moments - healthy
+  // (green) on deploy success, drift (purple) on the drift event itself.
+  // Every other line, including the follow-up once drift has already
+  // been flagged, is just progress/detail and stays neutral (muted dot,
+  // near-white text) so those two moments are what actually stand out.
   var LINES = [
-    {cls:'cmd', text:'$ vela deploy your-model'},
-    {cls:'ok',  text:'\\u2713 Building image...'},
-    {cls:'ok',  text:'\\u2713 Pushing to registry...'},
-    {cls:'ok',  text:'\\u2713 Live in 47s'},
-    {cls:'cmd', text:'$ drift detected \\u2014 score 0.94'},
-    {cls:'cmd', text:'$ explaining...'},
-    {cls:'ok',  text:'\\u2713 Confidence dropped. Labels shifted. Issue opened.'}
+    {kind:'cmd',     text:'$ vela deploy your-model'},
+    {kind:'neutral', text:'Building image...'},
+    {kind:'neutral', text:'Pushing to registry...'},
+    {kind:'healthy', text:'Live in 47s'},
+    {kind:'drift',   text:'Drift detected. Score 0.94'},
+    {kind:'neutral', text:'Explaining...'},
+    {kind:'neutral', text:'Confidence dropped. Labels shifted. Issue opened.'}
   ];
   var LONG_PAUSE_AFTER = 3; // pause after "Live in 47s" before the drift sequence
 
   function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
 
-  function renderStatic(){
-    LOG.innerHTML = LINES.map(function(l){
-      return '<p class="term-line ' + l.cls + '">' + l.text + '</p>';
-    }).join('');
+  // Every line is built from real elements (dot span + text span), never
+  // a bare text node next to a span - that mismatch was what made the
+  // dot and the text misalign. Returns the text span so callers can
+  // fill it in either instantly or one character at a time.
+  function lineEl(kind){
+    var el = document.createElement('p');
+    el.className = 'ld-term-line' + (kind === 'cmd' ? ' cmd' : '');
+    if (kind !== 'cmd') {
+      var dot = document.createElement('span');
+      dot.className = 'status-dot status-dot-' + kind;
+      dot.innerHTML = '<span class="status-dot-mark"></span>';
+      el.appendChild(dot);
+    }
+    var textSpan = document.createElement('span');
+    textSpan.className = 'ld-term-text';
+    el.appendChild(textSpan);
+    LOG.appendChild(el);
+    return textSpan;
   }
 
-  function typeLine(text, cls){
+  function renderStatic(){
+    LOG.innerHTML = '';
+    LINES.forEach(function(l){
+      lineEl(l.kind).textContent = l.text;
+    });
+  }
+
+  function typeLine(text, kind){
     return new Promise(function(resolve){
-      var el = document.createElement('p');
-      el.className = 'term-line ' + cls;
-      LOG.appendChild(el);
+      var textSpan = lineEl(kind);
       var i = 0;
       (function step(){
         if (i >= text.length) { resolve(); return; }
-        el.textContent += text[i];
+        textSpan.textContent += text[i];
         i++;
-        setTimeout(step, 16 + Math.random() * 22);
+        setTimeout(step, 14 + Math.random() * 10);
       })();
     });
   }
@@ -473,7 +504,7 @@ def root():
     while (true) {
       LOG.innerHTML = '';
       for (var i = 0; i < LINES.length; i++) {
-        await typeLine(LINES[i].text, LINES[i].cls);
+        await typeLine(LINES[i].text, LINES[i].kind);
         await sleep(i === LONG_PAUSE_AFTER ? 1100 : 280);
       }
       await sleep(3000); // 3 second pause before looping
@@ -2009,83 +2040,67 @@ def login_page():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Log in - Vela</title>
+<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">
+<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">
+<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">
 <style>
   /* Self-contained, like the landing page (/) - this is its natural
-     continuation, one step before entering the app, so it reuses the
-     same off-white/warm background, technical grid and constellation
-     canvas rather than the authenticated app's dark design system. */
-  :root{
-    --bg:#f7f6f3; --ink:#0a0a0f; --sub:#5c5c66; --line:#d8d6cf;
-    --accent:#0ea5e9; --accent-hover:#0284c7; --danger:#dc2626;
-  }
-  *{box-sizing:border-box}
-  html{height:100%}
+     continuation, one step before entering the app, so it now shares the
+     same ds/* tokens, dark background and monochrome primary button as
+     the landing page and the rest of the app, instead of the old
+     off-white/blue theme. No constellation canvas here - same static
+     grid + soft ambient glow as the landing (see GET / for the source
+     of these two rules). */
+  html, body{ height:100%; margin:0; }
   body{
-    margin:0; min-height:100vh; position:relative;
-    font-family:ui-monospace,"JetBrains Mono","SFMono-Regular",Menlo,Consolas,monospace;
-    background:var(--bg); color:var(--ink);
-    display:flex; align-items:center; justify-content:center; padding:1.5rem;
+    min-height:100vh; position:relative; overflow-x:hidden;
+    background:var(--bg);
+    display:flex; align-items:center; justify-content:center;
+    padding:var(--space-6) var(--page-px);
   }
-  .grid{position:absolute; inset:0; opacity:.5;
+
+  .ld-grid{
+    position:absolute; inset:0; opacity:.5; pointer-events:none; z-index:0;
     background-image:
-      linear-gradient(var(--line) 1px, transparent 1px),
-      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+      linear-gradient(var(--border-subtle) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
     background-size:56px 56px;
     -webkit-mask-image:radial-gradient(ellipse at 50% 40%, #000 0%, transparent 72%);
             mask-image:radial-gradient(ellipse at 50% 40%, #000 0%, transparent 72%);
   }
-  /* Constellation - same live canvas network as the landing page (see /):
-     ~40 nodes drifting at .3px/frame, bouncing off the edges, connecting
-     to nearby nodes as they pass within ~150px. */
-  .graphic{position:absolute; inset:0; display:block; width:100%; height:100%; opacity:.35; pointer-events:none}
+  .ld-glow{
+    position:absolute; inset:-20%; z-index:0; pointer-events:none;
+    background:radial-gradient(600px circle at 50% 30%, color-mix(in srgb, var(--text) 6%, transparent), transparent 60%);
+    filter:blur(60px);
+    animation:ld-glow-drift 28s ease-in-out infinite alternate;
+  }
+  @keyframes ld-glow-drift{ from{ transform:translate(0,0); } to{ transform:translate(4%, 3%); } }
+  @media (prefers-reduced-motion: reduce){ .ld-glow{ animation:none; } }
 
+  /* .card (surface + border, from primitives.css) sized and elevated
+     for a standalone auth screen - roomier padding than the dashboard's
+     default .card, a touch of shadow so it reads as floating on the
+     dark ground rather than flat DS chrome. */
   .auth-card{
     position:relative; z-index:1; width:100%; max-width:380px;
-    background:#ffffff; border-radius:12px; padding:2.2rem 1.9rem;
-    box-shadow:0 12px 32px rgba(10,10,15,.1), 0 2px 8px rgba(10,10,15,.06);
+    padding:var(--space-8) var(--space-6);
+    box-shadow:var(--shadow-lg);
   }
-  .auth-brand{display:flex; align-items:center; justify-content:center; gap:.5rem; margin-bottom:.6rem}
-  .auth-brand-mark{width:1.15em; height:1.15em; flex-shrink:0}
-  .auth-brand-name{font-size:1.15rem; font-weight:800; letter-spacing:.04em; color:var(--ink)}
-  .auth-subtitle{text-align:center; font-size:.82rem; color:var(--sub); margin:0 0 1.7rem}
-
-  .field{display:flex; flex-direction:column; gap:.35rem; margin-bottom:1rem}
-  .field-label{font-size:.72rem; color:var(--sub); text-transform:uppercase; letter-spacing:.06em}
-  .input{
-    font:inherit; font-size:.85rem; color:var(--ink);
-    background:#ffffff; border:1px solid var(--line); border-radius:6px;
-    padding:.6rem .7rem; width:100%;
-  }
-  .input::placeholder{color:#9a9aa0}
-  .input:hover{border-color:#b8b6ae}
-  .input:focus-visible{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(14,165,233,.18)}
-
-  .field-error{font-size:.74rem; color:var(--danger); min-height:1.1em; margin-bottom:.5rem}
-
-  .btn-primary{
-    display:flex; align-items:center; justify-content:center; width:100%;
-    background:var(--accent); color:#fff; border:1px solid var(--accent);
-    padding:.68rem 1rem; border-radius:6px; font:inherit; font-size:.85rem; font-weight:600;
-    cursor:pointer; letter-spacing:.02em;
-  }
-  .btn-primary:hover:not(:disabled){background:var(--accent-hover); border-color:var(--accent-hover)}
-  .btn-primary:disabled{opacity:.6; cursor:not-allowed}
-
-  .auth-footer-link{text-align:center; margin-top:1.4rem; font-size:.72rem; color:var(--sub)}
+  .auth-brand{ display:flex; align-items:center; justify-content:center; gap:var(--space-2); margin-bottom:var(--space-3); }
+  .auth-brand svg{ width:18px; height:18px; color:var(--text); flex-shrink:0; }
+  .auth-brand span{ font-size:var(--text-md); font-weight:var(--fw-semibold); letter-spacing:0.08em; color:var(--text); }
+  .auth-subtitle{ text-align:center; font-size:var(--text-sm); color:var(--text-muted); margin:0 0 var(--space-6); }
+  .auth-footer-link{ text-align:center; margin-top:var(--space-5); font-size:var(--text-xs); color:var(--text-muted); }
 </style>
 </head>
 <body>
-  <div class="grid" aria-hidden="true"></div>
-  <canvas class="graphic" id="constellation" aria-hidden="true"></canvas>
+  <div class="ld-grid" aria-hidden="true"></div>
+  <div class="ld-glow" aria-hidden="true"></div>
 
-  <div class="auth-card">
+  <div class="card auth-card">
     <div class="auth-brand">
-      <svg class="auth-brand-mark" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 20 L12 6 L18 20 Z" fill="var(--ink)" opacity=".12"/>
-        <path d="M4 20 L12 3 L12 20 Z" fill="#0ea5e9"/>
-        <line x1="2.5" y1="20.5" x2="19.5" y2="20.5" stroke="var(--ink)" stroke-width="1.4" stroke-linecap="round"/>
-      </svg>
-      <span class="auth-brand-name">VELA</span>
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 20 L12 3 L12 20 Z"/></svg>
+      <span>VELA</span>
     </div>
     <p class="auth-subtitle">Sign in to your workspace</p>
 
@@ -2099,117 +2114,13 @@ def login_page():
         <input class="input" type="password" id="password" name="password" autocomplete="current-password" required>
       </div>
       <div class="field-error" id="error" role="alert"></div>
-      <button class="btn-primary" type="submit" id="submit-btn">Log in</button>
+      <button class="btn btn-primary btn-lg btn-block" type="submit" id="submit-btn">Log in</button>
     </form>
 
     <div class="auth-footer-link">Accounts are created by an administrator.</div>
   </div>
 
 <script src="/static/js/api.js"></script>
-<script>
-(function(){
-  // Constellation - identical to the landing page's (see GET /): ~40
-  // nodes drifting in random directions, bouncing off the viewport
-  // edges, with connections drawn dynamically between any two nodes
-  // within ~150px of each other each frame.
-  var canvas = document.getElementById('constellation');
-  if (!canvas) return;
-  var ctx = canvas.getContext('2d');
-
-  var NODE_COUNT = 40;
-  var MAX_DIST = 150;
-  var SPEED = 0.3;
-  var NODE_COLOR = '30, 41, 59'; // dark navy/slate (#1e293b), rgb triplet for rgba()
-
-  var DPR = window.devicePixelRatio || 1;
-  var W = 0, H = 0;
-  var nodes = [];
-
-  function rand(min, max){ return min + Math.random() * (max - min); }
-
-  function resize(){
-    W = canvas.offsetWidth;
-    H = canvas.offsetHeight;
-    canvas.width = Math.max(1, Math.round(W * DPR));
-    canvas.height = Math.max(1, Math.round(H * DPR));
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  }
-
-  function seed(){
-    nodes = [];
-    for (var i = 0; i < NODE_COUNT; i++) {
-      var angle = rand(0, Math.PI * 2);
-      nodes.push({
-        x: rand(0, W),
-        y: rand(0, H),
-        vx: Math.cos(angle) * SPEED,
-        vy: Math.sin(angle) * SPEED,
-        r: rand(1.4, 3)
-      });
-    }
-  }
-
-  function step(){
-    for (var i = 0; i < nodes.length; i++) {
-      var n = nodes[i];
-      n.x += n.vx;
-      n.y += n.vy;
-      if (n.x <= 0 || n.x >= W) { n.vx *= -1; n.x = Math.min(W, Math.max(0, n.x)); }
-      if (n.y <= 0 || n.y >= H) { n.vy *= -1; n.y = Math.min(H, Math.max(0, n.y)); }
-    }
-  }
-
-  function draw(){
-    ctx.clearRect(0, 0, W, H);
-    for (var i = 0; i < nodes.length; i++) {
-      for (var j = i + 1; j < nodes.length; j++) {
-        var a = nodes[i], b = nodes[j];
-        var dx = a.x - b.x, dy = a.y - b.y;
-        var dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < MAX_DIST) {
-          ctx.strokeStyle = 'rgba(' + NODE_COLOR + ',' + ((1 - dist / MAX_DIST) * 0.5) + ')';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(a.x, a.y);
-          ctx.lineTo(b.x, b.y);
-          ctx.stroke();
-        }
-      }
-    }
-    ctx.fillStyle = 'rgba(' + NODE_COLOR + ', 0.85)';
-    for (var k = 0; k < nodes.length; k++) {
-      var node = nodes[k];
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  var reduceMotion = false;
-  try { reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
-
-  function loop(){
-    step();
-    draw();
-    requestAnimationFrame(loop);
-  }
-
-  resize();
-  seed();
-  draw();
-  if (!reduceMotion) { requestAnimationFrame(loop); }
-
-  var resizeTimer;
-  window.addEventListener('resize', function(){
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(function(){
-      resize();
-      seed();
-      draw();
-    }, 150);
-  });
-})();
-</script>
 <script>
   function destinationFor(user) {
     if (user.force_password_change) return '/change-password';
@@ -2278,101 +2189,70 @@ def change_password_page():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Change password - Vela</title>
+<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">
+<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">
+<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">
 <style>
-  /* Self-contained, like the landing page (/) and /login - same
-     off-white/warm background, technical grid and constellation canvas
-     rather than the authenticated app's dark design system. */
-  :root{
-    --bg:#f7f6f3; --ink:#0a0a0f; --sub:#5c5c66; --line:#d8d6cf;
-    --accent:#0ea5e9; --accent-hover:#0284c7; --danger:#dc2626;
-    --warn-bg:#fffbeb; --warn-border:#fde68a; --warn-ink:#92660a;
-  }
-  *{box-sizing:border-box}
-  html{height:100%}
+  /* Self-contained, like the landing page (/) and /login - same ds/*
+     tokens, dark background and monochrome primary button, no
+     constellation canvas. See /login for the source of these rules. */
+  html, body{ height:100%; margin:0; }
   body{
-    margin:0; min-height:100vh; position:relative;
-    font-family:ui-monospace,"JetBrains Mono","SFMono-Regular",Menlo,Consolas,monospace;
-    background:var(--bg); color:var(--ink);
-    display:flex; align-items:center; justify-content:center; padding:1.5rem;
+    min-height:100vh; position:relative; overflow-x:hidden;
+    background:var(--bg);
+    display:flex; align-items:center; justify-content:center;
+    padding:var(--space-6) var(--page-px);
   }
-  .grid{position:absolute; inset:0; opacity:.5;
+
+  .ld-grid{
+    position:absolute; inset:0; opacity:.5; pointer-events:none; z-index:0;
     background-image:
-      linear-gradient(var(--line) 1px, transparent 1px),
-      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+      linear-gradient(var(--border-subtle) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
     background-size:56px 56px;
     -webkit-mask-image:radial-gradient(ellipse at 50% 40%, #000 0%, transparent 72%);
             mask-image:radial-gradient(ellipse at 50% 40%, #000 0%, transparent 72%);
   }
-  /* Constellation - same live canvas network as the landing page (see /):
-     ~40 nodes drifting at .3px/frame, bouncing off the edges, connecting
-     to nearby nodes as they pass within ~150px. */
-  .graphic{position:absolute; inset:0; display:block; width:100%; height:100%; opacity:.35; pointer-events:none}
+  .ld-glow{
+    position:absolute; inset:-20%; z-index:0; pointer-events:none;
+    background:radial-gradient(600px circle at 50% 30%, color-mix(in srgb, var(--text) 6%, transparent), transparent 60%);
+    filter:blur(60px);
+    animation:ld-glow-drift 28s ease-in-out infinite alternate;
+  }
+  @keyframes ld-glow-drift{ from{ transform:translate(0,0); } to{ transform:translate(4%, 3%); } }
+  @media (prefers-reduced-motion: reduce){ .ld-glow{ animation:none; } }
 
   .auth-card{
     position:relative; z-index:1; width:100%; max-width:380px;
-    background:#ffffff; border-radius:12px; padding:2.2rem 1.9rem;
-    box-shadow:0 12px 32px rgba(10,10,15,.1), 0 2px 8px rgba(10,10,15,.06);
+    padding:var(--space-8) var(--space-6);
+    box-shadow:var(--shadow-lg);
   }
-  .auth-brand{display:flex; align-items:center; justify-content:center; gap:.5rem; margin-bottom:.6rem}
-  .auth-brand-mark{width:1.15em; height:1.15em; flex-shrink:0}
-  .auth-brand-name{font-size:1.15rem; font-weight:800; letter-spacing:.04em; color:var(--ink)}
-  .auth-subtitle{text-align:center; font-size:.82rem; color:var(--sub); margin:0 0 1.4rem}
+  .auth-brand{ display:flex; align-items:center; justify-content:center; gap:var(--space-2); margin-bottom:var(--space-3); }
+  .auth-brand svg{ width:18px; height:18px; color:var(--text); flex-shrink:0; }
+  .auth-brand span{ font-size:var(--text-md); font-weight:var(--fw-semibold); letter-spacing:0.08em; color:var(--text); }
+  .auth-subtitle{ text-align:center; font-size:var(--text-sm); color:var(--text-muted); margin:0 0 var(--space-5); }
+  .auth-footer-link{ text-align:center; margin-top:var(--space-5); font-size:var(--text-xs); color:var(--text-muted); }
+  .auth-footer-link a{ color:var(--text-secondary); }
+  .auth-footer-link a:hover{ color:var(--text); text-decoration:none; }
 
-  .alert-warning{
-    display:flex; gap:.6rem; align-items:flex-start;
-    background:var(--warn-bg); border:1px solid var(--warn-border); color:var(--warn-ink);
-    border-radius:8px; padding:.7rem .8rem; margin-bottom:1rem; font-size:.78rem; line-height:1.5;
-  }
-  .alert-title{font-weight:700; margin-bottom:2px}
-
-  .field{display:flex; flex-direction:column; gap:.35rem; margin-bottom:1rem}
-  .field-label{font-size:.72rem; color:var(--sub); text-transform:uppercase; letter-spacing:.06em}
-  .input{
-    font:inherit; font-size:.85rem; color:var(--ink);
-    background:#ffffff; border:1px solid var(--line); border-radius:6px;
-    padding:.6rem .7rem; width:100%;
-  }
-  .input::placeholder{color:#9a9aa0}
-  .input:hover{border-color:#b8b6ae}
-  .input:focus-visible{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(14,165,233,.18)}
-
-  .field-error{font-size:.74rem; color:var(--danger); min-height:1.1em; margin-bottom:.5rem}
-
-  .btn-primary{
-    display:flex; align-items:center; justify-content:center; width:100%;
-    background:var(--accent); color:#fff; border:1px solid var(--accent);
-    padding:.68rem 1rem; border-radius:6px; font:inherit; font-size:.85rem; font-weight:600;
-    cursor:pointer; letter-spacing:.02em;
-  }
-  .btn-primary:hover:not(:disabled){background:var(--accent-hover); border-color:var(--accent-hover)}
-  .btn-primary:disabled{opacity:.6; cursor:not-allowed}
-
-  .auth-footer-link{text-align:center; margin-top:1.4rem; font-size:.72rem; color:var(--sub)}
-  .auth-footer-link a{color:var(--accent); text-decoration:none; border-bottom:1px solid transparent}
-  .auth-footer-link a:hover{border-bottom-color:var(--accent)}
-
-  .auth-loading{position:relative; z-index:1; color:var(--sub); font-size:.85rem}
+  .auth-loading{ position:relative; z-index:1; color:var(--text-muted); font-size:var(--text-sm); }
 </style>
 </head>
 <body>
-  <div class="grid" aria-hidden="true"></div>
-  <canvas class="graphic" id="constellation" aria-hidden="true"></canvas>
+  <div class="ld-grid" aria-hidden="true"></div>
+  <div class="ld-glow" aria-hidden="true"></div>
 
-  <div class="auth-card" id="page-root" hidden>
+  <div class="card auth-card" id="page-root" hidden>
     <div class="auth-brand">
-      <svg class="auth-brand-mark" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 20 L12 6 L18 20 Z" fill="var(--ink)" opacity=".12"/>
-        <path d="M4 20 L12 3 L12 20 Z" fill="#0ea5e9"/>
-        <line x1="2.5" y1="20.5" x2="19.5" y2="20.5" stroke="var(--ink)" stroke-width="1.4" stroke-linecap="round"/>
-      </svg>
-      <span class="auth-brand-name">VELA</span>
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 20 L12 3 L12 20 Z"/></svg>
+      <span>VELA</span>
     </div>
     <p class="auth-subtitle" id="subtitle">Change your password</p>
 
-    <div class="alert-warning" id="forced-banner" style="display:none">
+    <div class="alert alert-warning" id="forced-banner" style="display:none; margin-bottom:var(--space-5)">
       <div>
         <div class="alert-title">Password change required</div>
-        <div>An administrator set a temporary password for your account. Choose a new one to continue.</div>
+        <div class="alert-body">An administrator set a temporary password for your account. Choose a new one to continue.</div>
       </div>
     </div>
 
@@ -2386,7 +2266,7 @@ def change_password_page():
         <input class="input" type="password" id="confirm-password" autocomplete="new-password" required minlength="8">
       </div>
       <div class="field-error" id="error" role="alert"></div>
-      <button class="btn-primary" type="submit" id="submit-btn">Set new password</button>
+      <button class="btn btn-primary btn-lg btn-block" type="submit" id="submit-btn">Set new password</button>
     </form>
 
     <div class="auth-footer-link" id="cancel-link-wrap" style="display:none">
@@ -2396,110 +2276,6 @@ def change_password_page():
   <div class="auth-loading" id="loading-root">Loading…</div>
 
 <script src="/static/js/api.js"></script>
-<script>
-(function(){
-  // Constellation - identical to the landing page's (see GET /): ~40
-  // nodes drifting in random directions, bouncing off the viewport
-  // edges, with connections drawn dynamically between any two nodes
-  // within ~150px of each other each frame.
-  var canvas = document.getElementById('constellation');
-  if (!canvas) return;
-  var ctx = canvas.getContext('2d');
-
-  var NODE_COUNT = 40;
-  var MAX_DIST = 150;
-  var SPEED = 0.3;
-  var NODE_COLOR = '30, 41, 59'; // dark navy/slate (#1e293b), rgb triplet for rgba()
-
-  var DPR = window.devicePixelRatio || 1;
-  var W = 0, H = 0;
-  var nodes = [];
-
-  function rand(min, max){ return min + Math.random() * (max - min); }
-
-  function resize(){
-    W = canvas.offsetWidth;
-    H = canvas.offsetHeight;
-    canvas.width = Math.max(1, Math.round(W * DPR));
-    canvas.height = Math.max(1, Math.round(H * DPR));
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  }
-
-  function seed(){
-    nodes = [];
-    for (var i = 0; i < NODE_COUNT; i++) {
-      var angle = rand(0, Math.PI * 2);
-      nodes.push({
-        x: rand(0, W),
-        y: rand(0, H),
-        vx: Math.cos(angle) * SPEED,
-        vy: Math.sin(angle) * SPEED,
-        r: rand(1.4, 3)
-      });
-    }
-  }
-
-  function step(){
-    for (var i = 0; i < nodes.length; i++) {
-      var n = nodes[i];
-      n.x += n.vx;
-      n.y += n.vy;
-      if (n.x <= 0 || n.x >= W) { n.vx *= -1; n.x = Math.min(W, Math.max(0, n.x)); }
-      if (n.y <= 0 || n.y >= H) { n.vy *= -1; n.y = Math.min(H, Math.max(0, n.y)); }
-    }
-  }
-
-  function draw(){
-    ctx.clearRect(0, 0, W, H);
-    for (var i = 0; i < nodes.length; i++) {
-      for (var j = i + 1; j < nodes.length; j++) {
-        var a = nodes[i], b = nodes[j];
-        var dx = a.x - b.x, dy = a.y - b.y;
-        var dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < MAX_DIST) {
-          ctx.strokeStyle = 'rgba(' + NODE_COLOR + ',' + ((1 - dist / MAX_DIST) * 0.5) + ')';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(a.x, a.y);
-          ctx.lineTo(b.x, b.y);
-          ctx.stroke();
-        }
-      }
-    }
-    ctx.fillStyle = 'rgba(' + NODE_COLOR + ', 0.85)';
-    for (var k = 0; k < nodes.length; k++) {
-      var node = nodes[k];
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  var reduceMotion = false;
-  try { reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
-
-  function loop(){
-    step();
-    draw();
-    requestAnimationFrame(loop);
-  }
-
-  resize();
-  seed();
-  draw();
-  if (!reduceMotion) { requestAnimationFrame(loop); }
-
-  var resizeTimer;
-  window.addEventListener('resize', function(){
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(function(){
-      resize();
-      seed();
-      draw();
-    }, 150);
-  });
-})();
-</script>
 <script>
   let currentUser = null;
 

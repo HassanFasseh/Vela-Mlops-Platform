@@ -30,8 +30,9 @@ _ASSETS = """<link rel="stylesheet" href="/static/css/tokens.css?v=8">
 <link rel="stylesheet" href="/static/css/shell.css?v=8">"""
 
 _SCRIPTS = """<script src="/static/js/api.js?v=8"></script>
-<script src="/static/js/shell.js?v=10"></script>
-<script src="/static/js/ui.js?v=8"></script>"""
+<script src="/static/js/shell.js?v=11"></script>
+<script src="/static/js/ui.js?v=8"></script>
+<script src="/static/js/notifications.js?v=1"></script>"""
 
 # Shared boot sequence: authenticate, require is_admin, mount the shell.
 # Pages call ADMIN_BOOT(activePath, breadcrumbLabel) then their own loader.
@@ -80,7 +81,7 @@ def admin_overview_page():
         '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds4">\n'
         '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds4">\n'
         '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds4">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds7">'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
     )
 
     body = """
@@ -380,7 +381,7 @@ def admin_users_page():
         '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds7">'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
     )
 
     body = """
@@ -755,7 +756,7 @@ def admin_teams_page():
         '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds7">'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
     )
 
     body = """
@@ -1252,7 +1253,7 @@ def admin_tickets_page():
         '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds7">'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
     )
 
     body = """
@@ -1575,7 +1576,7 @@ def admin_remediation_page():
         '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds7">'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
     )
 
     body = """
@@ -1975,7 +1976,7 @@ def admin_docs_page():
         '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds7">'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
     )
 
     body = """
@@ -2031,7 +2032,7 @@ def admin_settings_page():
         '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds7">'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
     )
 
     body = """
@@ -2117,7 +2118,7 @@ def admin_models_page():
         '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds7">'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
     )
 
     body = """
@@ -2470,7 +2471,7 @@ def admin_deployments_page():
         '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds7">'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
     )
 
     body = """
@@ -3006,7 +3007,7 @@ def admin_infrastructure_page():
         '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds7">'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
     )
 
     body = """
@@ -3219,7 +3220,7 @@ def admin_api_keys_page():
         '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
         '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds7">'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
     )
 
     body = """

@@ -258,6 +258,8 @@ body.has-shell {
   transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
 }
 .shell-icon-btn:hover { background: var(--surface-hover); color: var(--text); }
+
+.shell-notif-menu { position: relative; }
 .shell-notif-dot {
   position: absolute;
   top: 4px;
@@ -303,6 +305,86 @@ body.has-shell {
 }
 .shell-user-dropdown-name { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(--text); }
 .shell-user-dropdown-role { font-size: var(--text-xs); color: var(--text-muted); margin-top: 2px; }
+
+/* ===================================================================
+   Notification panel - the one deliberate place semantic color
+   concentrates (status-dots per row); everything else in the shell and
+   the dashboards it wraps stays neutral. See notifications.js.
+   =================================================================== */
+
+.shell-notif-panel {
+  right: 0;
+  top: calc(100% + 6px);
+  width: 340px;
+  max-width: calc(100vw - 2 * var(--page-px));
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.shell-notif-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-3) var(--space-2);
+  border-bottom: var(--border-width) solid var(--border-subtle);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+  flex-shrink: 0;
+}
+.shell-notif-panel-header .link-action { font-size: var(--text-xs); font-weight: var(--fw-medium); }
+.shell-notif-panel-body {
+  max-height: 360px;
+  overflow-y: auto;
+  padding: var(--space-1);
+}
+.shell-notif-panel-body .empty-state,
+.shell-notif-panel-body .error-state { padding: var(--space-6) var(--space-4); }
+
+.shell-notif-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+}
+.shell-notif-row:hover { background: var(--surface-hover); }
+.shell-notif-row .status-dot { margin-top: 3px; flex-shrink: 0; }
+.shell-notif-row .status-dot-mark { width: 6px; height: 6px; }
+.shell-notif-row-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.shell-notif-row-title {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  line-height: var(--lh-normal);
+}
+/* Unread reads brighter, same "brighter = needs a look" convention used
+   for the theme/status text elsewhere - no extra color, just contrast. */
+.shell-notif-row.is-unread .shell-notif-row-title { color: var(--text); font-weight: var(--fw-medium); }
+.shell-notif-row-time { font-size: var(--text-xs); color: var(--text-muted); }
+.shell-notif-row-check {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: var(--radius-xs);
+  color: var(--icon-muted);
+  cursor: pointer;
+}
+.shell-notif-row-check:hover { background: var(--surface-active); color: var(--text); }
+.shell-notif-row-check .shell-nav-item-icon { width: 12px; height: 12px; }
+.shell-notif-checking {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-align: center;
+}
 
 .shell-main {
   flex: 1;
@@ -440,4 +522,17 @@ body.has-shell {
   .toolbar-spacer { display: none; }
   .page-actions .btn { flex: 1; }
   .shell-topbar-actions { gap: var(--space-2); }
+
+  /* Notification panel becomes a near-full-width sheet just under the
+     topbar instead of a small anchored dropdown - same fixed-positioning
+     approach as the mobile nav drawer, not a bespoke bottom-sheet
+     component. */
+  .shell-notif-panel {
+    position: fixed;
+    left: var(--space-3);
+    right: var(--space-3);
+    top: calc(var(--topbar-h) + var(--space-2));
+    width: auto;
+    max-width: none;
+  }
 }

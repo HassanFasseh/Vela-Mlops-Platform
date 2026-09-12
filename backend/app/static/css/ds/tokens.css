@@ -57,7 +57,13 @@
   --accent-border: rgba(76, 141, 255, 0.40);
   --accent-contrast: #0a0a0b;                  /* text on a solid --accent fill */
   --accent-focus: rgba(76, 141, 255, 0.35);
-  --focus-ring: 0 0 0 3px var(--accent-focus);
+
+  /* Focus ring — monochrome, tied to --text so it auto-adapts to both
+     themes (near-white on dark, near-black on light) with no separate
+     light-theme override needed. Focus is a keyboard-visibility signal,
+     not navigation, so it does not use --accent. */
+  --focus-ring-color: color-mix(in srgb, var(--text) 35%, transparent);
+  --focus-ring: 0 0 0 3px var(--focus-ring-color);
 
   /* Primary action — monochrome, high-contrast (Vercel-style). Flips in
      the light theme to near-black-on-white. */
