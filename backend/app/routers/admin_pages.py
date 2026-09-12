@@ -34,6 +34,15 @@ _SCRIPTS = """<script src="/static/js/api.js?v=8"></script>
 <script src="/static/js/ui.js?v=8"></script>
 <script src="/static/js/notifications.js?v=1"></script>"""
 
+# Demo mode (?demo=1) - client-side only, see demo-data.js's own header for
+# the full contract. Deliberately included on ONLY these two pages below
+# (/admin/monitoring, /admin/infrastructure), never added to _SCRIPTS itself
+# - every other admin page (and every member page) never loads this file at
+# all, so ?demo=1 on any other URL does nothing. Must load after _SCRIPTS
+# (it wraps Api.get, which api.js defines) and before the page's own script
+# runs its first fetch.
+_DEMO_JS = """<script src="/static/js/demo-data.js?v=1"></script>"""
+
 # Shared boot sequence: authenticate, require is_admin, mount the shell.
 # Pages call ADMIN_BOOT(activePath, breadcrumbLabel) then their own loader.
 _DENIED_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3 L21 19 H3 Z" stroke-linejoin="round"/><line x1="12" y1="9" x2="12" y2="14"/><circle cx="12" cy="17" r=".6" fill="currentColor" stroke="none"/></svg>'
@@ -1502,7 +1511,7 @@ def admin_monitoring_page():
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         "<title>Model Health - Vela Admin</title>\n" + DS_ASSETS + "\n" + CHART_JS_CDN + "\n" + MONITORING_CSS + "\n</head>\n<body>\n"
         + MONITORING_BODY
-        + "\n" + _SCRIPTS + "\n" + MONITORING_SCRIPTS_EXTRA
+        + "\n" + _SCRIPTS + "\n" + _DEMO_JS + "\n" + MONITORING_SCRIPTS_EXTRA
         + _boot_script("/admin/monitoring", "Model Health", ready)
         + "\n</body>\n</html>"
     )
@@ -3178,7 +3187,7 @@ def admin_infrastructure_page():
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         "<title>Infrastructure - Vela Admin</title>\n" + ds_assets + "\n</head>\n<body>\n"
         + body
-        + "\n" + _SCRIPTS + "\n" + script
+        + "\n" + _SCRIPTS + "\n" + _DEMO_JS + "\n" + script
         + _boot_script("/admin/infrastructure", "Infrastructure", ready)
         + "\n</body>\n</html>"
     )
