@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from backend.app.routers._page_fragments import (
     DS_ASSETS, CHART_JS_CDN, MONITORING_CSS, MONITORING_BODY, MONITORING_SCRIPTS_EXTRA,
-    DOCS_BODY, DOCS_SCRIPTS_EXTRA,
+    DOCS_SCRIPTS_EXTRA,
     SETTINGS_SCRIPTS_EXTRA,
 )
 
@@ -1961,13 +1961,53 @@ def admin_remediation_page():
 
 @router.get("/admin/docs", response_class=HTMLResponse)
 def admin_docs_page():
+    # Admin-only body: DOCS_BODY in _page_fragments.py is shared with
+    # /app/docs (member_pages.py), so it isn't touched here - this is a
+    # local DS rebuild with the same docs.js element IDs (docs-subtitle,
+    # docs-model-select, card-result) so Docs.start({role:'admin'}) keeps
+    # working unmodified. docs.js itself renders the picker's model
+    # options plus every section/card/form below card-result using the
+    # same shared class vocabulary (.card, .section-label, .field, .btn,
+    # .badge) that ds/primitives.css also defines, so that generated
+    # markup reskins for free once the bundle below switches - no JS
+    # changes needed. /app/docs is unaffected by this migration.
+    ds_assets = (
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds5">'
+    )
+
+    body = """
+<div id="page-content" hidden>
+  <div class="page-narrow">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Documentation</h1>
+        <div class="page-description" id="docs-subtitle">Select a model to view or document it.</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:var(--space-5)">
+      <div class="field" style="margin-bottom:0">
+        <label class="field-label" for="docs-model-select">Model</label>
+        <select class="select" id="docs-model-select" style="min-width:280px"></select>
+      </div>
+    </div>
+
+    <div id="card-result"></div>
+  </div>
+</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
+"""
+
     ready = "Docs.start({role: 'admin'});"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Documentation - Vela Admin</title>\n" + _ASSETS + "\n</head>\n<body>\n"
-        + DOCS_BODY
+        "<title>Documentation - Vela Admin</title>\n" + ds_assets + "\n</head>\n<body>\n"
+        + body
         + "\n" + _SCRIPTS + "\n" + DOCS_SCRIPTS_EXTRA
         + _boot_script("/admin/docs", "Documentation", ready)
         + "\n</body>\n</html>"
