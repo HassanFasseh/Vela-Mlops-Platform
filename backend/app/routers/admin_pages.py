@@ -19,7 +19,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from backend.app.routers._page_fragments import (
     DS_ASSETS, CHART_JS_CDN, MONITORING_CSS, MONITORING_BODY, MONITORING_SCRIPTS_EXTRA,
     DOCS_BODY, DOCS_SCRIPTS_EXTRA,
-    SETTINGS_BODY, SETTINGS_SCRIPTS_EXTRA,
+    SETTINGS_SCRIPTS_EXTRA,
 )
 
 router = APIRouter()
@@ -1981,13 +1981,72 @@ def admin_docs_page():
 
 @router.get("/admin/settings", response_class=HTMLResponse)
 def admin_settings_page():
+    # Admin-only body: SETTINGS_BODY in _page_fragments.py is shared with
+    # /app/settings (member_pages.py), so it isn't touched here - this is
+    # a local DS rebuild with the same settings.js element IDs
+    # (acc-username/acc-name/acc-role, pw-form + its fields/error/submit)
+    # so Settings.start(user) keeps working unmodified. /app/settings is
+    # unaffected by this migration.
+    ds_assets = (
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds5">'
+    )
+
+    body = """
+<div id="page-content" hidden>
+  <div class="page-narrow">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Settings</h1>
+        <div class="page-description">Your account and password.</div>
+      </div>
+    </div>
+
+    <div class="section-label" style="margin-top:0">Account</div>
+    <div class="card" style="margin-bottom:var(--space-6)">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.45rem 0;border-bottom:var(--border-width) solid var(--border-subtle)">
+        <span class="text-secondary" style="font-size:var(--text-sm)">Username</span>
+        <span id="acc-username" style="font-size:var(--text-sm)">&mdash;</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.45rem 0;border-bottom:var(--border-width) solid var(--border-subtle)">
+        <span class="text-secondary" style="font-size:var(--text-sm)">Name</span>
+        <span id="acc-name" style="font-size:var(--text-sm)">&mdash;</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.45rem 0">
+        <span class="text-secondary" style="font-size:var(--text-sm)">Role</span>
+        <span id="acc-role"></span>
+      </div>
+    </div>
+
+    <div class="section-label">Change password</div>
+    <div class="card">
+      <form class="form" id="pw-form" novalidate>
+        <div class="field">
+          <label class="field-label" for="s-new-password">New password</label>
+          <input class="input" type="password" id="s-new-password" autocomplete="new-password" required minlength="8">
+        </div>
+        <div class="field">
+          <label class="field-label" for="s-confirm-password">Confirm new password</label>
+          <input class="input" type="password" id="s-confirm-password" autocomplete="new-password" required minlength="8">
+        </div>
+        <div class="field-error" id="s-error" role="alert"></div>
+        <button class="btn btn-primary" type="submit" id="s-submit">Update password</button>
+      </form>
+    </div>
+  </div>
+</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
+"""
+
     ready = "Settings.start(user);"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Settings - Vela Admin</title>\n" + _ASSETS + "\n</head>\n<body>\n"
-        + SETTINGS_BODY
+        "<title>Settings - Vela Admin</title>\n" + ds_assets + "\n</head>\n<body>\n"
+        + body
         + "\n" + _SCRIPTS + "\n" + SETTINGS_SCRIPTS_EXTRA
         + _boot_script("/admin/settings", "Settings", ready)
         + "\n</body>\n</html>"
