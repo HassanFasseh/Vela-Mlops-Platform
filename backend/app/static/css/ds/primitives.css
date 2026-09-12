@@ -235,6 +235,36 @@
 .input::placeholder,
 .textarea::placeholder { color: var(--text-muted); }
 
+/* Chrome/Edge autofill paints its own pale-blue surface + text color,
+   overriding the DS dark surface. Force it back to the real input bg/
+   text/caret so an autofilled field is visually identical to a normal
+   one. -webkit-only (Firefox's autofill styling doesn't need this). */
+.input:-webkit-autofill,
+.input:-webkit-autofill:hover,
+.select:-webkit-autofill,
+.select:-webkit-autofill:hover,
+.textarea:-webkit-autofill,
+.textarea:-webkit-autofill:hover {
+  -webkit-text-fill-color: var(--text);
+  -webkit-box-shadow: 0 0 0 1000px var(--surface-raised) inset;
+  box-shadow: 0 0 0 1000px var(--surface-raised) inset;
+  caret-color: var(--text);
+  transition: background-color 9999s ease-in-out 0s;
+}
+/* Autofilled + focused needs its own rule: :-webkit-autofill:focus is
+   more specific than the plain :focus-visible rule below, so without
+   this the focus ring would silently disappear on an autofilled field.
+   Layer both box-shadows so the ring survives. */
+.input:-webkit-autofill:focus,
+.select:-webkit-autofill:focus,
+.textarea:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text);
+  -webkit-box-shadow: 0 0 0 1000px var(--surface-raised) inset, var(--focus-ring);
+  box-shadow: 0 0 0 1000px var(--surface-raised) inset, var(--focus-ring);
+  caret-color: var(--text);
+  transition: background-color 9999s ease-in-out 0s;
+}
+
 /* Rest state is a plain 1px hairline; hover firms it; focus sharpens it
    to the accent plus a ring. No filled/boxy treatment. */
 .input:hover:not(:disabled),
@@ -244,7 +274,7 @@
 .input:focus-visible,
 .select:focus-visible,
 .textarea:focus-visible {
-  border-color: var(--accent);
+  border-color: var(--text);
   box-shadow: var(--focus-ring);
 }
 
@@ -329,7 +359,7 @@
 }
 .file-input:hover { border-color: var(--border-strong); }
 .file-input:focus-within {
-  border-color: var(--accent);
+  border-color: var(--text);
   box-shadow: var(--focus-ring);
 }
 /* The real control — present and tabbable, just not shown. */
