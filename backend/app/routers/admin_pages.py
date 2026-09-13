@@ -78,10 +78,10 @@ def admin_overview_page():
     # every other admin page still uses _ASSETS. The shared JS (_SCRIPTS:
     # api/shell/ui.js) is theme-agnostic and unchanged.
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds10">'
     )
 
     body = """
@@ -378,10 +378,10 @@ def admin_users_page():
     # ds/* bundle for this route only; every other admin page still uses
     # _ASSETS. Shared JS (_SCRIPTS) is theme-agnostic and unchanged.
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds10">'
     )
 
     body = """
@@ -753,10 +753,10 @@ def admin_users_page():
 @router.get("/admin/teams-page", response_class=HTMLResponse)
 def admin_teams_page():
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds10">'
     )
 
     body = """
@@ -1250,10 +1250,10 @@ def admin_teams_page():
 @router.get("/admin/tickets-page", response_class=HTMLResponse)
 def admin_tickets_page():
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds10">'
     )
 
     body = """
@@ -1573,10 +1573,10 @@ def admin_automation_redirect():
 @router.get("/admin/remediation", response_class=HTMLResponse)
 def admin_remediation_page():
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds10">'
     )
 
     body = """
@@ -1973,10 +1973,10 @@ def admin_docs_page():
     # markup reskins for free once the bundle below switches - no JS
     # changes needed. /app/docs is unaffected by this migration.
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds10">'
     )
 
     body = """
@@ -2029,10 +2029,10 @@ def admin_settings_page():
     # so Settings.start(user) keeps working unmodified. /app/settings is
     # unaffected by this migration.
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds10">'
     )
 
     body = """
@@ -2283,10 +2283,10 @@ def admin_models_page():
     # this route only; every other admin page still uses _ASSETS. Shared JS
     # (_SCRIPTS) is theme-agnostic and unchanged.
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds10">'
     )
 
     body = """
@@ -2636,10 +2636,10 @@ def admin_deployments_page():
     # for the reference pattern). ds/* bundle for this route only; every
     # other admin page still uses _ASSETS. Shared JS (_SCRIPTS) unchanged.
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds10">'
     )
 
     body = """
@@ -3172,10 +3172,10 @@ def admin_deployments_page():
 @router.get("/admin/infrastructure", response_class=HTMLResponse)
 def admin_infrastructure_page():
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds10">'
     )
 
     body = """
@@ -3385,10 +3385,10 @@ def admin_infrastructure_page():
 @router.get("/admin/api-keys", response_class=HTMLResponse)
 def admin_api_keys_page():
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds10">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds10">'
     )
 
     body = """

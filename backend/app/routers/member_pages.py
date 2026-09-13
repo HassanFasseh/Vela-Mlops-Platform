@@ -416,6 +416,14 @@ def member_team_detail_page(team_id: int):
 
 @router.get("/app/models", response_class=HTMLResponse)
 def member_models_page():
+    """No model selected yet - model selection itself now lives in the
+    sidebar's "My Models" dropdown (Shell, static/js/shell.js), not on this
+    page. This route just resolves whether the user has any access at all,
+    so it can point them at the sidebar (or at their admin, if there's
+    nothing to point at). Picking a model navigates to
+    /app/models/{deployment_id} below, which renders the actual detail/
+    tester interface Part 3 built - unchanged, just no longer reached via
+    an in-page list."""
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
@@ -425,7 +433,7 @@ def member_models_page():
         <div class="page-description">Models your teams have been granted access to.</div>
       </div>
     </div>
-    <div class="card-grid" id="models-grid"></div>
+    <div id="models-empty"></div>
   </div>
 </div>
 <div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
@@ -433,87 +441,17 @@ def member_models_page():
 
     script = """
 <script>
-  // Scoped to what the user's teams actually have permission for - built
-  // straight from GET /teams/{id}/permissions across all of GET
-  // /users/me/teams, not from /models/status + /deployments. Those two
-  // can't be filtered this way even in principle: /deployments (k8s)
-  // never carries a DB deployment_id at all, and the two hardcoded core
-  // services in /models/status aren't Deployment rows, so they can never
-  // have a TeamModelPermission grant either way. The permissions endpoint
-  // already carries deployment_id, model_name, task_type and status
-  // directly, so it's used as the source of truth rather than attempting
-  // a join that the other two endpoints don't have the data to support.
-  //
-  // The prediction tester's API key comes from sessionStorage, scoped
-  // per team+deployment (see predictor.js) - set inline from the tester
-  // itself now, no detour through /app/teams/{id} required. Never
-  // routed through the shared Api helper - that attaches the JWT and
-  // treats any 401 as "session expired", which would be wrong for a
-  // bad/missing model API key.
-  let modelRows = [];
-
   async function loadModels() {
-    const grid = document.getElementById('models-grid');
-    grid.innerHTML = '<div class="card"><span class="skeleton skeleton-text">&nbsp;</span></div>'.repeat(3);
+    const empty = document.getElementById('models-empty');
+    empty.innerHTML = '';
     try {
-      const teams = await Api.get('/users/me/teams');
-      if (!teams.length) {
-        renderNoAccess();
-        return;
-      }
-
-      const perTeam = await Promise.allSettled(
-        teams.map(t => Api.get('/teams/' + t.id + '/permissions').then(perms =>
-          perms.map(p => Object.assign({}, p, { team_id: t.id, team_name: t.name }))
-        ))
-      );
-
-      const byDeployment = new Map();
-      perTeam.forEach(result => {
-        if (result.status !== 'fulfilled') return;
-        result.value.forEach(p => {
-          // Admin "Disable" (/admin/models) hides a model from members
-          // entirely - see the matching filter on /app/teams/{id}.
-          if (p.is_active === false) return;
-          if (!byDeployment.has(p.deployment_id)) byDeployment.set(p.deployment_id, p);
-        });
-      });
-      modelRows = Array.from(byDeployment.values());
-
-      if (!modelRows.length) {
-        renderNoAccess();
-        return;
-      }
-
-      grid.innerHTML = modelRows.map(renderCard).join('');
-      modelRows.forEach(r => {
-        if (!r.can_predict) return;
-        Predictor.wire('d' + r.deployment_id, r.team_id, r.deployment_id, r.input_type, r.input_schema);
-      });
+      const rows = await Shell.fetchMemberModelRows();
+      empty.innerHTML = rows.length
+        ? UI.emptyState('Select a model', 'Pick a model from "My Models" in the sidebar to try it and see how it performs.')
+        : UI.emptyState("Your team hasn't been granted model access yet.", "Contact your admin.");
     } catch (e) {
-      grid.innerHTML = UI.errorState(e.message, loadModels);
+      empty.innerHTML = UI.errorState(e.message, loadModels);
     }
-  }
-
-  function renderNoAccess() {
-    document.getElementById('models-grid').innerHTML = UI.emptyState(
-      "Your team hasn't been granted model access yet.",
-      "Contact your admin."
-    );
-  }
-
-  function renderCard(r) {
-    const testerHtml = r.can_predict
-      ? Predictor.render('d' + r.deployment_id, r.team_id, r.deployment_id, r.input_type, r.input_schema)
-      : UI.badge('View only', 'neutral');
-
-    return '<div class="card">' +
-      '<div class="card-title">' + UI.escapeHtml(r.model_name) + '</div>' +
-      '<div class="card-subtitle">' + UI.escapeHtml(r.task_type) + ' &middot; ' + UI.escapeHtml(r.team_name) + '</div>' +
-      '<div style="margin:.5rem 0">' + UI.statusBadge(r.status) + '</div>' +
-      '<a class="link-action" style="font-size:var(--text-xs)" href="/app/tickets?model=' + encodeURIComponent(r.model_name) + '">Report an issue &rarr;</a>' +
-      '<div style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--border-subtle)">' + testerHtml + '</div>' +
-      '</div>';
   }
 </script>"""
 
@@ -526,6 +464,84 @@ def member_models_page():
         + body
         + "\n" + _SCRIPTS + "\n" + script
         + _boot_script("/app/models", "My Models", ready)
+        + "\n</body>\n</html>"
+    )
+    return html
+
+
+@router.get("/app/models/{deployment_id}", response_class=HTMLResponse)
+def member_model_detail_page(deployment_id: int):
+    """The actual per-model tester (input-by-type, predict, explain) - same
+    markup/logic member_models_page used to render into #model-detail once
+    a row was picked from its in-page list, just addressed by its own URL
+    now that the picking happens in the sidebar (see shell.js's "My
+    Models" dropdown, which links straight here per model)."""
+    body = """
+<div id="page-content" hidden>
+  <div class="page-max">
+    <a href="/app/models" class="link-secondary" style="font-size:var(--text-sm)">&larr; My Models</a>
+    <div id="model-detail" style="margin-top:var(--space-4)"></div>
+  </div>
+</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
+"""
+
+    script = """
+<script>
+  const DEPLOYMENT_ID = parseInt(location.pathname.split('/')[3], 10);
+
+  async function loadModel() {
+    const detail = document.getElementById('model-detail');
+    try {
+      const rows = await Shell.fetchMemberModelRows();
+      const r = rows.find(row => row.deployment_id === DEPLOYMENT_ID);
+      if (!r) {
+        detail.innerHTML = UI.emptyState(
+          'Model not found',
+          "This model doesn't exist, or your team hasn't been granted access to it."
+        );
+        return;
+      }
+      document.title = r.model_name + ' - Vela';
+      const crumb = document.querySelector('.shell-breadcrumb-current');
+      if (crumb) crumb.textContent = r.model_name;
+      renderDetail(r);
+    } catch (e) {
+      detail.innerHTML = UI.errorState(e.message, loadModel);
+    }
+  }
+
+  function renderDetail(r) {
+    const detail = document.getElementById('model-detail');
+    const uid = 'd' + r.deployment_id;
+    const testerHtml = r.can_predict
+      ? Predictor.render(uid, r.team_id, r.deployment_id, r.input_type, r.input_schema, r.task_type)
+      : UI.badge('View only', 'neutral');
+
+    detail.innerHTML =
+      '<div class="card-header">' +
+      '<div><div class="card-title">' + UI.escapeHtml(r.model_name) + '</div>' +
+      '<div class="card-subtitle">' + UI.escapeHtml(r.task_type) + ' &middot; ' + UI.escapeHtml(r.team_name) + '</div></div>' +
+      UI.statusBadge(r.status) +
+      '</div>' +
+      '<div style="margin-bottom:var(--space-4)"><a class="link-action" style="font-size:var(--text-xs)" href="/app/tickets?model=' + encodeURIComponent(r.model_name) + '">Report an issue &rarr;</a></div>' +
+      testerHtml;
+
+    if (r.can_predict) {
+      Predictor.wire(uid, r.team_id, r.deployment_id, r.input_type, r.input_schema, r.task_type);
+    }
+  }
+</script>"""
+
+    ready = "loadModel();"
+
+    html = (
+        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+        "<title>Model - Vela</title>\n" + DS_ASSETS + "\n</head>\n<body>\n"
+        + body
+        + "\n" + _SCRIPTS + "\n" + script
+        + _boot_script("/app/models/" + str(deployment_id), "My Models", ready)
         + "\n</body>\n</html>"
     )
     return html

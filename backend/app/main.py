@@ -139,9 +139,9 @@ def root():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vela - Self-hosted MLOps</title>
-<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">
-<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">
-<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">
+<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds10">
+<link rel="stylesheet" href="/static/css/ds/base.css?v=ds10">
+<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds10">
 <style>
   /* Landing-only layout on top of the real ds/* tokens - same palette,
      type and spacing as the dashboard, not a re-approximation of it.
@@ -2239,9 +2239,9 @@ def login_page():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Log in - Vela</title>
-<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">
-<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">
-<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">
+<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds10">
+<link rel="stylesheet" href="/static/css/ds/base.css?v=ds10">
+<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds10">
 <style>
   /* Self-contained, like the landing page (/) - this is its natural
      continuation, one step before entering the app, so it now shares the
@@ -2388,9 +2388,9 @@ def change_password_page():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Change password - Vela</title>
-<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">
-<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">
-<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">
+<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds10">
+<link rel="stylesheet" href="/static/css/ds/base.css?v=ds10">
+<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds10">
 <style>
   /* Self-contained, like the landing page (/) and /login - same ds/*
      tokens, dark background and monochrome primary button, no

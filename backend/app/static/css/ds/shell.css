@@ -67,6 +67,14 @@ body.has-shell {
 .shell.is-collapsed .shell-sidebar-footer-text {
   display: none;
 }
+/* A 56px rail has no room for the chevron or an expanded model list -
+   toggling "My Models" while collapsed widens the sidebar first (see
+   shell.js), so this only ever matters for the instant before that, and
+   for a subtree left expanded from before the rail was collapsed. */
+.shell.is-collapsed .shell-nav-chevron,
+.shell.is-collapsed .shell-nav-subtree {
+  display: none;
+}
 
 .shell-nav {
   flex: 1;
@@ -125,6 +133,48 @@ body.has-shell {
 }
 .shell-nav-item.is-active .shell-nav-item-icon { color: var(--accent); }
 .shell-nav-item-icon svg { width: 100%; height: 100%; }
+
+/* Expandable nav item ("My Models") - a div, not an <a>, since it toggles
+   a subtree instead of navigating. Same row styling as every other
+   .shell-nav-item (hover, active accent bar); only the chevron is new. */
+.shell-nav-toggle {
+  cursor: pointer;
+  user-select: none;
+}
+.shell-nav-chevron {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--icon);
+  transition: transform var(--dur-1) var(--ease);
+}
+.shell-nav-chevron svg { width: 100%; height: 100%; }
+.shell-nav-toggle.is-expanded .shell-nav-chevron { transform: rotate(180deg); }
+
+/* The dropdown itself: capped height with its own scroll, so a member
+   with many models never pushes Tickets/API Keys/Settings out of reach -
+   only this subtree scrolls, not the rest of the nav. Left border reads
+   as a tree branch under "My Models", indented under its icon. */
+.shell-nav-subtree {
+  max-height: 224px;
+  overflow-y: auto;
+  margin: 2px var(--space-2) var(--space-2) 27px;
+  padding-left: var(--space-2);
+  border-left: var(--border-width) solid var(--border-subtle);
+}
+.shell-nav-subitem {
+  padding-left: var(--space-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shell-nav-subtree-status {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.shell-nav-subtree-error { color: var(--error-fg); }
 
 .shell-collapse-btn {
   flex-shrink: 0;
@@ -494,6 +544,10 @@ body.has-shell {
   .shell.is-collapsed .shell-nav-section-label,
   .shell.is-collapsed .shell-nav-label,
   .shell.is-collapsed .shell-sidebar-footer-text { display: revert; }
+  /* ...and a drawer always has room for "My Models"' chevron/dropdown too,
+     even if the desktop rail was left collapsed. */
+  .shell.is-collapsed .shell-nav-chevron { display: flex; }
+  .shell.is-collapsed .shell-nav-subtree { display: block; }
 
   .shell-mobile-toggle { display: flex; }
   .shell-collapse-btn { display: none; }

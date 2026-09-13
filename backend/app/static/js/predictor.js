@@ -3,13 +3,15 @@
  * /app/models (member_pages.py). One tester per team+deployment pair:
  *
  *   const uid = 'd' + deployment_id;              // unique per page
- *   container.innerHTML = Predictor.render(uid, team_id, deployment_id, input_type, input_schema);
- *   Predictor.wire(uid, team_id, deployment_id, input_type, input_schema);   // after insertion
+ *   container.innerHTML = Predictor.render(uid, team_id, deployment_id, input_type, input_schema, task_type);
+ *   Predictor.wire(uid, team_id, deployment_id, input_type, input_schema, task_type);   // after insertion
  *
  * input_type/input_schema come straight off the permission row (GET
  * /teams/{id}/permissions - see services/teams.py's get_team_permissions)
  * and decide what the tester actually renders/sends:
- *   "text" (default) - a plain textarea, {"text": ...}.
+ *   "text" (default) - a plain textarea, {"text": ...}. If task_type is
+ *           "zero-shot-classification", an editable candidate-labels
+ *           field also renders above it and rides along as {"labels": [...]}.
  *   "json" - input_schema is a JSON string like {"f1":"number"} stored
  *           on the deployment; parsed into one input field per key. No
  *           usable schema (missing/unparseable/empty) falls back to a
@@ -18,6 +20,10 @@
  *   "file" - images and audio. A <input type=file>; the selected file
  *           is read client-side into a base64 string (pendingFiles
  *           below) as soon as it's chosen, then sent as {"file": ...}.
+ *
+ * task_type is a new, optional trailing parameter (only used for the
+ * zero-shot labels field above) - existing call sites that don't pass
+ * it keep working exactly as before, just without that field.
  *
  * Calls go through the shared Api helper, which attaches the member's
  * own JWT (already how every other page here authenticates) - no
@@ -28,6 +34,17 @@
  * in this module's signature only for call-site compatibility with
  * member_pages.py; it's not otherwise used here - permission is
  * resolved server-side from the JWT's user across all of their teams.
+ *
+ * After a successful prediction, an "Explain this prediction" button
+ * appears and calls POST /api/v1/predict/explain (services/
+ * prediction_explainer.py) with the same input plus the result just
+ * shown - never re-runs the prediction itself. That endpoint always
+ * returns 200 with a clean "Explanation unavailable right now." on any
+ * failure (no provider configured, bad key, on-prem unreachable, ...),
+ * so this module just displays whatever string comes back; its own
+ * try/catch only covers a genuine transport failure to reach the
+ * endpoint at all, and shows that same calm fallback text rather than
+ * a raw error either way.
  */
 
 const Predictor = (() => {
@@ -37,6 +54,13 @@ const Predictor = (() => {
   // collectRequestBody - kept out of the DOM rather than stashed on the
   // input element since it can be a multi-MB string.
   const pendingFiles = {};
+
+  // uid -> { text, data, labels, result } for the most recent successful
+  // prediction from that tester - read by explainPrediction() below so
+  // "Explain this prediction" can send the exact input/output pair
+  // already shown, without re-running the prediction or re-reading form
+  // state that may have changed since.
+  const lastResults = {};
 
   function readFileAsBase64(file) {
     return new Promise((resolve, reject) => {
@@ -107,19 +131,35 @@ const Predictor = (() => {
     );
   }
 
-  function testerHtml(uid, inputType, inputSchema) {
+  // Default set mirrors PredictRequest.labels' own server-side default
+  // (main.py) - a sensible starting point the member can edit rather
+  // than an empty field with no guidance.
+  const DEFAULT_LABELS = "technology, sports, politics, entertainment, business";
+
+  function labelsFieldHtml(uid) {
+    return (
+      '<div class="field" style="margin-bottom:.4rem">' +
+      '<label class="field-label" for="predict-labels-' + uid + '">Candidate labels (comma-separated)</label>' +
+      '<input class="input" id="predict-labels-' + uid + '" value="' + DEFAULT_LABELS + '" style="font-size:var(--text-xs)">' +
+      "</div>"
+    );
+  }
+
+  function testerHtml(uid, inputType, inputSchema, taskType) {
     const inputHtml =
       inputType === "json"
         ? jsonFieldsHtml(uid, inputSchema)
         : inputType === "file"
         ? fileFieldHtml(uid)
-        : '<div class="field" style="margin-bottom:.4rem">' +
+        : (taskType === "zero-shot-classification" ? labelsFieldHtml(uid) : "") +
+          '<div class="field" style="margin-bottom:.4rem">' +
           '<textarea class="textarea" id="predict-input-' + uid + '" placeholder="Enter text to analyze…" style="font-size:var(--text-xs);min-height:3.5em"></textarea>' +
           "</div>";
     return (
       inputHtml +
       '<button class="btn btn-secondary btn-sm" data-run="' + uid + '" type="button">Run prediction</button>' +
-      '<div id="predict-result-' + uid + '" style="margin-top:.6rem"></div>'
+      '<div id="predict-result-' + uid + '" style="margin-top:.6rem"></div>' +
+      '<div id="predict-explain-' + uid + '" style="margin-top:.6rem"></div>'
     );
   }
 
@@ -130,15 +170,17 @@ const Predictor = (() => {
   // defaults to the plain-text tester for anything other than "json" or
   // "file" (covers "text" and unset alike). teamId is unused (see the
   // module comment) but kept in the signature for call-site compatibility.
-  function render(uid, teamId, deploymentId, inputType, inputSchema) {
-    return '<div class="predict-tester" id="predict-' + uid + '">' + testerHtml(uid, inputType, inputSchema) + "</div>";
+  // taskType is optional - see module comment.
+  function render(uid, teamId, deploymentId, inputType, inputSchema, taskType) {
+    return '<div class="predict-tester" id="predict-' + uid + '">' + testerHtml(uid, inputType, inputSchema, taskType) + "</div>";
   }
 
   /* ---- Wiring ------------------------------------------------------------*/
 
   // Attaches event listeners for one tester block - call once, right
-  // after its render() output has been inserted into the DOM.
-  function wire(uid, teamId, deploymentId, inputType, inputSchema) {
+  // after its render() output has been inserted into the DOM. taskType
+  // is optional - see module comment.
+  function wire(uid, teamId, deploymentId, inputType, inputSchema, taskType) {
     const root = document.getElementById("predict-" + uid);
     if (!root) return;
 
@@ -265,12 +307,22 @@ const Predictor = (() => {
       resultEl.innerHTML = '<div class="field-error" style="min-height:0">Enter some text first.</div>';
       return null;
     }
-    return { text: text, deployment_id: deploymentId };
+    const body = { text: text, deployment_id: deploymentId };
+    const labelsInput = document.getElementById("predict-labels-" + uid);
+    if (labelsInput) {
+      const labels = labelsInput.value.split(",").map((l) => l.trim()).filter(Boolean);
+      if (labels.length) body.labels = labels;
+    }
+    return body;
   }
 
   async function runPrediction(uid, deploymentId, inputType, inputSchema) {
     const resultEl = document.getElementById("predict-result-" + uid);
+    const explainEl = document.getElementById("predict-explain-" + uid);
     const btn = document.querySelector('[data-run="' + uid + '"]');
+
+    explainEl.innerHTML = "";
+    delete lastResults[uid];
 
     const body = collectRequestBody(uid, deploymentId, inputType, resultEl);
     if (!body) return;
@@ -285,14 +337,78 @@ const Predictor = (() => {
       // redirects to /login on a real 401 (session expired) - nothing
       // extra to handle here for that case.
       const data = await Api.post("/api/v1/predict", body);
-      resultEl.innerHTML = renderResult((data && data.result) || {});
+      const result = (data && data.result) || {};
+      resultEl.innerHTML = renderResult(result);
+      lastResults[uid] = { text: body.text, data: body.data, labels: body.labels, result: result };
+      explainEl.innerHTML =
+        '<button class="btn btn-secondary btn-sm" data-explain="' + uid + '" type="button">Explain this prediction</button>';
+      const explainBtn = explainEl.querySelector('[data-explain="' + uid + '"]');
+      if (explainBtn) explainBtn.addEventListener("click", () => explainPrediction(uid, deploymentId));
     } catch (e) {
       if (e.status !== 401) {
-        resultEl.innerHTML = '<div class="field-error">' + UI.escapeHtml(e.message || "Request failed") + "</div>";
+        // A real prediction failure (model unreachable, deployment
+        // error, ...) is shown as the same clean error-state component
+        // used everywhere else in the app, with a retry - never the raw
+        // backend detail (a 503 here can be a connection-pool/DNS
+        // exception string from main.py's "Model service error: ..." -
+        // meaningful for logs, not for a member's screen).
+        resultEl.innerHTML = UI.errorState("Could not reach this model right now.", () => runPrediction(uid, deploymentId, inputType, inputSchema));
       }
     } finally {
       btn.disabled = false;
       btn.textContent = originalLabel;
+    }
+  }
+
+  /* ---- Explaining ---------------------------------------------------------*/
+
+  async function explainPrediction(uid, deploymentId) {
+    const explainEl = document.getElementById("predict-explain-" + uid);
+    const last = lastResults[uid];
+    if (!explainEl || !last) return;
+
+    const btn = explainEl.querySelector('[data-explain="' + uid + '"]');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Explaining…";
+    }
+    explainEl.insertAdjacentHTML(
+      "beforeend",
+      '<div id="predict-explain-body-' + uid + '" style="margin-top:.5rem"><span class="skeleton skeleton-text" style="display:inline-block;width:70%">&nbsp;</span></div>'
+    );
+    const bodyEl = document.getElementById("predict-explain-body-" + uid);
+
+    try {
+      // Same call, same JWT auth as /api/v1/predict above. The endpoint
+      // itself always returns 200 with a clean fallback string on any
+      // failure (see services/prediction_explainer.py) - nothing to
+      // branch on here beyond actually reaching it.
+      const res = await Api.post("/api/v1/predict/explain", {
+        deployment_id: deploymentId,
+        text: last.text,
+        data: last.data,
+        labels: last.labels || [],
+        result: last.result,
+      });
+      if (bodyEl) {
+        bodyEl.innerHTML =
+          '<div class="section-label" style="margin-top:0">AI explanation</div>' +
+          '<div class="banner-strip">' + UI.escapeHtml((res && res.explanation) || "Explanation unavailable right now.") + "</div>";
+      }
+    } catch (e) {
+      // Transport-level failure only (network down, unexpected status) -
+      // the endpoint itself never errors this way. Same calm wording
+      // either way, never a raw error.
+      if (bodyEl && e.status !== 401) {
+        bodyEl.innerHTML =
+          '<div class="section-label" style="margin-top:0">AI explanation</div>' +
+          '<div class="banner-strip">Explanation unavailable right now.</div>';
+      }
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Explain this prediction";
+      }
     }
   }
 

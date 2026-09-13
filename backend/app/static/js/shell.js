@@ -126,7 +126,7 @@ const Shell = (() => {
       { items: [{ label: "Overview", href: "/app", icon: "grid" }] },
       {
         items: [
-          { label: "My Models", href: "/app/models", icon: "box" },
+          { label: "My Models", href: "/app/models", icon: "box", expandable: true, key: "models" },
         ],
       },
       {
@@ -161,6 +161,58 @@ const Shell = (() => {
     return activePath.indexOf(href + "/") === 0;
   }
 
+  // Member's accessible-model rows, deduped by deployment_id - the exact
+  // logic /app/models used to run itself before model selection moved into
+  // this sidebar dropdown. Shared here (instead of duplicated per page) so
+  // both the sidebar list and the /app/models/{id} detail page see the same
+  // data. Fetched lazily (only once "My Models" is actually expanded, see
+  // wireEvents) and cached for the life of this page load - a fresh
+  // navigation re-fetches, which is fine, this is cheap.
+  let _memberModelRowsPromise = null;
+  function fetchMemberModelRows() {
+    if (!_memberModelRowsPromise) {
+      _memberModelRowsPromise = (async () => {
+        const teams = await Api.get("/users/me/teams");
+        if (!teams.length) return [];
+        const perTeam = await Promise.allSettled(
+          teams.map((t) => Api.get("/teams/" + t.id + "/permissions").then((perms) =>
+            perms.map((p) => Object.assign({}, p, { team_id: t.id, team_name: t.name }))
+          ))
+        );
+        const byDeployment = new Map();
+        perTeam.forEach((result) => {
+          if (result.status !== "fulfilled") return;
+          result.value.forEach((p) => {
+            // Admin "Disable" (/admin/models) hides a model from members
+            // entirely - see the matching filter on /app/teams/{id}.
+            if (p.is_active === false) return;
+            if (!byDeployment.has(p.deployment_id)) byDeployment.set(p.deployment_id, p);
+          });
+        });
+        return Array.from(byDeployment.values());
+      })().catch((e) => {
+        // Don't leave a rejected promise cached - the next expand attempt
+        // (or the detail page's own call) should get to retry the fetch.
+        _memberModelRowsPromise = null;
+        throw e;
+      });
+    }
+    return _memberModelRowsPromise;
+  }
+
+  function renderNavItem(item, activePath) {
+    const active = isActive(item.href, activePath) ? " is-active" : "";
+    if (item.expandable) {
+      return (
+        `<div class="shell-nav-item shell-nav-toggle${active}" data-nav-toggle="${item.key}" role="button" tabindex="0" aria-expanded="false" aria-controls="shell-nav-sub-${item.key}">` +
+        `${icon(item.icon)}<span class="shell-nav-label">${escapeHtml(item.label)}</span>` +
+        `<span class="shell-nav-chevron" aria-hidden="true">${ICONS.chevronDown}</span></div>` +
+        `<div class="shell-nav-subtree" id="shell-nav-sub-${item.key}" data-nav-subtree="${item.key}" hidden></div>`
+      );
+    }
+    return `<a class="shell-nav-item${active}" href="${item.href}">${icon(item.icon)}<span class="shell-nav-label">${escapeHtml(item.label)}</span></a>`;
+  }
+
   function renderNav(role, activePath) {
     const sections = NAV[role] || NAV.member;
     return sections
@@ -168,12 +220,7 @@ const Shell = (() => {
         const label = section.label
           ? `<div class="shell-nav-section-label">${escapeHtml(section.label)}</div>`
           : "";
-        const items = section.items
-          .map((item) => {
-            const active = isActive(item.href, activePath) ? " is-active" : "";
-            return `<a class="shell-nav-item${active}" href="${item.href}">${icon(item.icon)}<span class="shell-nav-label">${escapeHtml(item.label)}</span></a>`;
-          })
-          .join("");
+        const items = section.items.map((item) => renderNavItem(item, activePath)).join("");
         return label + items;
       })
       .join("");
@@ -323,7 +370,11 @@ const Shell = (() => {
       const open = shell.classList.toggle("is-mobile-open");
       mobileToggle.setAttribute("aria-expanded", String(open));
     });
-    shell.querySelectorAll(".shell-nav-item").forEach((el) => {
+    // Expandable "My Models" excluded here - clicking it opens the dropdown
+    // in place, it shouldn't also close the drawer out from under that.
+    // Model links inside the dropdown (added later, once expanded - see
+    // below) get their own identical close-on-click wiring.
+    shell.querySelectorAll(".shell-nav-item:not(.shell-nav-toggle)").forEach((el) => {
       el.addEventListener("click", () => {
         shell.classList.remove("is-mobile-open");
         mobileToggle.setAttribute("aria-expanded", "false");
@@ -333,6 +384,81 @@ const Shell = (() => {
       if (e.key === "Escape" && shell.classList.contains("is-mobile-open")) {
         shell.classList.remove("is-mobile-open");
         mobileToggle.setAttribute("aria-expanded", "false");
+      }
+    });
+
+    // Expandable nav sections - currently just "My Models". Collapsed into
+    // its own block since (unlike every other nav item) it doesn't navigate
+    // on click, it toggles a subtree of model links fetched lazily the
+    // first time it's opened.
+    shell.querySelectorAll("[data-nav-toggle]").forEach((toggle) => {
+      const key = toggle.dataset.navToggle;
+      const subtree = shell.querySelector('[data-nav-subtree="' + key + '"]');
+      if (!subtree) return;
+      let loaded = false;
+
+      function setExpanded(expanded) {
+        toggle.setAttribute("aria-expanded", String(expanded));
+        toggle.classList.toggle("is-expanded", expanded);
+        subtree.hidden = !expanded;
+      }
+
+      async function ensureLoaded() {
+        if (loaded) return;
+        loaded = true;
+        subtree.innerHTML = '<div class="shell-nav-subtree-status">Loading&hellip;</div>';
+        try {
+          const rows = key === "models" ? await fetchMemberModelRows() : [];
+          if (!rows.length) {
+            subtree.innerHTML = '<div class="shell-nav-subtree-status">No models yet</div>';
+            return;
+          }
+          subtree.innerHTML = rows
+            .map((r) => {
+              const href = "/app/models/" + r.deployment_id;
+              const active = isActive(href, location.pathname) ? " is-active" : "";
+              return `<a class="shell-nav-item shell-nav-subitem${active}" href="${href}" title="${escapeHtml(r.model_name)}">${escapeHtml(r.model_name)}</a>`;
+            })
+            .join("");
+          subtree.querySelectorAll(".shell-nav-item").forEach((el) => {
+            el.addEventListener("click", () => {
+              shell.classList.remove("is-mobile-open");
+              mobileToggle.setAttribute("aria-expanded", "false");
+            });
+          });
+        } catch (e) {
+          loaded = false; // let the next expand retry instead of getting stuck
+          subtree.innerHTML = '<div class="shell-nav-subtree-status shell-nav-subtree-error">Couldn&rsquo;t load models</div>';
+        }
+      }
+
+      function toggleExpanded() {
+        // A 56px collapsed rail has nowhere to show a model list - widen
+        // the sidebar first (same mechanism as the manual collapse button)
+        // rather than build a separate flyout for this one case.
+        if (shell.classList.contains("is-collapsed")) {
+          shell.classList.remove("is-collapsed");
+          try { localStorage.setItem("vela_sidebar_collapsed", "0"); } catch (e) {}
+        }
+        const expanded = toggle.getAttribute("aria-expanded") === "true";
+        setExpanded(!expanded);
+        if (!expanded) ensureLoaded();
+      }
+
+      toggle.addEventListener("click", toggleExpanded);
+      toggle.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          toggleExpanded();
+        }
+      });
+
+      // Already viewing a page under this section (e.g. a model's detail
+      // page) - start expanded and loaded so the active one is visible
+      // without an extra click.
+      if (toggle.classList.contains("is-active")) {
+        setExpanded(true);
+        ensureLoaded();
       }
     });
 
@@ -388,5 +514,5 @@ const Shell = (() => {
     }
   }
 
-  return { mount, ICONS, icon, escapeHtml, initials };
+  return { mount, ICONS, icon, escapeHtml, initials, fetchMemberModelRows };
 })();
