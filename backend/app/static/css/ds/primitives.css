@@ -1153,6 +1153,13 @@
 .meter-fill.is-error,
 .meter-fill.is-critical { background: var(--error-fg); }
 
+/* Inline prediction tester (predictor.js) - plain, no card chrome; it
+   already sits inside a bordered model section or a card that provides
+   its own boundary. */
+.predict-tester {
+  display: block;
+}
+
 /* ===================================================================
    Metric strip — a plain-text row of stats separated by rules, used
    instead of a KPI card wall. Number + label, no box.

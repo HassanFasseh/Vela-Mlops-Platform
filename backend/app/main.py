@@ -1816,6 +1816,127 @@ def admin_delete_user(user_id: int, authorization: str = fastapi.Header(None)):
     finally:
         db.close()
 
+class LLMProviderUpdate(BaseModel):
+    provider: str
+    endpoint_url: str | None = None
+    # None keeps the existing stored key (see save_config in
+    # services/llm_provider.py); "" explicitly clears it.
+    api_key: str | None = None
+    model_name: str = "openai/gpt-oss-20b"
+
+class LLMProviderTestRequest(BaseModel):
+    provider: str
+    endpoint_url: str | None = None
+    api_key: str | None = None
+    model_name: str = "openai/gpt-oss-20b"
+
+# Admin LLM provider - one platform-wide provider (Groq / Gemini / an
+# on-prem endpoint) powering drift explanation today (services/summary.py)
+# and the planned prediction-explanation feature later. See
+# services/llm_provider.py for the actual call/storage logic; this is just
+# the same Bearer + is_admin gate every other /admin/* endpoint here uses.
+# The key is NEVER returned by GET - only whether one is set and its
+# last-4-masked form, same spirit as the API Keys page's "shown once".
+@app.get("/admin/llm-provider")
+def admin_get_llm_provider(authorization: str = fastapi.Header(None)):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token
+    from backend.app.db.models import User
+    from backend.app.services import llm_provider
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not admin or not admin.is_admin:
+            raise HTTPException(status_code=403, detail="Admin required")
+        cfg = llm_provider.get_config(db)
+        if cfg is None:
+            return {
+                "configured": False, "provider": "groq", "endpoint_url": None,
+                "model_name": llm_provider.DEFAULT_MODEL, "key_set": False,
+                "key_masked": None, "updated_at": None,
+            }
+        key_plain = llm_provider.decrypt_key(cfg.api_key_encrypted) if cfg.api_key_encrypted else ""
+        return {
+            "configured": True, "provider": cfg.provider, "endpoint_url": cfg.endpoint_url,
+            "model_name": cfg.model_name, "key_set": bool(key_plain),
+            "key_masked": llm_provider.mask_key(key_plain), "updated_at": cfg.updated_at,
+        }
+    finally:
+        db.close()
+
+@app.patch("/admin/llm-provider")
+def admin_set_llm_provider(req_body: LLMProviderUpdate, authorization: str = fastapi.Header(None)):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token
+    from backend.app.db.models import User
+    from backend.app.services import llm_provider
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not admin or not admin.is_admin:
+            raise HTTPException(status_code=403, detail="Admin required")
+        if req_body.provider not in llm_provider.PROVIDERS:
+            raise HTTPException(status_code=400, detail="Provider must be one of: " + ", ".join(llm_provider.PROVIDERS))
+        if req_body.provider == "on_prem" and not (req_body.endpoint_url or "").strip():
+            raise HTTPException(status_code=400, detail="Endpoint URL is required for an on-prem provider")
+        existing = llm_provider.get_config(db)
+        has_key = bool(existing and existing.api_key_encrypted)
+        if req_body.provider in ("groq", "gemini") and req_body.api_key is None and not has_key:
+            raise HTTPException(status_code=400, detail="An API key is required for this provider")
+        cfg = llm_provider.save_config(
+            db, req_body.provider, req_body.endpoint_url, req_body.api_key,
+            req_body.model_name, admin.id,
+        )
+        key_plain = llm_provider.decrypt_key(cfg.api_key_encrypted) if cfg.api_key_encrypted else ""
+        return {
+            "configured": True, "provider": cfg.provider, "endpoint_url": cfg.endpoint_url,
+            "model_name": cfg.model_name, "key_set": bool(key_plain),
+            "key_masked": llm_provider.mask_key(key_plain), "updated_at": cfg.updated_at,
+        }
+    finally:
+        db.close()
+
+@app.post("/admin/llm-provider/test")
+def admin_test_llm_provider(req_body: LLMProviderTestRequest, authorization: str = fastapi.Header(None)):
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token
+    from backend.app.db.models import User
+    from backend.app.services import llm_provider
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not admin or not admin.is_admin:
+            raise HTTPException(status_code=403, detail="Admin required")
+        # Blank api_key in the test request means "use whatever's already
+        # saved for this provider" - same semantics as the Save form, so
+        # testing doesn't force re-typing a key that's already stored.
+        api_key = req_body.api_key
+        if not api_key:
+            existing = llm_provider.get_config(db)
+            if existing and existing.provider == req_body.provider and existing.api_key_encrypted:
+                api_key = llm_provider.decrypt_key(existing.api_key_encrypted)
+        ok, message = llm_provider.test_connection(
+            req_body.provider, req_body.endpoint_url, api_key or "", req_body.model_name,
+        )
+        return {"ok": ok, "message": message}
+    finally:
+        db.close()
+
 @app.get("/admin/tickets")
 def admin_get_tickets(status: str = None, authorization: str = fastapi.Header(None)):
     from backend.app.database import SessionLocal

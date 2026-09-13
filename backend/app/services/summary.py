@@ -1,11 +1,10 @@
 import os
 import json
 import requests as req
-from groq import Groq
 from datetime import datetime
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+from backend.app.services.llm_provider import call_llm
+
 MODEL_SERVICE_URL = os.environ.get("MODEL_SERVICE_URL", "http://model-service.default.svc.cluster.local")
 
 def get_drift_details() -> dict:
@@ -63,26 +62,6 @@ Event summary:
 
 Write a plain-language explanation without claiming proven causation."""
 
-def try_groq(prompt: str) -> str:
-    client = Groq(api_key=GROQ_API_KEY)
-    response = client.chat.completions.create(
-        messages=[
-            {"role": "system", "content": "You are a concise, honest MLOps observability assistant."},
-            {"role": "user", "content": prompt}
-        ],
-        model="openai/gpt-oss-20b",
-        max_tokens=400,
-        temperature=0.3,
-    )
-    return response.choices[0].message.content.strip()
-
-def try_gemini(prompt: str) -> str:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
-    body = {"contents": [{"parts": [{"text": prompt}]}]}
-    r = req.post(url, json=body, timeout=15)
-    r.raise_for_status()
-    return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-
 def generate_summary(events: list) -> str:
     if not events:
         return "No events in the current time window to summarize."
@@ -93,19 +72,8 @@ def generate_summary(events: list) -> str:
 
     prompt = PROMPT_TEMPLATE.format(summary=summary_lines)
 
-    if GROQ_API_KEY:
-        try:
-            return try_groq(prompt)
-        except Exception as e:
-            if "429" in str(e) or "rate_limit" in str(e).lower():
-                pass  # fall through to Gemini
-            else:
-                pass  # fall through to Gemini on any error
-
-    if GEMINI_API_KEY:
-        try:
-            return try_gemini(prompt)
-        except Exception as e:
-            return f"LLM summary unavailable (both providers failed): {str(e)[:100]}"
-
-    return "LLM summary unavailable: no API keys configured."
+    # Provider (Groq / Gemini / on-prem) is admin-configured - see
+    # services/llm_provider.py. Falls back to the old GROQ_API_KEY /
+    # GEMINI_API_KEY env vars when no admin config has been saved yet, so
+    # this keeps working unchanged until an admin sets one.
+    return call_llm(prompt)

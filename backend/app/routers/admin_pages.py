@@ -2076,19 +2076,187 @@ def admin_settings_page():
         <button class="btn btn-primary" type="submit" id="s-submit">Update password</button>
       </form>
     </div>
+
+    <div class="section-label">AI provider</div>
+    <div class="card">
+      <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-4)">
+        Powers drift explanations on Model Health, and will power prediction
+        explanations once that ships. Point this at an on-prem endpoint to
+        keep every call inside your own infrastructure &mdash; on-prem never
+        falls back to an external provider if it fails.
+      </p>
+      <div class="text-muted" id="ai-unconfigured-note" style="font-size:var(--text-xs);margin-bottom:var(--space-3)" hidden>
+        Not yet configured &mdash; drift explanations currently fall back to
+        the GROQ_API_KEY / GEMINI_API_KEY environment variables, if set.
+      </div>
+      <form id="ai-provider-form" novalidate>
+        <div class="field">
+          <label class="field-label" for="ai-provider-select">Provider</label>
+          <select class="select" id="ai-provider-select">
+            <option value="groq">Groq (external)</option>
+            <option value="gemini">Gemini (external)</option>
+            <option value="on_prem">On-prem / self-hosted</option>
+          </select>
+        </div>
+        <div class="field" id="ai-endpoint-field" hidden>
+          <label class="field-label" for="ai-endpoint">Endpoint URL</label>
+          <input class="input" id="ai-endpoint" placeholder="http://llm.internal:8000/v1" autocomplete="off">
+        </div>
+        <div class="field">
+          <label class="field-label" for="ai-model">Model name</label>
+          <input class="input" id="ai-model" placeholder="openai/gpt-oss-20b" autocomplete="off">
+        </div>
+        <div class="field">
+          <label class="field-label" for="ai-key-display">API key<span id="ai-key-optional-tag" class="text-muted" hidden> (optional for on-prem)</span></label>
+          <div id="ai-key-display-row" style="display:flex;gap:var(--space-2)">
+            <input class="input" id="ai-key-display" readonly style="flex:1" value="Not set">
+            <button class="btn btn-secondary btn-sm" id="ai-key-change-btn" type="button">Change</button>
+          </div>
+          <div id="ai-key-edit-row" style="display:flex;gap:var(--space-2)" hidden>
+            <input class="input" type="password" id="ai-key-input" style="flex:1" placeholder="Paste new key" autocomplete="off">
+            <button class="btn btn-ghost btn-sm" id="ai-key-cancel-btn" type="button">Cancel</button>
+          </div>
+        </div>
+        <div class="field-error" id="ai-provider-error" role="alert"></div>
+        <div style="display:flex;gap:var(--space-2)">
+          <button class="btn btn-secondary" id="ai-test-btn" type="button">Test connection</button>
+          <button class="btn btn-primary" type="submit" id="ai-save-btn">Save</button>
+        </div>
+        <div id="ai-test-result" style="margin-top:var(--space-3)"></div>
+      </form>
+    </div>
   </div>
 </div>
 <div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
 """
 
-    ready = "Settings.start(user);"
+    script = """
+<script>
+  let aiKeyChanged = false;
+
+  function aiShowEndpointField() {
+    const provider = document.getElementById('ai-provider-select').value;
+    document.getElementById('ai-endpoint-field').hidden = provider !== 'on_prem';
+    document.getElementById('ai-key-optional-tag').hidden = provider !== 'on_prem';
+  }
+
+  async function loadLlmProvider() {
+    try {
+      const cfg = await Api.get('/admin/llm-provider');
+      document.getElementById('ai-unconfigured-note').hidden = cfg.configured;
+      document.getElementById('ai-provider-select').value = cfg.provider || 'groq';
+      document.getElementById('ai-endpoint').value = cfg.endpoint_url || '';
+      document.getElementById('ai-model').value = cfg.model_name || '';
+      document.getElementById('ai-key-display').value = cfg.key_masked || 'Not set';
+      aiShowEndpointField();
+    } catch (e) {
+      document.getElementById('ai-provider-error').textContent = e.message || 'Could not load AI provider settings.';
+    }
+  }
+
+  function initLlmProvider() {
+    document.getElementById('ai-provider-select').addEventListener('change', aiShowEndpointField);
+
+    document.getElementById('ai-key-change-btn').addEventListener('click', () => {
+      document.getElementById('ai-key-display-row').hidden = true;
+      document.getElementById('ai-key-edit-row').hidden = false;
+      const input = document.getElementById('ai-key-input');
+      input.value = '';
+      input.focus();
+      aiKeyChanged = true;
+    });
+    document.getElementById('ai-key-cancel-btn').addEventListener('click', () => {
+      document.getElementById('ai-key-edit-row').hidden = true;
+      document.getElementById('ai-key-display-row').hidden = false;
+      aiKeyChanged = false;
+    });
+
+    // null -> keep whatever key is already stored (see PUT /admin/llm-provider);
+    // only sent as a real string when the admin actually typed a new one.
+    function currentFormState() {
+      return {
+        provider: document.getElementById('ai-provider-select').value,
+        endpoint_url: document.getElementById('ai-endpoint').value.trim() || null,
+        model_name: document.getElementById('ai-model').value.trim() || 'openai/gpt-oss-20b',
+        api_key: aiKeyChanged ? document.getElementById('ai-key-input').value : null,
+      };
+    }
+
+    document.getElementById('ai-test-btn').addEventListener('click', async () => {
+      const errorEl = document.getElementById('ai-provider-error');
+      const resultEl = document.getElementById('ai-test-result');
+      const btn = document.getElementById('ai-test-btn');
+      errorEl.textContent = '';
+      resultEl.innerHTML = '';
+      const state = currentFormState();
+      if ((state.provider === 'groq' || state.provider === 'gemini') && !state.api_key && document.getElementById('ai-key-display').value === 'Not set') {
+        errorEl.textContent = 'Enter an API key to test.';
+        return;
+      }
+      if (state.provider === 'on_prem' && !state.endpoint_url) {
+        errorEl.textContent = 'Enter an endpoint URL to test.';
+        return;
+      }
+      btn.disabled = true;
+      const originalLabel = btn.textContent;
+      btn.textContent = 'Testing…';
+      try {
+        const res = await Api.post('/admin/llm-provider/test', {
+          provider: state.provider, endpoint_url: state.endpoint_url,
+          model_name: state.model_name, api_key: state.api_key || '',
+        });
+        resultEl.innerHTML = res.ok
+          ? UI.statusDot('Connected', 'running') + ' <span class="text-secondary" style="font-size:var(--text-xs)">' + UI.escapeHtml(res.message) + '</span>'
+          : UI.statusDot('Failed', 'error') + ' <span class="text-secondary" style="font-size:var(--text-xs)">' + UI.escapeHtml(res.message) + '</span>';
+      } catch (e) {
+        resultEl.innerHTML = UI.statusDot('Failed', 'error') + ' <span class="text-secondary" style="font-size:var(--text-xs)">' + UI.escapeHtml(e.message || 'Request failed') + '</span>';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+      }
+    });
+
+    document.getElementById('ai-provider-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('ai-provider-error');
+      const saveBtn = document.getElementById('ai-save-btn');
+      errorEl.textContent = '';
+      const state = currentFormState();
+      if (state.provider === 'on_prem' && !state.endpoint_url) {
+        errorEl.textContent = 'Endpoint URL is required for an on-prem provider.';
+        return;
+      }
+      saveBtn.disabled = true;
+      const originalLabel = saveBtn.textContent;
+      saveBtn.textContent = 'Saving…';
+      try {
+        const cfg = await Api.patch('/admin/llm-provider', state);
+        document.getElementById('ai-unconfigured-note').hidden = true;
+        document.getElementById('ai-key-display').value = cfg.key_masked || 'Not set';
+        document.getElementById('ai-key-edit-row').hidden = true;
+        document.getElementById('ai-key-display-row').hidden = false;
+        aiKeyChanged = false;
+        UI.toast('AI provider saved', 'success');
+      } catch (e) {
+        errorEl.textContent = e.message || 'Could not save AI provider settings.';
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = originalLabel;
+      }
+    });
+
+    loadLlmProvider();
+  }
+</script>"""
+
+    ready = "Settings.start(user); initLlmProvider();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         "<title>Settings - Vela Admin</title>\n" + ds_assets + "\n</head>\n<body>\n"
         + body
-        + "\n" + _SCRIPTS + "\n" + SETTINGS_SCRIPTS_EXTRA
+        + "\n" + _SCRIPTS + "\n" + SETTINGS_SCRIPTS_EXTRA + "\n" + script
         + _boot_script("/admin/settings", "Settings", ready)
         + "\n</body>\n</html>"
     )

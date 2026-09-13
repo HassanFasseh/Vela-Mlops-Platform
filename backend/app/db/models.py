@@ -185,3 +185,26 @@ class Ticket(Base):
     resolved_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     resolution_note: Mapped[str] = mapped_column(Text, default="")
     evidence: Mapped[str] = mapped_column(Text, default="")  # text evidence, logs, etc
+
+class LLMProviderConfig(Base):
+    __tablename__ = "llm_provider_config"
+    # Single-row table (one platform-wide provider, not per-workspace) -
+    # powers drift explanation (services/summary.py) today and the
+    # planned prediction-explanation feature later, both through
+    # services/llm_provider.py's call_llm(). "on_prem" reuses the exact
+    # same OpenAI-compatible call path as "groq" (the Groq SDK is a
+    # generic base_url-configurable client), just pointed at a
+    # self-hosted endpoint - the whole point being that a regulated
+    # customer can keep every inference call inside their own
+    # infrastructure. See services/llm_provider.py for why on_prem never
+    # falls back to an external provider on failure.
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider: Mapped[str] = mapped_column(String(20), default="groq")  # groq, gemini, on_prem
+    endpoint_url: Mapped[str] = mapped_column(String(500), nullable=True)  # required for on_prem only
+    # Fernet ciphertext, never plaintext - see DECISIONS.md for the
+    # tradeoff (key derived from SECRET_KEY rather than a dedicated
+    # secret/KMS). Nullable: an on_prem endpoint may need no key at all.
+    api_key_encrypted: Mapped[str] = mapped_column(Text, nullable=True)
+    model_name: Mapped[str] = mapped_column(String(200), default="openai/gpt-oss-20b")
+    updated_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

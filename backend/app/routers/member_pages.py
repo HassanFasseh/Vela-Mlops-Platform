@@ -419,14 +419,16 @@ def member_models_page():
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
-    <h1 style="font-size:var(--text-lg);margin-bottom:2px">Models</h1>
-    <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)">
-      Models your teams have been granted access to.
-    </p>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">My Models</h1>
+        <div class="page-description">Models your teams have been granted access to.</div>
+      </div>
+    </div>
     <div class="card-grid" id="models-grid"></div>
   </div>
 </div>
-<div class="auth-loading" id="loading-root">Loading&hellip;</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
 """
 
     script = """
@@ -509,8 +511,8 @@ def member_models_page():
       '<div class="card-title">' + UI.escapeHtml(r.model_name) + '</div>' +
       '<div class="card-subtitle">' + UI.escapeHtml(r.task_type) + ' &middot; ' + UI.escapeHtml(r.team_name) + '</div>' +
       '<div style="margin:.5rem 0">' + UI.statusBadge(r.status) + '</div>' +
-      '<a class="link-secondary" style="font-size:var(--text-xs)" href="/app/tickets?model=' + encodeURIComponent(r.model_name) + '">Report an issue &rarr;</a>' +
-      '<div style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--color-border-subtle)">' + testerHtml + '</div>' +
+      '<a class="link-action" style="font-size:var(--text-xs)" href="/app/tickets?model=' + encodeURIComponent(r.model_name) + '">Report an issue &rarr;</a>' +
+      '<div style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--border-subtle)">' + testerHtml + '</div>' +
       '</div>';
   }
 </script>"""
@@ -520,7 +522,7 @@ def member_models_page():
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Models - Vela</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        "<title>Models - Vela</title>\n" + DS_ASSETS + "\n</head>\n<body>\n"
         + body
         + "\n" + _SCRIPTS + "\n" + script
         + _boot_script("/app/models", "My Models", ready)
