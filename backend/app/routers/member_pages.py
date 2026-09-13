@@ -70,14 +70,26 @@ def member_overview_page():
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
-    <h1 id="greeting" style="font-size:var(--text-xl);font-weight:400;margin-bottom:var(--space-5)">Loading…</h1>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title" id="greeting">Loading…</h1>
+        <div class="page-description">Your teams, models and tickets in one place.</div>
+      </div>
+    </div>
 
-    <div class="section-label" style="margin-top:0">My Teams</div>
-    <div id="teams-grid" style="margin-bottom:var(--space-6)"></div>
+    <div class="card-header">
+      <div class="section-label" style="margin:0">My Teams</div>
+    </div>
+    <div class="table-wrap" style="margin-bottom:var(--space-6)">
+      <table class="table">
+        <thead><tr><th>Team</th><th>Models</th><th>Members</th></tr></thead>
+        <tbody id="teams-body"></tbody>
+      </table>
+    </div>
 
     <div class="card-header">
       <div class="section-label" style="margin:0">My Models</div>
-      <a href="/app/models" class="link-secondary" style="font-size:var(--text-sm)">View all &rarr;</a>
+      <a href="/app/models" class="link-action" style="font-size:var(--text-sm)">View all &rarr;</a>
     </div>
     <div class="table-wrap" style="margin-bottom:var(--space-6)">
       <table class="table">
@@ -88,13 +100,18 @@ def member_overview_page():
 
     <div class="card-header">
       <div class="section-label" style="margin:0">My tickets</div>
-      <a href="/app/tickets" class="link-secondary" style="font-size:var(--text-sm)">View all &rarr;</a>
+      <a href="/app/tickets" class="link-action" style="font-size:var(--text-sm)">View all &rarr;</a>
     </div>
-    <div class="metric-row" id="ticket-metrics" style="margin-bottom:var(--space-5)"></div>
-    <div id="recent-tickets-card" style="margin-bottom:var(--space-6)"></div>
+    <div class="metric-strip" id="ticket-metrics" style="margin-bottom:var(--space-3)"></div>
+    <div class="table-wrap" style="margin-bottom:var(--space-4)">
+      <table class="table">
+        <thead><tr><th>Ticket</th><th>Filed</th><th>Severity</th><th>Status</th></tr></thead>
+        <tbody id="recent-tickets-body"></tbody>
+      </table>
+    </div>
   </div>
 </div>
-<div class="auth-loading" id="loading-root">Loading…</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
 """
 
     script = """
@@ -105,8 +122,11 @@ def member_overview_page():
     return part + ', ' + (user.name || user.username);
   }
 
-  function tile(value, label, variant) {
-    return '<div class="metric-tile"><div class="metric-tile-value' + (variant ? ' is-' + variant : '') + '">' + value + '</div><div class="metric-tile-label">' + label + '</div></div>';
+  // Plain-text strip, same shape as /admin's metric-strip - a value only
+  // takes colour when it's itself the exception being reported (open
+  // tickets), never as decoration.
+  function stripItem(value, label, variant) {
+    return '<div class="metric-strip-item"><div class="metric-strip-value' + (variant ? ' is-' + variant : '') + '">' + value + '</div><div class="metric-strip-label">' + label + '</div></div>';
   }
 
   async function loadOverview(user) {
@@ -117,7 +137,7 @@ def member_overview_page():
       teams = await Api.get('/users/me/teams');
       renderTeams(teams);
     } catch (e) {
-      document.getElementById('teams-grid').innerHTML = UI.errorState(e.message);
+      document.getElementById('teams-body').innerHTML = '<tr><td colspan="3">' + UI.errorState(e.message) + '</td></tr>';
     }
 
     try {
@@ -134,25 +154,27 @@ def member_overview_page():
       renderTicketMetrics(tickets);
       renderRecentTickets(tickets);
     } catch (e) {
-      document.getElementById('recent-tickets-card').innerHTML = UI.errorState(e.message);
+      document.getElementById('recent-tickets-body').innerHTML = '<tr><td colspan="4">' + UI.errorState(e.message) + '</td></tr>';
     }
   }
 
   function renderTeams(teams) {
-    const el = document.getElementById('teams-grid');
+    const body = document.getElementById('teams-body');
     if (!teams.length) {
-      el.innerHTML = UI.emptyState('No teams yet', 'Ask your admin to add you to a team.');
+      body.innerHTML = '<tr><td colspan="3">' + UI.emptyState('No teams yet', 'Ask your admin to add you to a team.') + '</td></tr>';
       return;
     }
-    // Simple rows, not large cards (spec) - team name | N models | N members.
-    el.innerHTML = teams.map(t =>
-      '<a href="/app/teams/' + t.id + '" style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);padding:var(--space-3) 0;border-bottom:1px solid var(--color-border);color:inherit">' +
-      '<div><div style="font-size:var(--text-sm);font-weight:600">' + UI.escapeHtml(t.name) + '</div>' +
-      (t.description ? '<div class="text-muted" style="font-size:var(--text-xs)">' + UI.escapeHtml(t.description) + '</div>' : '') + '</div>' +
-      '<div class="text-secondary" style="font-size:var(--text-sm);flex-shrink:0">' +
-      t.model_count + ' model' + (t.model_count === 1 ? '' : 's') + ' &middot; ' + t.member_count + ' member' + (t.member_count === 1 ? '' : 's') +
-      '</div></a>'
+    body.innerHTML = teams.map(t =>
+      '<tr class="is-interactive" data-team-id="' + t.id + '">' +
+      '<td><div style="font-weight:var(--fw-semibold)">' + UI.escapeHtml(t.name) + '</div>' +
+      (t.description ? '<div class="text-muted" style="font-size:var(--text-xs)">' + UI.escapeHtml(t.description) + '</div>' : '') + '</td>' +
+      '<td class="text-secondary">' + t.model_count + '</td>' +
+      '<td class="text-secondary">' + t.member_count + '</td>' +
+      '</tr>'
     ).join('');
+    body.querySelectorAll('[data-team-id]').forEach(row => {
+      row.addEventListener('click', () => { location.href = '/app/teams/' + row.dataset.teamId; });
+    });
   }
 
   function renderTicketMetrics(tickets) {
@@ -160,31 +182,31 @@ def member_overview_page():
     const investigating = tickets.filter(t => t.status === 'investigating').length;
     const done = tickets.filter(t => t.status === 'resolved' || t.status === 'closed').length;
     document.getElementById('ticket-metrics').innerHTML =
-      tile(open, 'Open', open > 0 ? 'warning' : undefined) +
-      tile(investigating, 'Investigating') +
-      tile(done, 'Resolved') +
-      tile(tickets.length, 'Total filed');
+      stripItem(open, 'Open', open > 0 ? 'warning' : undefined) +
+      stripItem(investigating, 'Investigating') +
+      stripItem(done, 'Resolved') +
+      stripItem(tickets.length, 'Total filed');
   }
 
   function renderRecentTickets(tickets) {
-    const card = document.getElementById('recent-tickets-card');
+    const body = document.getElementById('recent-tickets-body');
     if (!tickets.length) {
-      card.innerHTML = UI.emptyState('No tickets yet', 'Filed an issue with a model? Track it here.');
+      body.innerHTML = '<tr><td colspan="4">' + UI.emptyState('No tickets yet', 'Filed an issue with a model? Track it here.') + '</td></tr>';
       return;
     }
-    card.innerHTML = tickets.slice(0, 5).map(t =>
-      '<div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem;padding:.5rem 0;border-bottom:1px solid var(--color-border-subtle)">' +
-      '<div style="min-width:0"><div style="font-size:var(--text-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + UI.escapeHtml(t.title) + '</div>' +
-      '<div class="text-muted" style="font-size:var(--text-xs)">' + UI.timeAgo(t.filed_at) + '</div></div>' +
-      '<div style="display:flex;gap:.4rem;flex-shrink:0">' + UI.severityBadge(t.severity) + UI.statusBadge(t.status) + '</div>' +
-      '</div>'
+    body.innerHTML = tickets.slice(0, 5).map(t =>
+      '<tr><td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + UI.escapeHtml(t.title) + '</td>' +
+      '<td class="text-muted">' + UI.timeAgo(t.filed_at) + '</td>' +
+      '<td>' + UI.severityBadge(t.severity) + '</td>' +
+      '<td>' + UI.statusBadge(t.status) + '</td>' +
+      '</tr>'
     ).join('');
   }
 
   async function renderModelsPreview(teams) {
     const el = document.getElementById('models-preview');
     if (!teams.length) {
-      el.innerHTML = UI.emptyState("Your team hasn't been granted model access yet.", "Contact your admin.");
+      el.innerHTML = '<tr><td colspan="4">' + UI.emptyState("Your team hasn't been granted model access yet.", "Contact your admin.") + '</td></tr>';
       return;
     }
 
@@ -226,7 +248,7 @@ def member_overview_page():
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Overview - Vela</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        "<title>Overview - Vela</title>\n" + DS_ASSETS + "\n</head>\n<body>\n"
         + body
         + "\n" + _SCRIPTS + "\n" + script
         + _boot_script("/app", "", ready)
