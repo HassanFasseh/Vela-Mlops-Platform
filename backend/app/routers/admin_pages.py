@@ -29,19 +29,10 @@ _ASSETS = """<link rel="stylesheet" href="/static/css/tokens.css?v=8">
 <link rel="stylesheet" href="/static/css/components.css?v=8">
 <link rel="stylesheet" href="/static/css/shell.css?v=8">"""
 
-_SCRIPTS = """<script src="/static/js/api.js?v=8"></script>
-<script src="/static/js/shell.js?v=11"></script>
-<script src="/static/js/ui.js?v=8"></script>
-<script src="/static/js/notifications.js?v=1"></script>"""
-
-# Demo mode (?demo=1) - client-side only, see demo-data.js's own header for
-# the full contract. Deliberately included on ONLY these two pages below
-# (/admin/monitoring, /admin/infrastructure), never added to _SCRIPTS itself
-# - every other admin page (and every member page) never loads this file at
-# all, so ?demo=1 on any other URL does nothing. Must load after _SCRIPTS
-# (it wraps Api.get, which api.js defines) and before the page's own script
-# runs its first fetch.
-_DEMO_JS = """<script src="/static/js/demo-data.js?v=1"></script>"""
+_SCRIPTS = """<script src="/static/js/api.js?v=14"></script>
+<script src="/static/js/shell.js?v=14"></script>
+<script src="/static/js/ui.js?v=14"></script>
+<script src="/static/js/notifications.js?v=14"></script>"""
 
 # Shared boot sequence: authenticate, require is_admin, mount the shell.
 # Pages call ADMIN_BOOT(activePath, breadcrumbLabel) then their own loader.
@@ -87,10 +78,10 @@ def admin_overview_page():
     # every other admin page still uses _ASSETS. The shared JS (_SCRIPTS:
     # api/shell/ui.js) is theme-agnostic and unchanged.
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds4">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds4">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds4">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
     )
 
     body = """
@@ -387,10 +378,10 @@ def admin_users_page():
     # ds/* bundle for this route only; every other admin page still uses
     # _ASSETS. Shared JS (_SCRIPTS) is theme-agnostic and unchanged.
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
     )
 
     body = """
@@ -762,10 +753,10 @@ def admin_users_page():
 @router.get("/admin/teams-page", response_class=HTMLResponse)
 def admin_teams_page():
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
     )
 
     body = """
@@ -1259,10 +1250,10 @@ def admin_teams_page():
 @router.get("/admin/tickets-page", response_class=HTMLResponse)
 def admin_tickets_page():
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
     )
 
     body = """
@@ -1511,7 +1502,7 @@ def admin_monitoring_page():
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         "<title>Model Health - Vela Admin</title>\n" + DS_ASSETS + "\n" + CHART_JS_CDN + "\n" + MONITORING_CSS + "\n</head>\n<body>\n"
         + MONITORING_BODY
-        + "\n" + _SCRIPTS + "\n" + _DEMO_JS + "\n" + MONITORING_SCRIPTS_EXTRA
+        + "\n" + _SCRIPTS + "\n" + MONITORING_SCRIPTS_EXTRA
         + _boot_script("/admin/monitoring", "Model Health", ready)
         + "\n</body>\n</html>"
     )
@@ -1582,10 +1573,10 @@ def admin_automation_redirect():
 @router.get("/admin/remediation", response_class=HTMLResponse)
 def admin_remediation_page():
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
     )
 
     body = """
@@ -1982,10 +1973,10 @@ def admin_docs_page():
     # markup reskins for free once the bundle below switches - no JS
     # changes needed. /app/docs is unaffected by this migration.
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
     )
 
     body = """
@@ -2038,10 +2029,10 @@ def admin_settings_page():
     # so Settings.start(user) keeps working unmodified. /app/settings is
     # unaffected by this migration.
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
     )
 
     body = """
@@ -2124,10 +2115,10 @@ def admin_models_page():
     # this route only; every other admin page still uses _ASSETS. Shared JS
     # (_SCRIPTS) is theme-agnostic and unchanged.
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
     )
 
     body = """
@@ -2477,10 +2468,10 @@ def admin_deployments_page():
     # for the reference pattern). ds/* bundle for this route only; every
     # other admin page still uses _ASSETS. Shared JS (_SCRIPTS) unchanged.
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
     )
 
     body = """
@@ -3013,10 +3004,10 @@ def admin_deployments_page():
 @router.get("/admin/infrastructure", response_class=HTMLResponse)
 def admin_infrastructure_page():
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
     )
 
     body = """
@@ -3187,7 +3178,7 @@ def admin_infrastructure_page():
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         "<title>Infrastructure - Vela Admin</title>\n" + ds_assets + "\n</head>\n<body>\n"
         + body
-        + "\n" + _SCRIPTS + "\n" + _DEMO_JS + "\n" + script
+        + "\n" + _SCRIPTS + "\n" + script
         + _boot_script("/admin/infrastructure", "Infrastructure", ready)
         + "\n</body>\n</html>"
     )
@@ -3226,10 +3217,10 @@ def admin_infrastructure_page():
 @router.get("/admin/api-keys", response_class=HTMLResponse)
 def admin_api_keys_page():
     ds_assets = (
-        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
+        '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
+        '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
     )
 
     body = """

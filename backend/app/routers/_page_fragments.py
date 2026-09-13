@@ -26,7 +26,7 @@ CHART_JS_CDN = '<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4
 # HTML (fresh, since FastAPI never caches it), stale JS silently doing
 # nothing with the new page's element ids. Bump this string on every
 # change to these files.
-_STATIC_V = "13"
+_STATIC_V = "14"
 MONITORING_CSS = f'<link rel="stylesheet" href="/static/css/monitoring.css?v={_STATIC_V}">'
 MODEL_CATALOG_JS = f'<script src="/static/js/models.js?v={_STATIC_V}"></script>'
 
@@ -38,10 +38,10 @@ MODEL_CATALOG_JS = f'<script src="/static/js/models.js?v={_STATIC_V}"></script>'
 # bundle themselves. Every other admin/member page still loads the legacy
 # _ASSETS.
 DS_ASSETS = (
-    '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">\n'
-    '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">\n'
-    '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">\n'
-    '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds8">'
+    '<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">\n'
+    '<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">\n'
+    '<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">\n'
+    '<link rel="stylesheet" href="/static/css/ds/shell.css?v=ds9">'
 )
 
 MONITORING_BODY = """
@@ -211,4 +211,4 @@ SETTINGS_BODY = """
 <div class="auth-loading" id="loading-root">Loading&hellip;</div>
 """
 
-SETTINGS_SCRIPTS_EXTRA = '<script src="/static/js/settings.js"></script>'
+SETTINGS_SCRIPTS_EXTRA = f'<script src="/static/js/settings.js?v={_STATIC_V}"></script>'

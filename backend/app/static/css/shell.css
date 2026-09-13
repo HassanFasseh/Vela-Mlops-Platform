@@ -237,31 +237,6 @@ body.has-shell {
   flex: 1;
 }
 
-.shell-search-btn {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-.shell-search-btn:hover {
-  border-color: var(--color-border-strong);
-  color: var(--color-text-secondary);
-}
-.shell-search-btn kbd {
-  font-family: inherit;
-  border: 1px solid var(--color-border-strong);
-  border-radius: 3px;
-  padding: 0 4px;
-  font-size: 0.65rem;
-}
-
 .shell-icon-btn {
   position: relative;
   display: flex;
@@ -385,80 +360,6 @@ body.has-shell {
   margin: 0 auto;
 }
 
-/* ---- Command palette (Ctrl/Cmd+K) --------------------------------------*/
-
-.shell-command-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.4);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 12vh;
-  z-index: var(--z-command);
-}
-
-/* `display: flex` above otherwise beats the browser's default
-   `[hidden] { display: none }` at equal specificity (author CSS wins
-   ties over the UA stylesheet regardless of specificity) - without this,
-   the palette shows on page load instead of only on Cmd/Ctrl+K. */
-.shell-command-overlay[hidden] {
-  display: none;
-}
-
-.shell-command-palette {
-  width: 100%;
-  max-width: 520px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
-  overflow: hidden;
-}
-
-.shell-command-input {
-  width: 100%;
-  border: none;
-  border-bottom: 1px solid var(--color-border);
-  background: none;
-  color: var(--color-text);
-  font-family: var(--font-sans);
-  font-size: var(--text-md);
-  padding: var(--space-4);
-}
-.shell-command-input:focus-visible {
-  outline: none;
-  box-shadow: none;
-}
-
-.shell-command-results {
-  max-height: 320px;
-  overflow-y: auto;
-  padding: var(--space-2);
-}
-
-.shell-command-result {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-.shell-command-result.is-active {
-  background: var(--color-primary-surface);
-  color: var(--color-primary);
-}
-
-.shell-command-empty {
-  padding: var(--space-4);
-  font-size: var(--text-sm);
-  color: var(--color-text-muted);
-  text-align: center;
-}
-
 /* ---- Responsive: collapse sidebar off-canvas below content breakpoints
    (spec §23 - deliberate behavior, not a naive shrink) -------------------*/
 
@@ -480,10 +381,6 @@ body.has-shell {
     display: none;
   }
   .shell-user-name {
-    display: none;
-  }
-  .shell-search-btn span,
-  .shell-search-btn kbd {
     display: none;
   }
   .shell-main {

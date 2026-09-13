@@ -139,9 +139,9 @@ def root():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vela - Self-hosted MLOps</title>
-<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">
-<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">
-<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">
+<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">
+<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">
+<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">
 <style>
   /* Landing-only layout on top of the real ds/* tokens - same palette,
      type and spacing as the dashboard, not a re-approximation of it.
@@ -2040,9 +2040,9 @@ def login_page():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Log in - Vela</title>
-<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">
-<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">
-<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">
+<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">
+<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">
+<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">
 <style>
   /* Self-contained, like the landing page (/) - this is its natural
      continuation, one step before entering the app, so it now shares the
@@ -2120,7 +2120,7 @@ def login_page():
     <div class="auth-footer-link">Accounts are created by an administrator.</div>
   </div>
 
-<script src="/static/js/api.js"></script>
+<script src="/static/js/api.js?v=14"></script>
 <script>
   function destinationFor(user) {
     if (user.force_password_change) return '/change-password';
@@ -2189,9 +2189,9 @@ def change_password_page():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Change password - Vela</title>
-<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds5">
-<link rel="stylesheet" href="/static/css/ds/base.css?v=ds5">
-<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds5">
+<link rel="stylesheet" href="/static/css/ds/tokens.css?v=ds9">
+<link rel="stylesheet" href="/static/css/ds/base.css?v=ds9">
+<link rel="stylesheet" href="/static/css/ds/primitives.css?v=ds9">
 <style>
   /* Self-contained, like the landing page (/) and /login - same ds/*
      tokens, dark background and monochrome primary button, no
@@ -2275,7 +2275,7 @@ def change_password_page():
   </div>
   <div class="auth-loading" id="loading-root">Loading…</div>
 
-<script src="/static/js/api.js"></script>
+<script src="/static/js/api.js?v=14"></script>
 <script>
   let currentUser = null;
 
