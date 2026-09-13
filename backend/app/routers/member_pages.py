@@ -751,127 +751,405 @@ def member_tickets_page():
 
 @router.get("/app/api-keys", response_class=HTMLResponse)
 def member_api_keys_page():
+    """Doesn't share a body/script with /admin/api-keys (admin_pages.py) -
+    that screen lists every workspace an admin belongs to with a filter
+    toolbar; a member only ever sees workspaces they're already in via a
+    team, and there's no cross-workspace volume here to need filtering.
+    Styled to match admin's DS look (page-header, table, slide-over,
+    modal) without pulling in a shared fragment - same call this codebase
+    already made for member Tickets vs admin Tickets.
+
+    Unlike before this rebuild, this page now also CREATES keys (admin's
+    page always could) - previously that only happened from a team's own
+    page (/app/teams/{team_id}'s "Get API key" button, untouched, still
+    works). POST /workspaces/{id}/api-keys itself doesn't check that
+    team_id/deployment_id actually belong to the caller - the scoping is
+    purely which options this page ever offers, so the picker below is
+    built ONLY from GET /users/me/teams + GET /teams/{id}/permissions
+    (the same calls the sidebar's My Models dropdown and the team page
+    already use) - never a free-typed id - so this can't create a key
+    wider than a member could already get from the team page."""
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
-    <h1 style="font-size:var(--text-lg);margin-bottom:2px">API keys</h1>
-    <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)">
-      Keys are scoped to one model each and generated from that model's team page. Shown in full only once, at creation.
-    </p>
-    <div id="keys-list"></div>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">API Keys</h1>
+        <div class="page-description">Keys for calling models your teams have access to. Each key is scoped to one team's grant on one model.</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-secondary btn-sm" id="refresh-btn" type="button">Refresh</button>
+        <button class="btn btn-primary btn-sm" id="new-key-btn" type="button">New key</button>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="table" style="min-width:640px">
+        <thead><tr><th>Name</th><th>Key</th><th>Scope</th><th>Created</th><th>Last used</th><th class="num">Actions</th></tr></thead>
+        <tbody id="keys-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="slideover-overlay" id="new-key-panel" hidden>
+  <div class="slideover" role="dialog" aria-modal="true" aria-labelledby="new-key-panel-title">
+    <div class="slideover-header">
+      <div class="slideover-title" id="new-key-panel-title">New key</div>
+      <button class="btn btn-ghost btn-sm btn-icon" id="close-new-key-panel" type="button" aria-label="Close">&#10005;</button>
+    </div>
+    <div class="slideover-body" id="new-key-body"></div>
+  </div>
   </div>
 </div>
-<div class="auth-loading" id="loading-root">Loading&hellip;</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
 """
 
     script = """
 <script>
-  // Members don't self-provision a workspace here - that flow (an
-  // on-demand POST /workspaces) could fail server-side with no graceful
-  // fallback. Workspace access now comes from being added to a team (see
-  // services/teams.py add_team_member); this page just reflects it.
-  //
-  // A member can in principle belong to more than one workspace, so keys
-  // are fetched per-workspace and merged; keyWorkspaceMap remembers which
-  // workspace each key came from, since DELETE needs that workspace_id.
+  // A member can belong to more than one workspace (one per team), so
+  // keys are fetched per-workspace and merged; keyWorkspaceMap remembers
+  // which workspace each key came from, since revoke needs that id.
+  let cachedRows = [];
   let keyWorkspaceMap = {};
 
-  function noWorkspaceState() {
-    document.getElementById('keys-list').innerHTML = UI.emptyState(
-      'No workspace access yet',
-      'Ask your admin to provision access.'
-    );
+  function initApiKeys() {
+    document.getElementById('refresh-btn').addEventListener('click', () => loadKeys());
+    wireNewKeyPanel();
+    loadKeys();
+    ensureModelsLoaded(); // starts the picker fetch now, not on first open
   }
 
   async function loadKeys() {
-    const list = document.getElementById('keys-list');
-    list.innerHTML = '<div class="card"><span class="skeleton skeleton-text" style="display:block;max-width:220px">&nbsp;</span></div>';
+    const body = document.getElementById('keys-body');
+    body.innerHTML = UI.skeletonRows(4, 6);
     try {
       const workspaces = await Api.get('/workspaces');
       if (!workspaces.length) {
-        noWorkspaceState();
+        cachedRows = [];
+        keyWorkspaceMap = {};
+        body.innerHTML = '<tr><td colspan="6">' + UI.emptyState('No workspace access yet', 'Ask your admin to provision access.') + '</td></tr>';
         return;
       }
       keyWorkspaceMap = {};
-      const perWorkspace = await Promise.all(workspaces.map(ws => Api.get('/workspaces/' + ws.id + '/api-keys')));
-      const allKeys = [];
-      perWorkspace.forEach((keys, i) => {
-        keys.forEach(k => {
+      const perWorkspace = await Promise.allSettled(workspaces.map(ws => Api.get('/workspaces/' + ws.id + '/api-keys')));
+      const rows = [];
+      perWorkspace.forEach((r, i) => {
+        if (r.status !== 'fulfilled') return;
+        r.value.forEach(k => {
           keyWorkspaceMap[k.id] = workspaces[i].id;
-          allKeys.push(k);
+          rows.push(k);
         });
       });
-      renderKeys(allKeys);
+      cachedRows = rows;
+      renderKeysTable();
     } catch (e) {
-      list.innerHTML = UI.errorState(e.message, loadKeys);
+      cachedRows = [];
+      body.innerHTML = '<tr><td colspan="6">' + UI.errorState(e.message, loadKeys) + '</td></tr>';
     }
   }
 
-  function renderKeys(keys) {
-    const list = document.getElementById('keys-list');
-    if (!keys.length) {
-      list.innerHTML = UI.emptyState("No API keys yet", "Generate one from a team's page - see My Teams on the Overview page.");
+  function renderKeysTable() {
+    const body = document.getElementById('keys-body');
+    if (!cachedRows.length) {
+      body.innerHTML = '<tr><td colspan="6">' + UI.emptyState('No API keys yet', 'Generate one with the button above.') + '</td></tr>';
+      return;
+    }
+    body.innerHTML = cachedRows.map(renderKeyRow).join('');
+    body.querySelectorAll('[data-revoke-key]').forEach(btn => {
+      btn.addEventListener('click', () => confirmRevokeKey(btn.dataset.revokeKey, btn.dataset.name));
+    });
+  }
+
+  // Team + Model badges, not the raw workspace name - a member doesn't
+  // navigate by workspace the way an admin comparing workspaces does,
+  // and in practice every member key is team/model-scoped (see the
+  // route's own docstring); a key with neither is called out plainly
+  // rather than silently rendering blank.
+  function scopeHtml(k) {
+    const parts = [];
+    if (k.team_name) parts.push(UI.badge('Team: ' + k.team_name, 'neutral'));
+    if (k.model_name || k.deployment_name) parts.push(UI.badge('Model: ' + (k.model_name || k.deployment_name), 'neutral'));
+    return parts.length ? parts.join(' ') : '<span class="text-muted" style="font-size:var(--text-xs)">Unscoped</span>';
+  }
+
+  // Never the full key - only ever the prefix this list endpoint
+  // returns, masked with an ellipsis (same as admin's version).
+  function renderKeyRow(k) {
+    return '<tr>' +
+      '<td>' + UI.escapeHtml(k.name || 'Unnamed key') + '</td>' +
+      '<td class="mono">' + UI.escapeHtml(k.prefix) + '&hellip;</td>' +
+      '<td>' + scopeHtml(k) + '</td>' +
+      '<td class="text-secondary">' + UI.fmtDate(k.created_at) + '</td>' +
+      '<td class="text-secondary">' + (k.last_used_at ? UI.timeAgo(k.last_used_at) : 'Never') + '</td>' +
+      '<td class="num"><button class="link-action link-danger" data-revoke-key="' + k.id + '" data-name="' + UI.escapeHtml(k.name || '') + '" type="button">Revoke</button></td>' +
+      '</tr>';
+  }
+
+  // Irreversible - there is no un-revoke endpoint, and anything using
+  // the key breaks immediately - same type-to-confirm discipline as
+  // admin's version of this modal, not a lightweight Cancel/Confirm.
+  function confirmRevokeKey(keyId, name) {
+    const wsId = keyWorkspaceMap[keyId];
+    const overlay = UI.openModal({
+      title: 'Revoke ' + (name || 'this key'),
+      bodyHtml: `
+        <div class="alert alert-danger" style="margin-bottom:var(--space-3)">
+          <div><div class="alert-title">This cannot be undone</div><div>Anything using this key will stop working immediately. Type the key name to confirm.</div></div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="revoke-key-confirm-name">Key name</label>
+          <input class="input" id="revoke-key-confirm-name" placeholder="${UI.escapeHtml(name || '')}">
+        </div>
+        <div class="field-error" id="revoke-key-confirm-error" role="alert"></div>
+      `,
+      footerHtml: `<button class="btn btn-ghost" id="revoke-key-cancel" type="button">Cancel</button>
+                   <button class="btn btn-danger" id="revoke-key-confirm" type="button" disabled>Revoke</button>`,
+    });
+    const input = overlay.querySelector('#revoke-key-confirm-name');
+    const confirmBtn = overlay.querySelector('#revoke-key-confirm');
+    const errorEl = overlay.querySelector('#revoke-key-confirm-error');
+    input.addEventListener('input', () => { confirmBtn.disabled = input.value !== (name || ''); });
+    overlay.querySelector('#revoke-key-cancel').addEventListener('click', UI.closeModal);
+    confirmBtn.addEventListener('click', async () => {
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Revoking…';
+      errorEl.textContent = '';
+      try {
+        await Api.del('/workspaces/' + wsId + '/api-keys/' + keyId);
+        UI.closeModal();
+        UI.toast('Key revoked', 'success');
+        loadKeys();
+      } catch (e) {
+        errorEl.textContent = e.message || 'Could not revoke key.';
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Revoke';
+      }
+    });
+  }
+
+  // ================================================================
+  // New key slide-over. The picker is every (team, predict-capable
+  // model) pair this member's teams have been granted - built from
+  // GET /users/me/teams -> GET /teams/{id}/permissions, the same calls
+  // the sidebar's My Models dropdown and the team page use, and NOT
+  // deduped by deployment_id the way that dropdown is: the same model
+  // granted via two different teams is two separate options here,
+  // since the team is what the created key gets scoped to (see the
+  // route's own docstring for why this can't widen what a member could
+  // already do from the team page).
+  //
+  // The form and the one-time reveal are two states of the SAME panel
+  // (renderNewKeyForm() / renderKeyReveal() swap #new-key-body's
+  // content in place), same pattern as admin_api_keys_page - one
+  // surface, and the reveal can't be reached without just having gone
+  // through the form.
+  // ================================================================
+
+  let cachedModels = [];
+  let modelsLoadPromise = null;
+
+  function ensureModelsLoaded() {
+    if (!modelsLoadPromise) modelsLoadPromise = loadCreatableModels();
+    return modelsLoadPromise;
+  }
+
+  async function loadCreatableModels() {
+    try {
+      const teams = await Api.get('/users/me/teams');
+      const perTeam = await Promise.allSettled(
+        teams.map(t => Api.get('/teams/' + t.id + '/permissions').then(perms =>
+          perms
+            .filter(p => p.is_active !== false && p.can_predict)
+            .map(p => ({
+              team_id: t.id, team_name: t.name, workspace_id: t.workspace_id,
+              deployment_id: p.deployment_id, model_name: p.model_name,
+            }))
+        ))
+      );
+      const models = [];
+      perTeam.forEach(r => { if (r.status === 'fulfilled') models.push(...r.value); });
+      cachedModels = models;
+    } catch (e) {
+      cachedModels = [];
+    }
+  }
+
+  function renderNewKeyForm() {
+    const body = document.getElementById('new-key-body');
+    if (!cachedModels.length) {
+      body.innerHTML = UI.emptyState(
+        'No models to scope a key to',
+        "None of your teams have a predictable model yet - ask your admin for access."
+      );
       return;
     }
 
-    const groups = {};
-    const ungrouped = [];
-    keys.forEach(k => {
-      if (k.team_id) {
-        const label = k.team_name || ('Team #' + k.team_id);
-        (groups[label] = groups[label] || []).push(k);
-      } else {
-        ungrouped.push(k);
+    const options = cachedModels.map((m, i) =>
+      '<option value="' + i + '">' + UI.escapeHtml(m.model_name) + ' &mdash; ' + UI.escapeHtml(m.team_name) + '</option>'
+    ).join('');
+
+    body.innerHTML = `
+      <form class="form" id="new-key-form" novalidate>
+        <div class="field">
+          <label class="field-label" for="nk-model">Model</label>
+          <select class="select" id="nk-model">${options}</select>
+        </div>
+        <div class="field"><label class="field-label" for="nk-name">Key name</label><input class="input" id="nk-name" required></div>
+        <div class="field-error" id="nk-error" role="alert"></div>
+        <button class="btn btn-primary btn-block" type="submit" id="nk-submit">Generate key</button>
+      </form>`;
+
+    const modelSel = document.getElementById('nk-model');
+    const nameInput = document.getElementById('nk-name');
+    // Auto-suggests a name from the picked model, but never clobbers
+    // something the member already typed - only refills while the field
+    // is empty or still holds the last suggestion.
+    let lastAutoName = '';
+    function fillDefaultName() {
+      const m = cachedModels[parseInt(modelSel.value, 10)];
+      if (!m) return;
+      const suggested = m.team_name + ': ' + m.model_name;
+      if (!nameInput.value || nameInput.value === lastAutoName) {
+        nameInput.value = suggested;
+        lastAutoName = suggested;
+      }
+    }
+    modelSel.addEventListener('change', fillDefaultName);
+    fillDefaultName();
+
+    document.getElementById('new-key-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('nk-error');
+      const submitBtn = document.getElementById('nk-submit');
+      const m = cachedModels[parseInt(modelSel.value, 10)];
+      const name = nameInput.value.trim();
+      if (!name) { errorEl.textContent = 'Give the key a name.'; return; }
+      if (!m) { errorEl.textContent = 'Pick a model.'; return; }
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Generating…';
+      errorEl.textContent = '';
+      try {
+        const result = await Api.post('/workspaces/' + m.workspace_id + '/api-keys', {
+          name, team_id: m.team_id, deployment_id: m.deployment_id,
+        });
+        renderKeyReveal(result);
+        loadKeys();
+      } catch (err) {
+        errorEl.textContent = err.message || 'Could not create key.';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Generate key';
       }
     });
+  }
 
-    let html = '';
-    Object.keys(groups).sort().forEach(label => {
-      html += '<div class="section-label" style="margin-top:var(--space-5)">' + UI.escapeHtml(label) + '</div>';
-      html += '<div class="card">' + groups[label].map(renderKeyRow).join('') + '</div>';
-    });
-    if (ungrouped.length) {
-      html += '<div class="section-label" style="margin-top:var(--space-5)">Other keys</div>';
-      html += '<div class="card">' + ungrouped.map(renderKeyRow).join('') + '</div>';
-    }
-    list.innerHTML = html;
-
-    list.querySelectorAll('[data-revoke]').forEach(btn => {
-      btn.addEventListener('click', () => revokeKey(btn.dataset.revoke, btn.dataset.name));
+  // The key in result.key is the only time it's ever available. Copy
+  // uses UI.copyText's clipboard-with-execCommand-fallback (this backend
+  // is commonly served over plain HTTP, where navigator.clipboard is
+  // just undefined) and always shows whether it actually worked, never a
+  // silent no-op.
+  function renderKeyReveal(result) {
+    const titleEl = document.getElementById('new-key-panel-title');
+    const body = document.getElementById('new-key-body');
+    if (titleEl) titleEl.textContent = 'Copy your API key';
+    body.innerHTML = `
+      <div class="alert alert-warning" style="margin-bottom:var(--space-3)">
+        <div><div class="alert-title">Shown once</div>This key will not be shown again once you close this panel &mdash; copy it now.</div></div>
+      </div>
+      <div class="field">
+        <label class="field-label">${UI.escapeHtml(result.name)}</label>
+        <input class="input mono" id="raw-key" value="${UI.escapeHtml(result.key)}" readonly style="font-size:var(--text-xs)">
+      </div>
+      <button class="btn btn-secondary btn-block" id="rk-copy" type="button" style="margin-bottom:var(--space-2)">Copy to clipboard</button>
+      <button class="btn btn-primary btn-block" id="rk-done" type="button">Done</button>
+    `;
+    document.getElementById('rk-done').addEventListener('click', closeNewKeyPanel);
+    document.getElementById('rk-copy').addEventListener('click', async () => {
+      const input = document.getElementById('raw-key');
+      const ok = await UI.copyText(input.value);
+      if (ok) {
+        UI.toast('Copied to clipboard', 'success');
+      } else {
+        input.select();
+        UI.toast('Could not copy automatically - key is selected, press Ctrl/Cmd+C', 'danger');
+      }
     });
   }
 
-  function renderKeyRow(k) {
-    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;border-bottom:1px solid var(--color-border-subtle)">' +
-      '<div style="min-width:0">' +
-      '<div style="font-size:var(--text-sm);font-weight:600">' + UI.escapeHtml(k.model_name || k.name || 'Unnamed key') + '</div>' +
-      '<div class="text-muted" style="font-size:var(--text-xs)">' +
-      UI.escapeHtml(k.prefix) + '&hellip; &middot; created ' + UI.fmtDate(k.created_at) +
-      (k.last_used_at ? ' &middot; last used ' + UI.timeAgo(k.last_used_at) : ' &middot; never used') +
-      '</div></div>' +
-      '<button class="btn btn-danger btn-sm" data-revoke="' + k.id + '" data-name="' + UI.escapeHtml(k.name || k.model_name || '') + '" type="button">Revoke</button>' +
-      '</div>';
+  // Opens immediately (no wait for the picker fetch, which was already
+  // kicked off at page load by initApiKeys) with a tiny loading state,
+  // then swaps in the real form once loadCreatableModels resolves - so a
+  // click right after page load can't race an empty cachedModels into
+  // wrongly showing "no models" (see the shared ensureModelsLoaded).
+  async function openNewKeyPanel() {
+    const titleEl = document.getElementById('new-key-panel-title');
+    if (titleEl) titleEl.textContent = 'New key';
+    document.getElementById('new-key-body').innerHTML = '<span class="skeleton skeleton-text" style="display:block;max-width:180px">&nbsp;</span>';
+    openSlideover('new-key-panel', null, closeNewKeyPanel);
+    await ensureModelsLoaded();
+    renderNewKeyForm();
+    const modelSel = document.getElementById('nk-model');
+    if (modelSel) modelSel.focus();
   }
 
-  async function revokeKey(id, name) {
-    if (!confirm('Revoke "' + name + '"? Anything using this key will stop working immediately.')) return;
-    const wsId = keyWorkspaceMap[id];
-    try {
-      await Api.del('/workspaces/' + wsId + '/api-keys/' + id);
-      UI.toast('Key revoked', 'success');
-      loadKeys();
-    } catch (e) {
-      UI.toast(e.message || 'Could not revoke key', 'danger');
-    }
+  function closeNewKeyPanel() {
+    closeSlideoverChrome('new-key-panel');
+  }
+
+  function wireNewKeyPanel() {
+    const panel = document.getElementById('new-key-panel');
+    document.getElementById('new-key-btn').addEventListener('click', openNewKeyPanel);
+    document.getElementById('close-new-key-panel').addEventListener('click', closeNewKeyPanel);
+    panel.addEventListener('click', (e) => { if (e.target === panel) closeNewKeyPanel(); });
+  }
+
+  // ================================================================
+  // Shared slide-over chrome (open/close/focus-trap) - duplicated from
+  // admin_api_keys_page (admin_pages.py) rather than factored out,
+  // matching that page's own note: each route's <script> is self-
+  // contained, no shared ds.js module yet.
+  // ================================================================
+
+  const slideoverState = {};
+
+  function openSlideover(id, focusSelector, onClose) {
+    const panel = document.getElementById(id);
+    if (!panel) return;
+    const state = { returnFocus: document.activeElement };
+    state.keydownHandler = (e) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab') return;
+      const focusables = Array.from(panel.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
+      )).filter(el => el.offsetParent !== null);
+      if (!focusables.length) return;
+      const first = focusables[0], last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    slideoverState[id] = state;
+    panel.hidden = false;
+    document.addEventListener('keydown', state.keydownHandler);
+    const first = focusSelector ? panel.querySelector(focusSelector) : null;
+    if (first) first.focus();
+  }
+
+  function closeSlideoverChrome(id) {
+    const panel = document.getElementById(id);
+    const state = slideoverState[id];
+    if (!panel || panel.hidden) return;
+    panel.hidden = true;
+    if (state && state.keydownHandler) document.removeEventListener('keydown', state.keydownHandler);
+    if (state && state.returnFocus && document.contains(state.returnFocus)) state.returnFocus.focus();
+    delete slideoverState[id];
   }
 </script>"""
 
-    ready = "loadKeys();"
+    ready = "initApiKeys();"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>API Keys - Vela</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        "<title>API Keys - Vela</title>\n" + DS_ASSETS + "\n</head>\n<body>\n"
         + body
         + "\n" + _SCRIPTS + "\n" + script
         + _boot_script("/app/api-keys", "API Keys", ready)
