@@ -553,58 +553,94 @@ def member_model_detail_page(deployment_id: int):
 
 @router.get("/app/tickets", response_class=HTMLResponse)
 def member_tickets_page():
+    """Doesn't share a body/script with /admin/tickets-page (admin_pages.py)
+    - that screen is every team's tickets behind a filter toolbar with
+    status editing; this one is GET /tickets/my (this member's own tickets
+    only, no filters - there just isn't enough volume to need them) plus
+    the one thing admin doesn't have, filing a new one. So it's styled to
+    match admin's DS look (page-header, table, the same louder severity-
+    as-primary-signal dot below) without pulling in a shared fragment.
+
+    grid-split's 340px/1fr split is used the "right" way round here - the
+    filing form (a handful of stacked fields) is genuinely narrow-shaped
+    and gets the 340px column; the ticket table gets the wide 1fr column
+    it actually needs. (The pre-DS version of this page had that
+    backwards - the table squeezed into 340px - fixed as part of this
+    rebuild.)"""
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
-    <h1 style="font-size:var(--text-lg);margin-bottom:var(--space-5)">My tickets</h1>
-    <div class="grid-split">
-    <div>
-    <div class="table-wrap">
-      <table class="table">
-        <thead>
-          <tr><th>Title</th><th>Severity</th><th>Status</th><th>Filed</th></tr>
-        </thead>
-        <tbody id="tickets-body">""" + "" + """</tbody>
-      </table>
-    </div>
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Tickets</h1>
+        <div class="page-description">Issues and feedback you've filed on models your teams use.</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-secondary btn-sm" id="refresh-btn" type="button">Refresh</button>
+      </div>
     </div>
 
-    <div>
-    <div class="section-label" style="margin-top:0">New ticket</div>
-    <form id="new-ticket-form" novalidate>
-      <div class="field"><label class="field-label" for="nt-title">Title</label><input class="input" id="nt-title" required></div>
-      <div class="field"><label class="field-label" for="nt-desc">Description</label><textarea class="textarea" id="nt-desc" rows="3" required></textarea></div>
-      <div class="field">
-        <label class="field-label" for="nt-type">Type</label>
-        <select class="select" id="nt-type">
-          <option value="bug">Bug</option>
-          <option value="anomaly">Anomaly</option>
-          <option value="feedback">Feedback</option>
-          <option value="other">Other</option>
-        </select>
+    <div class="grid-split">
+      <div>
+        <div class="section-label" style="margin-top:0">New ticket</div>
+        <form id="new-ticket-form" novalidate>
+          <div class="field"><label class="field-label" for="nt-title">Title</label><input class="input" id="nt-title" required></div>
+          <div class="field"><label class="field-label" for="nt-desc">Description</label><textarea class="textarea" id="nt-desc" rows="3" required></textarea></div>
+          <div class="field">
+            <label class="field-label" for="nt-type">Type</label>
+            <select class="select" id="nt-type">
+              <option value="bug">Bug</option>
+              <option value="anomaly">Anomaly</option>
+              <option value="feedback">Feedback</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="field-label" for="nt-severity">Severity</label>
+            <select class="select" id="nt-severity">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+          </div>
+          <div class="field"><label class="field-label" for="nt-evidence">Evidence <span class="field-optional">optional</span></label><textarea class="textarea" id="nt-evidence" rows="2" placeholder="Logs, example inputs, screenshots described…"></textarea></div>
+          <div class="field-error" id="nt-error" role="alert"></div>
+          <button class="btn btn-primary btn-block" type="submit" id="nt-submit">File ticket</button>
+        </form>
       </div>
-      <div class="field">
-        <label class="field-label" for="nt-severity">Severity</label>
-        <select class="select" id="nt-severity">
-          <option value="low">Low</option>
-          <option value="medium" selected>Medium</option>
-          <option value="high">High</option>
-          <option value="critical">Critical</option>
-        </select>
+
+      <div>
+        <div class="section-label" style="margin-top:0">Filed tickets</div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr><th>Title</th><th>Severity</th><th>Status</th><th>Filed</th></tr>
+            </thead>
+            <tbody id="tickets-body"></tbody>
+          </table>
+        </div>
       </div>
-      <div class="field"><label class="field-label" for="nt-evidence">Evidence (optional)</label><textarea class="textarea" id="nt-evidence" rows="2" placeholder="Logs, example inputs, screenshots described…"></textarea></div>
-      <div class="field-error" id="nt-error" role="alert"></div>
-      <button class="btn btn-primary" type="submit" id="nt-submit">File ticket</button>
-    </form>
-    </div>
     </div>
   </div>
 </div>
-<div class="auth-loading" id="loading-root">Loading…</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
 """
 
     script = """
 <script>
+  // Same local override admin_tickets_page (admin_pages.py) uses instead
+  // of the shared UI.severityBadge - severity is this screen's primary
+  // signal (critical/high colored, medium/low neutral), louder than the
+  // shared helper's medium=blue default. Status stays on the plain
+  // UI.statusBadge. Duplicated rather than shared since the two pages
+  // don't share a body (see the route's own docstring above).
+  const TICKET_SEVERITY_VARIANT = { critical: 'error', high: 'warning', medium: 'neutral', low: 'neutral' };
+  function ticketSeverityDot(sev) {
+    const s = String(sev || 'medium').toLowerCase();
+    return UI.statusDot(s.charAt(0).toUpperCase() + s.slice(1), TICKET_SEVERITY_VARIANT[s] || 'neutral');
+  }
+
   let myTickets = [];
 
   async function loadTickets() {
@@ -627,7 +663,7 @@ def member_tickets_page():
     body.innerHTML = myTickets.map(t =>
       '<tr class="is-interactive" data-open-ticket="' + t.id + '">' +
       '<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + UI.escapeHtml(t.title) + '</td>' +
-      '<td>' + UI.severityBadge(t.severity) + '</td>' +
+      '<td>' + ticketSeverityDot(t.severity) + '</td>' +
       '<td>' + UI.statusBadge(t.status) + '</td>' +
       '<td class="text-secondary">' + UI.timeAgo(t.filed_at) + '</td>' +
       '</tr>'
@@ -637,13 +673,15 @@ def member_tickets_page():
     });
   }
 
+  // Read-only - unlike admin's version of this modal, there's no status/
+  // resolution-note editing here, a member can only file and track.
   function viewTicket(id) {
     const t = myTickets.find(x => String(x.id) === String(id));
     if (!t) return;
     const overlay = UI.openModal({
       title: t.title,
       bodyHtml: `
-        <div style="margin-bottom:.75rem">${UI.severityBadge(t.severity)} ${UI.statusBadge(t.status)} <span class="text-muted" style="font-size:var(--text-xs)">${UI.escapeHtml(t.ticket_type)}</span></div>
+        <div style="margin-bottom:.75rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">${ticketSeverityDot(t.severity)}${UI.statusBadge(t.status)}${UI.badge(t.ticket_type, 'neutral')}</div>
         <div class="text-secondary" style="font-size:var(--text-sm);white-space:pre-wrap;margin-bottom:.75rem">${UI.escapeHtml(t.description)}</div>
         ${t.evidence ? '<div class="section-label">Evidence</div><div class="text-secondary" style="font-size:var(--text-xs);white-space:pre-wrap;margin-bottom:.75rem">' + UI.escapeHtml(t.evidence) + '</div>' : ''}
         <div class="text-muted" style="font-size:var(--text-xs);margin-bottom:.75rem">Filed ${UI.fmtDate(t.filed_at)}</div>
@@ -654,7 +692,7 @@ def member_tickets_page():
     overlay.querySelector('#tk-close').addEventListener('click', UI.closeModal);
   }
 
-  // Inline form (spec: right column, no card/modal) - deep link from a
+  // Inline form (spec: its own column, no card/modal) - deep link from a
   // model card (/app/tickets?model=NAME) pre-fills the description
   // instead of opening anything.
   const params = new URLSearchParams(location.search);
@@ -662,6 +700,8 @@ def member_tickets_page():
   if (modelParam) {
     document.getElementById('nt-desc').value = 'Regarding model: ' + modelParam + '\\n\\n';
   }
+
+  document.getElementById('refresh-btn').addEventListener('click', () => loadTickets());
 
   document.getElementById('new-ticket-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -696,7 +736,7 @@ def member_tickets_page():
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Tickets - Vela</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        "<title>Tickets - Vela</title>\n" + DS_ASSETS + "\n</head>\n<body>\n"
         + body
         + "\n" + _SCRIPTS + "\n" + script
         + _boot_script("/app/tickets", "Tickets", ready)
