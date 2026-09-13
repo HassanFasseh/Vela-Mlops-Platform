@@ -873,6 +873,84 @@ def api_predict(req: PredictRequest, x_api_key: str = fastapi.Header(None, alias
     finally:
         db.close()
 
+class PredictionExplainRequest(BaseModel):
+    # Explains a result the caller already has (typically just returned
+    # by /api/v1/predict above) - this endpoint never re-runs the
+    # prediction itself. text/data/labels are the same optional fields
+    # PredictRequest accepts, passed through only for prompt context;
+    # "file" input is never sent here (see services/prediction_explainer.py
+    # - it's described generically, content is never needed).
+    deployment_id: int
+    text: Optional[str] = None
+    data: Optional[dict] = None
+    labels: list[str] = []
+    result: dict
+
+@app.post("/api/v1/predict/explain")
+def api_predict_explain(req: PredictionExplainRequest, x_api_key: str = fastapi.Header(None, alias="X-API-Key"), authorization: str = fastapi.Header(None)):
+    """Plain-language explanation of an already-obtained prediction result -
+    same access model as /api/v1/predict (deployment-scoped, API key or
+    member JWT), reused exactly rather than inventing new gating logic.
+    Only the LLM step is fail-soft (see
+    services/prediction_explainer.py::explain_prediction) - auth,
+    permission and lookup failures below stay real 401/403/404s, same as
+    /api/v1/predict itself."""
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import verify_api_key, decode_token
+    from backend.app.services.prediction_explainer import explain_prediction
+
+    if not req.deployment_id:
+        raise HTTPException(status_code=400, detail="deployment_id is required")
+
+    raw_key = x_api_key
+    if not raw_key and authorization and authorization.startswith("Bearer aodp_"):
+        raw_key = authorization.split(" ")[1]
+    jwt_token = None
+    if not raw_key and authorization and authorization.startswith("Bearer "):
+        jwt_token = authorization.split(" ", 1)[1]
+
+    if not raw_key and not jwt_token:
+        raise HTTPException(status_code=401, detail="API key or session required. Pass X-API-Key header or Authorization: Bearer <key/token>")
+
+    if raw_key and not raw_key.startswith("aodp_"):
+        raise HTTPException(status_code=401, detail="Invalid API key format. Keys must start with aodp_")
+
+    db = SessionLocal()
+    try:
+        if raw_key:
+            api_key = verify_api_key(db, raw_key)
+            if not api_key:
+                raise HTTPException(status_code=401, detail="Invalid or revoked API key")
+            if api_key.team_id or api_key.deployment_id:
+                from backend.app.services.teams import check_team_model_permission
+                if not check_team_model_permission(db, api_key, req.deployment_id):
+                    raise HTTPException(status_code=403, detail="Your API key does not have permission to use this model")
+        else:
+            from backend.app.db.models import User
+            payload = decode_token(jwt_token)
+            if not payload:
+                raise HTTPException(status_code=401, detail="Invalid or expired session")
+            user = db.query(User).filter(User.id == int(payload["sub"])).first()
+            if not user or not user.is_active:
+                raise HTTPException(status_code=401, detail="Invalid or expired session")
+
+            from backend.app.services.teams import check_user_predict_permission
+            if not check_user_predict_permission(db, user.id, req.deployment_id):
+                raise HTTPException(status_code=403, detail="You do not have permission to use this model")
+
+        from backend.app.db.models import Deployment
+        deployment = db.query(Deployment).filter(Deployment.id == req.deployment_id).first()
+        if not deployment:
+            raise HTTPException(status_code=404, detail="Deployment not found")
+
+        explanation = explain_prediction(
+            deployment.model_name, deployment.task_type, deployment.input_type or "text",
+            req.text, req.data, req.labels, req.result,
+        )
+        return {"explanation": explanation}
+    finally:
+        db.close()
+
 
 from fastapi import UploadFile, File, Form
 

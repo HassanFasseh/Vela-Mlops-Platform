@@ -44,6 +44,14 @@ from backend.app.db.models import LLMProviderConfig
 PROVIDERS = ("groq", "gemini", "on_prem")
 DEFAULT_MODEL = "openai/gpt-oss-20b"
 
+# Every failure string call_llm() can return starts with this - the
+# sentinel a caller checks to decide "is this real explanatory text, or
+# a failure message I should not show verbatim" (see
+# services/prediction_explainer.py). Purely a display-string prefix,
+# not part of the calling contract - call_llm()'s behavior/signature is
+# unchanged, this just names something that already existed.
+UNAVAILABLE_PREFIX = "LLM summary unavailable"
+
 # Legacy env vars - still consulted when no admin config has been saved
 # yet, so an existing deployment's drift explanations keep working
 # unchanged the moment this ships. Once an admin saves a provider, this
@@ -174,7 +182,7 @@ def call_llm(prompt: str) -> str:
         # No fallback to another provider here on purpose - see module
         # docstring. Especially for on_prem, failing soft and saying so is
         # the correct behavior, not quietly trying an external vendor.
-        return f"LLM summary unavailable ({cfg.provider}): {str(e)[:100]}"
+        return f"{UNAVAILABLE_PREFIX} ({cfg.provider}): {str(e)[:100]}"
 
 
 def _legacy_fallback(prompt: str) -> str:
@@ -189,8 +197,8 @@ def _legacy_fallback(prompt: str) -> str:
         try:
             return _call_gemini(_LEGACY_GEMINI_KEY, "gemini-2.0-flash", prompt)
         except Exception as e:
-            return f"LLM summary unavailable (both providers failed): {str(e)[:100]}"
-    return "LLM summary unavailable: no provider configured."
+            return f"{UNAVAILABLE_PREFIX} (both providers failed): {str(e)[:100]}"
+    return f"{UNAVAILABLE_PREFIX}: no provider configured."
 
 
 def test_connection(provider: str, endpoint_url: str | None, api_key: str, model: str) -> tuple[bool, str]:
