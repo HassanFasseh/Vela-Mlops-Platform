@@ -22,17 +22,12 @@ from fastapi.responses import HTMLResponse
 
 from backend.app.routers._page_fragments import (
     DS_ASSETS, CHART_JS_CDN, MONITORING_CSS, MONITORING_BODY, MONITORING_SCRIPTS_EXTRA,
-    DOCS_BODY, DOCS_SCRIPTS_EXTRA,
-    SETTINGS_BODY, SETTINGS_SCRIPTS_EXTRA,
+    DOCS_SCRIPTS_EXTRA,
+    SETTINGS_SCRIPTS_EXTRA,
     _STATIC_V,
 )
 
 router = APIRouter()
-
-_ASSETS = """<link rel="stylesheet" href="/static/css/tokens.css?v=8">
-<link rel="stylesheet" href="/static/css/base.css?v=8">
-<link rel="stylesheet" href="/static/css/components.css?v=8">
-<link rel="stylesheet" href="/static/css/shell.css?v=8">"""
 
 _SCRIPTS = f"""<script src="/static/js/api.js?v={_STATIC_V}"></script>
 <script src="/static/js/shell.js?v={_STATIC_V}"></script>
@@ -272,31 +267,44 @@ def member_overview_page():
 
 @router.get("/app/teams/{team_id}", response_class=HTMLResponse)
 def member_team_detail_page(team_id: int):
+    """De-duplicated as part of this DS migration: this used to embed a
+    full Predictor.render/wire box plus its own "Get API key" flow per
+    model, both of which now just duplicate the real per-model interface
+    at /app/models/{deployment_id} (predict/explain) and the proper key
+    picker at /app/api-keys. This page is a routing point into those now
+    - each model row links straight to /app/models/{id} - not a second
+    copy of either."""
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
     <a href="/app" class="link-secondary" style="font-size:var(--text-sm)">&larr; My Teams</a>
-    <h1 id="team-name" style="font-size:var(--text-lg);margin:.5rem 0 2px">Loading&hellip;</h1>
-    <p id="team-description" class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-5)"></p>
+    <div class="page-header" style="margin-top:var(--space-3)">
+      <div>
+        <h1 class="page-title" id="team-name">Loading&hellip;</h1>
+        <div class="page-description" id="team-description"></div>
+      </div>
+    </div>
 
     <div class="section-label" style="margin-top:0">Models</div>
-    <div id="models-body"></div>
+    <div id="models-empty"></div>
+    <div class="table-wrap" id="models-wrap" hidden>
+      <table class="table">
+        <thead><tr><th>Model</th><th>Task</th><th>Status</th><th></th></tr></thead>
+        <tbody id="models-body"></tbody>
+      </table>
+    </div>
   </div>
 </div>
-<div class="auth-loading" id="loading-root">Loading&hellip;</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
 """
 
     script = """
 <script>
   const TEAM_ID = location.pathname.split('/')[3];
-  let TEAM_WORKSPACE_ID = null;
-  let TEAM_NAME = '';
 
   async function loadTeam() {
     try {
       const team = await Api.get('/teams/' + TEAM_ID);
-      TEAM_NAME = team.name;
-      TEAM_WORKSPACE_ID = team.workspace_id;
       document.getElementById('team-name').textContent = team.name;
       document.getElementById('team-description').textContent = team.description || 'No description';
       document.title = team.name + ' - Vela';
@@ -304,94 +312,45 @@ def member_team_detail_page(team_id: int):
       if (crumb) crumb.textContent = team.name;
       renderModels(team.permissions || []);
     } catch (e) {
-      document.getElementById('models-body').innerHTML = '<tr><td colspan="4">' + UI.errorState(e.message, loadTeam) + '</td></tr>';
+      document.getElementById('models-wrap').hidden = true;
+      document.getElementById('models-empty').innerHTML = UI.errorState(e.message, loadTeam);
     }
   }
 
-  let teamPerms = [];
-
+  // Admin "Disable" (/admin/models) hides a model from members entirely
+  // rather than showing it greyed out - the admin teams-page
+  // (/admin/teams-page) shows these same permission rows unfiltered,
+  // since an admin still needs to see/manage a disabled model's grants.
   function renderModels(perms) {
-    // Admin "Disable" (/admin/models) hides a model from members
-    // entirely rather than showing it greyed out - the admin teams-page
-    // (/admin/teams-page) shows these same permission rows unfiltered,
-    // since an admin still needs to see/manage a disabled model's grants.
     perms = perms.filter(p => p.is_active !== false);
-    teamPerms = perms;
-    const body = document.getElementById('models-body');
+    const wrap = document.getElementById('models-wrap');
+    const empty = document.getElementById('models-empty');
     if (!perms.length) {
-      body.innerHTML = UI.emptyState('No models yet', 'This team has not been granted access to any models.');
+      wrap.hidden = true;
+      empty.innerHTML = UI.emptyState('No models yet', 'This team has not been granted access to any models.');
       return;
     }
-    // Each model is a contained section (thin left border), not a table
-    // row - name+task+status in the header, tester directly below, "Get
-    // API key" a small right-aligned link (spec).
-    body.innerHTML = perms.map((p, idx) => {
-      const uid = 'd' + p.deployment_id;
-      return '<div class="model-section">' +
-        '<div class="model-section-header">' +
-        '<span class="model-section-name">' + UI.escapeHtml(p.model_name) + '</span>' +
-        '<span class="model-section-task">' + UI.escapeHtml(p.task_type) + '</span>' +
-        UI.statusBadge(p.status) +
-        (p.can_predict ? '<span style="flex:1"></span><button class="link-action" data-get-key="' + idx + '" type="button">Get API key &rarr;</button>' : '') +
-        '</div>' +
-        (p.can_predict
-          ? Predictor.render(uid, TEAM_ID, p.deployment_id, p.input_type, p.input_schema)
-          : '<span class="text-muted" style="font-size:var(--text-xs)">View only</span>') +
-        '</div>';
+    empty.innerHTML = '';
+    wrap.hidden = false;
+
+    const body = document.getElementById('models-body');
+    body.innerHTML = perms.map(p => {
+      const href = '/app/models/' + p.deployment_id;
+      return '<tr class="is-interactive" data-model-href="' + href + '">' +
+        '<td><a href="' + href + '" class="mono">' + UI.escapeHtml(p.model_name) + '</a></td>' +
+        '<td class="text-secondary">' + UI.escapeHtml(p.task_type) + '</td>' +
+        '<td>' + UI.statusBadge(p.status) + '</td>' +
+        '<td>' + (p.can_predict ? '' : UI.badge('View only', 'neutral')) + '</td>' +
+        '</tr>';
     }).join('');
-    body.querySelectorAll('[data-get-key]').forEach(btn => {
-      const idx = parseInt(btn.dataset.getKey, 10);
-      btn.addEventListener('click', () => getApiKey(teamPerms[idx], btn));
-    });
-    perms.forEach(p => {
-      if (!p.can_predict) return;
-      Predictor.wire('d' + p.deployment_id, TEAM_ID, p.deployment_id, p.input_type, p.input_schema);
-    });
-  }
-
-  async function getApiKey(perm, btn) {
-    btn.disabled = true;
-    const originalLabel = btn.textContent;
-    btn.textContent = 'Generating…';
-    try {
-      const result = await Api.post('/workspaces/' + TEAM_WORKSPACE_ID + '/api-keys', {
-        name: TEAM_NAME + ': ' + perm.model_name,
-        team_id: parseInt(TEAM_ID, 10),
-        deployment_id: perm.deployment_id,
+    // Whole row navigates (matches the Overview page's My Teams table),
+    // but a click on the model's own link is left alone so ctrl/cmd-click
+    // and right-click-to-open-in-new-tab still work as a real link.
+    body.querySelectorAll('[data-model-href]').forEach(row => {
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('a')) return;
+        location.href = row.dataset.modelHref;
       });
-      showRawKey(result);
-    } catch (e) {
-      UI.toast(e.message || 'Could not generate key', 'danger');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = originalLabel;
-    }
-  }
-
-  function showRawKey(result) {
-    const overlay = UI.openModal({
-      title: 'Copy your API key',
-      bodyHtml: `
-        <div class="alert alert-warning" style="margin-bottom:.75rem">
-          <div><div class="alert-title">Shown once</div><div class="alert-body">This key will not be shown again - copy it now and store it somewhere safe. It only works for this model.</div></div>
-        </div>
-        <div class="field">
-          <label class="field-label">${UI.escapeHtml(result.name)}</label>
-          <input class="input" id="raw-key" value="${UI.escapeHtml(result.key)}" readonly style="font-size:var(--text-xs)">
-        </div>`,
-      footerHtml: `<button class="btn btn-secondary" id="rk-copy" type="button">Copy</button>
-                   <button class="btn btn-primary" id="rk-done" type="button">Done</button>`,
-    });
-    overlay.querySelector('#rk-done').addEventListener('click', UI.closeModal);
-    overlay.querySelector('#rk-copy').addEventListener('click', async () => {
-      const input = overlay.querySelector('#raw-key');
-      const ok = await UI.copyText(input.value);
-      if (ok) {
-        UI.toast('Copied to clipboard', 'success');
-      } else {
-        input.select();
-        UI.toast('Could not copy automatically - key is selected, press Ctrl/Cmd+C', 'danger');
-      }
     });
   }
 </script>"""
@@ -401,7 +360,7 @@ def member_team_detail_page(team_id: int):
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Team - Vela</title>\n" + _ASSETS + "\n</head>\n<body>\n"
+        "<title>Team - Vela</title>\n" + DS_ASSETS + "\n</head>\n<body>\n"
         + body
         + "\n" + _SCRIPTS + "\n" + script
         + _boot_script("/app/teams/" + str(team_id), "Team", ready)
@@ -1195,13 +1154,48 @@ def member_drift_page():
 
 @router.get("/app/docs", response_class=HTMLResponse)
 def member_docs_page():
+    """Own inline DS body rather than the shared DOCS_BODY in
+    _page_fragments.py - same call admin_docs_page already made: that
+    constant is legacy/_ASSETS-era, and editing it would mean touching a
+    file this migration isn't scoped to. Same element ids as admin's
+    version (docs-subtitle, docs-model-select, card-result), so the
+    shared docs.js (DOCS_SCRIPTS_EXTRA, unchanged) keeps driving it
+    unmodified - docs.js already branches on role itself (which model-
+    list endpoint it reads, whether an edit form appears under
+    card-result), so member stays read-appropriate with no page-level
+    change needed. DOCS_BODY itself is left alone in _page_fragments.py;
+    it's now unused (admin moved off it first, this was its last caller)
+    but that's not this page's file to clean up."""
+    body = """
+<div id="page-content" hidden>
+  <div class="page-narrow">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Documentation</h1>
+        <div class="page-description" id="docs-subtitle">Select a model to view its documentation.</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:var(--space-5)">
+      <div class="field" style="margin-bottom:0">
+        <label class="field-label" for="docs-model-select">Model</label>
+        <select class="select" id="docs-model-select" style="min-width:280px"></select>
+      </div>
+    </div>
+
+    <div id="card-result"></div>
+  </div>
+</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
+"""
+
     ready = "Docs.start({role: 'member'});"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Documentation - Vela</title>\n" + _ASSETS + "\n</head>\n<body>\n"
-        + DOCS_BODY
+        "<title>Documentation - Vela</title>\n" + DS_ASSETS + "\n</head>\n<body>\n"
+        + body
         + "\n" + _SCRIPTS + "\n" + DOCS_SCRIPTS_EXTRA
         + _boot_script("/app/docs", "Documentation", ready)
         + "\n</body>\n</html>"
@@ -1215,13 +1209,70 @@ def member_docs_page():
 
 @router.get("/app/settings", response_class=HTMLResponse)
 def member_settings_page():
+    """Own inline DS body rather than the shared SETTINGS_BODY in
+    _page_fragments.py - same call admin_settings_page already made (see
+    its comment): that constant is legacy/_ASSETS-era, and editing it
+    would mean touching a file this migration isn't scoped to. Same
+    account-card + change-password element ids as admin's version
+    (acc-username/acc-name/acc-role, pw-form + its fields/error/submit),
+    so the shared settings.js (SETTINGS_SCRIPTS_EXTRA, unchanged) keeps
+    driving it unmodified. No "AI provider" section - that's admin-only.
+    SETTINGS_BODY itself is left alone in _page_fragments.py; it's now
+    unused (admin moved off it first, this was its last caller) but
+    that's not this page's file to clean up."""
+    body = """
+<div id="page-content" hidden>
+  <div class="page-narrow">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Settings</h1>
+        <div class="page-description">Your account and password.</div>
+      </div>
+    </div>
+
+    <div class="section-label" style="margin-top:0">Account</div>
+    <div class="card" style="margin-bottom:var(--space-6)">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.45rem 0;border-bottom:var(--border-width) solid var(--border-subtle)">
+        <span class="text-secondary" style="font-size:var(--text-sm)">Username</span>
+        <span id="acc-username" style="font-size:var(--text-sm)">&mdash;</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.45rem 0;border-bottom:var(--border-width) solid var(--border-subtle)">
+        <span class="text-secondary" style="font-size:var(--text-sm)">Name</span>
+        <span id="acc-name" style="font-size:var(--text-sm)">&mdash;</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:.45rem 0">
+        <span class="text-secondary" style="font-size:var(--text-sm)">Role</span>
+        <span id="acc-role"></span>
+      </div>
+    </div>
+
+    <div class="section-label">Change password</div>
+    <div class="card">
+      <form class="form" id="pw-form" novalidate>
+        <div class="field">
+          <label class="field-label" for="s-new-password">New password</label>
+          <input class="input" type="password" id="s-new-password" autocomplete="new-password" required minlength="8">
+        </div>
+        <div class="field">
+          <label class="field-label" for="s-confirm-password">Confirm new password</label>
+          <input class="input" type="password" id="s-confirm-password" autocomplete="new-password" required minlength="8">
+        </div>
+        <div class="field-error" id="s-error" role="alert"></div>
+        <button class="btn btn-primary" type="submit" id="s-submit">Update password</button>
+      </form>
+    </div>
+  </div>
+</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
+"""
+
     ready = "Settings.start(user);"
 
     html = (
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>Settings - Vela</title>\n" + _ASSETS + "\n</head>\n<body>\n"
-        + SETTINGS_BODY
+        "<title>Settings - Vela</title>\n" + DS_ASSETS + "\n</head>\n<body>\n"
+        + body
         + "\n" + _SCRIPTS + "\n" + SETTINGS_SCRIPTS_EXTRA
         + _boot_script("/app/settings", "Settings", ready)
         + "\n</body>\n</html>"
