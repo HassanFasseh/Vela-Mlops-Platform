@@ -1,6 +1,6 @@
 /*
- * Vela inline prediction tester - shared by /app/teams/{id} and
- * /app/models (member_pages.py). One tester per team+deployment pair:
+ * Vela inline prediction tester - used by /app/models/{id}'s detail page
+ * (member_pages.py). One tester per team+deployment pair:
  *
  *   const uid = 'd' + deployment_id;              // unique per page
  *   container.innerHTML = Predictor.render(uid, team_id, deployment_id, input_type, input_schema, task_type);
@@ -9,17 +9,34 @@
  * input_type/input_schema come straight off the permission row (GET
  * /teams/{id}/permissions - see services/teams.py's get_team_permissions)
  * and decide what the tester actually renders/sends:
- *   "text" (default) - a plain textarea, {"text": ...}. If task_type is
- *           "zero-shot-classification", an editable candidate-labels
- *           field also renders above it and rides along as {"labels": [...]}.
- *   "json" - input_schema is a JSON string like {"f1":"number"} stored
- *           on the deployment; parsed into one input field per key. No
- *           usable schema (missing/unparseable/empty) falls back to a
- *           raw-JSON textarea instead of losing the ability to predict
- *           entirely. Either way, sent as {"data": {...}}.
+ *   "text" (or unset - matches the backend's own `deployment.input_type
+ *           or "text"` default) - a plain textarea, {"text": ...}. If
+ *           task_type is "zero-shot-classification", an editable
+ *           candidate-labels field also renders above it and rides along
+ *           as {"labels": [...]}.
+ *   "json" - for structured/tabular models (fraud, churn, recsys, ...),
+ *           not just literal JSON. input_schema is a JSON string like
+ *           {"f1":"number"} stored on the deployment; parsed into one
+ *           input field per key. No usable schema (missing/unparseable/
+ *           empty) falls back to a raw-JSON textarea instead of losing
+ *           the ability to predict entirely. Either way, sent as
+ *           {"data": {...}} - exactly what /api/v1/predict requires for
+ *           this deployment's input_type (main.py: `input_type == "json"`
+ *           -> `req.data is not None` required).
  *   "file" - images and audio. A <input type=file>; the selected file
  *           is read client-side into a base64 string (pendingFiles
  *           below) as soon as it's chosen, then sent as {"file": ...}.
+ *   anything else - not a real input_type either deploy path can
+ *           actually produce (custom uploads and the HuggingFace auto-
+ *           infer in main.py's _infer_input_type both only ever pick one
+ *           of the three above), but a manually-edited row could still
+ *           carry something else - rather than silently guess "text"
+ *           (wrong shape, confusing failure), this gets the same JSON-
+ *           shaped widget "json" does, plus an explicit notice that this
+ *           input type isn't recognized. /api/v1/predict itself still
+ *           only accepts text/json/file, so this is a display-level
+ *           safety net (never nothing to interact with), not a guarantee
+ *           the prediction call will succeed for a truly unknown type.
  *
  * task_type is a new, optional trailing parameter (only used for the
  * zero-shot labels field above) - existing call sites that don't pass
@@ -145,16 +162,39 @@ const Predictor = (() => {
     );
   }
 
+  // Anything this UI doesn't specifically recognize gets the SAME
+  // JSON-shaped widget "json" itself uses (per-field inputs when
+  // input_schema is usable, otherwise a raw-JSON textarea) rather than
+  // silently guessing it's plain text - a text box would send a shape
+  // most non-text deployments don't expect and fail with a confusing
+  // "could not reach this model" message. Only a real "text" input_type
+  // (or unset, matching the backend's own `deployment.input_type or
+  // "text"` default) gets the plain textarea. A genuinely unrecognized
+  // value (not "text"/"json"/"file" - can't happen through either
+  // deploy path today, only a manually-edited row) additionally gets an
+  // explicit notice, since this UI is guessing at that point.
+  function unrecognizedTypeNoticeHtml(inputType) {
+    return (
+      '<div class="alert alert-warning" style="margin-bottom:.5rem">' +
+      '<div><div class="alert-title">Unrecognized input type</div>' +
+      "This deployment is set to input_type “" + UI.escapeHtml(String(inputType)) + "”, which this interface doesn't specifically handle. Falling back to a raw JSON input, but it may not match what this model actually expects." +
+      "</div></div>"
+    );
+  }
+
   function testerHtml(uid, inputType, inputSchema, taskType) {
-    const inputHtml =
-      inputType === "json"
-        ? jsonFieldsHtml(uid, inputSchema)
-        : inputType === "file"
-        ? fileFieldHtml(uid)
-        : (taskType === "zero-shot-classification" ? labelsFieldHtml(uid) : "") +
-          '<div class="field" style="margin-bottom:.4rem">' +
-          '<textarea class="textarea" id="predict-input-' + uid + '" placeholder="Enter text to analyze…" style="font-size:var(--text-xs);min-height:3.5em"></textarea>' +
-          "</div>";
+    let inputHtml;
+    if (inputType === "file") {
+      inputHtml = fileFieldHtml(uid);
+    } else if (inputType === "text" || !inputType) {
+      inputHtml =
+        (taskType === "zero-shot-classification" ? labelsFieldHtml(uid) : "") +
+        '<div class="field" style="margin-bottom:.4rem">' +
+        '<textarea class="textarea" id="predict-input-' + uid + '" placeholder="Enter text to analyze…" style="font-size:var(--text-xs);min-height:3.5em"></textarea>' +
+        "</div>";
+    } else {
+      inputHtml = (inputType === "json" ? "" : unrecognizedTypeNoticeHtml(inputType)) + jsonFieldsHtml(uid, inputSchema);
+    }
     return (
       inputHtml +
       '<button class="btn btn-secondary btn-sm" data-run="' + uid + '" type="button">Run prediction</button>' +
@@ -164,12 +204,11 @@ const Predictor = (() => {
   }
 
   // Full tester block for one team+deployment pair. `uid` must be unique
-  // among every tester rendered on the same page (callers use
-  // 'd' + deployment_id, which is unique per page in both call sites).
-  // inputType/inputSchema come from the permission row; inputType
-  // defaults to the plain-text tester for anything other than "json" or
-  // "file" (covers "text" and unset alike). teamId is unused (see the
-  // module comment) but kept in the signature for call-site compatibility.
+  // among every tester rendered on the same page (the one call site uses
+  // 'd' + deployment_id, which is unique per page). inputType/inputSchema
+  // come from the permission row - see testerHtml() above for exactly
+  // which widget each value gets. teamId is unused (see the module
+  // comment) but kept in the signature for call-site compatibility.
   // taskType is optional - see module comment.
   function render(uid, teamId, deploymentId, inputType, inputSchema, taskType) {
     return '<div class="predict-tester" id="predict-' + uid + '">' + testerHtml(uid, inputType, inputSchema, taskType) + "</div>";
@@ -275,7 +314,10 @@ const Predictor = (() => {
       return { file: base64, deployment_id: deploymentId };
     }
 
-    if (inputType === "json") {
+    // "json", or anything testerHtml() didn't recognize as "text"/"file"
+    // either - same fallback pairing as testerHtml() above, so whatever
+    // widget actually rendered is read back correctly.
+    if (inputType !== "text" && inputType) {
       const fieldsContainer = document.querySelector('[data-json-fields="' + uid + '"]');
       if (fieldsContainer) {
         const data = {};

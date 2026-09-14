@@ -995,9 +995,14 @@ def admin_teams_page():
         '<button class="btn btn-secondary btn-sm" id="mt-grant-access" type="button">Add</button>' +
         '</div>';
     } else if (cachedDeployments.length) {
-      addModelRow = '<div class="text-muted" style="font-size:var(--text-xs);margin-top:var(--space-2)">All available models already granted</div>';
+      // Easy to misread as "the picker is broken/empty" at the old
+      // text-muted/text-xs size - this is a real, correct outcome (every
+      // deployed model is already granted to this team), so it gets the
+      // same weight as ordinary body copy instead of looking like a
+      // throwaway caption.
+      addModelRow = '<div class="text-secondary" style="font-size:var(--text-sm);margin-top:var(--space-2)">This team already has access to every deployed model.</div>';
     } else {
-      addModelRow = '<div class="text-muted" style="font-size:var(--text-xs);margin-top:var(--space-2)">No models deployed yet</div>';
+      addModelRow = '<div class="text-secondary" style="font-size:var(--text-sm);margin-top:var(--space-2)">No models deployed yet.</div>';
     }
 
     body.innerHTML =
