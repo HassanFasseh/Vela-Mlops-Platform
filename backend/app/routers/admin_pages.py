@@ -2687,6 +2687,7 @@ def admin_deployments_page():
       <div class="segmented segmented-block" role="tablist" aria-label="Deployment type" style="margin-bottom:var(--space-5)">
         <button class="segmented-option is-active" id="seg-hf" type="button" role="tab" aria-selected="true" aria-controls="deploy-form">HuggingFace</button>
         <button class="segmented-option" id="seg-custom" type="button" role="tab" aria-selected="false" aria-controls="custom-deploy-form">Custom model</button>
+        <button class="segmented-option" id="seg-image" type="button" role="tab" aria-selected="false" aria-controls="image-deploy-form">Docker image</button>
       </div>
 
       <form class="form" id="deploy-form" novalidate>
@@ -2773,6 +2774,44 @@ def admin_deployments_page():
         <div id="cm-success" hidden style="margin-bottom:var(--space-3)"></div>
         <button class="btn btn-primary btn-block" type="submit" id="cm-submit">Upload and deploy</button>
       </form>
+
+      <form class="form" id="image-deploy-form" novalidate hidden>
+        <div class="alert alert-info" style="margin-bottom:var(--space-4)">
+          <div><div class="alert-title">Bring your own image</div>
+          No build step &mdash; Vela deploys this image as-is. It must serve <code>GET /health</code>, <code>POST /predict</code>, and ideally <code>GET /metrics</code> on port 8000, using the same request/response shapes as the Custom model path (see its predict.py template for the exact JSON conventions).</div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="im-name">Deployment name</label>
+          <input class="input" id="im-name" placeholder="lowercase-with-hyphens" required>
+          <div class="field-hint">Lowercase letters, numbers, and hyphens only.</div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="im-image">Docker image</label>
+          <input class="input" id="im-image" placeholder="ghcr.io/you/your-model:tag" required>
+          <div class="field-hint">Any pullable image reference. A private image needs to be on GHCR under this platform's own account &mdash; it reuses the existing pull credentials, there's no separate registry-credential form yet.</div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="im-task-type">Task type <span class="field-optional">optional</span></label>
+          <input class="input" id="im-task-type" placeholder="e.g. fraud-detection, clinical-risk, tabular-classification">
+          <div class="field-hint">Free-text label for what the model does &mdash; shown on the Model Registry.</div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="im-input-type">Input type</label>
+          <select class="select" id="im-input-type">
+            <option value="text">Text</option>
+            <option value="json">JSON / Structured data</option>
+            <option value="file">File / Image</option>
+          </select>
+        </div>
+        <div class="field" id="im-schema-field" hidden>
+          <label class="field-label" for="im-input-schema">Input schema</label>
+          <textarea class="textarea" id="im-input-schema" placeholder='{"age": "number", "income": "number", "risk_score": "number"}'></textarea>
+          <div class="field-hint">Describes the JSON fields callers should send &mdash; shown to them, not enforced.</div>
+        </div>
+        <div class="field-error" id="im-error" role="alert"></div>
+        <div id="im-success" hidden style="margin-bottom:var(--space-3)"></div>
+        <button class="btn btn-primary btn-block" type="submit" id="im-submit">Deploy image</button>
+      </form>
     </div>
   </div>
   </div>
@@ -2839,23 +2878,26 @@ def admin_deployments_page():
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   }
 
-  // ---- Segmented control (HuggingFace | Custom model) -------------------
-  // Show/hide only - both forms stay in the DOM, every field id and the
-  // submit handlers below are untouched.
+  // ---- Segmented control (HuggingFace | Custom model | Docker image) ----
+  // Show/hide only - all three forms stay in the DOM, every field id and
+  // the submit handlers below are untouched.
   function wireSegmentedControl() {
     const segHf = document.getElementById('seg-hf');
     const segCustom = document.getElementById('seg-custom');
-    if (!segHf || !segCustom) return;
+    const segImage = document.getElementById('seg-image');
+    if (!segHf || !segCustom || !segImage) return;
     segHf.addEventListener('click', () => showSegment('hf'));
     segCustom.addEventListener('click', () => showSegment('custom'));
+    segImage.addEventListener('click', () => showSegment('image'));
   }
 
   function showSegment(which) {
-    const hf = which !== 'custom';
-    document.getElementById('deploy-form').hidden = !hf;
-    document.getElementById('custom-deploy-form').hidden = hf;
-    for (const [id, on] of [['seg-hf', hf], ['seg-custom', !hf]]) {
+    document.getElementById('deploy-form').hidden = which !== 'hf';
+    document.getElementById('custom-deploy-form').hidden = which !== 'custom';
+    document.getElementById('image-deploy-form').hidden = which !== 'image';
+    for (const [id, seg] of [['seg-hf', 'hf'], ['seg-custom', 'custom'], ['seg-image', 'image']]) {
       const el = document.getElementById(id);
+      const on = seg === which;
       el.classList.toggle('is-active', on);
       el.setAttribute('aria-selected', String(on));
     }
@@ -2997,6 +3039,65 @@ def admin_deployments_page():
 
   document.getElementById('cm-input-type').addEventListener('change', (e) => {
     document.getElementById('cm-schema-field').hidden = e.target.value !== 'json';
+  });
+
+  document.getElementById('im-input-type').addEventListener('change', (e) => {
+    document.getElementById('im-schema-field').hidden = e.target.value !== 'json';
+  });
+
+  document.getElementById('image-deploy-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById('im-error');
+    const successEl = document.getElementById('im-success');
+    const submitBtn = document.getElementById('im-submit');
+    errorEl.textContent = '';
+    successEl.hidden = true;
+
+    const deployment_name = document.getElementById('im-name').value.trim();
+    const image = document.getElementById('im-image').value.trim();
+    const task_type = document.getElementById('im-task-type').value.trim();
+    const input_type = document.getElementById('im-input-type').value;
+    const input_schema = document.getElementById('im-input-schema').value.trim();
+
+    if (!deployment_name || !image) {
+      errorEl.textContent = 'Fill in all required fields.';
+      return;
+    }
+    if (!/^[a-z0-9-]+$/.test(deployment_name)) {
+      errorEl.textContent = 'Deployment name: lowercase letters, numbers, hyphens only.';
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Deploying…';
+    try {
+      const workspaces = await Api.get('/workspaces');
+      if (!workspaces.length) throw new Error('No workspace found - create a team first.');
+
+      const body = { deployment_name, image, input_type, workspace_id: workspaces[0].id };
+      if (task_type) body.task_type = task_type;
+      if (input_type === 'json' && input_schema) body.input_schema = input_schema;
+
+      const data = await Api.post('/api/v1/deploy-custom-image', body);
+
+      submitBtn.textContent = 'Deployment queued!';
+      successEl.hidden = false;
+      successEl.innerHTML =
+        '<div class="alert alert-success"><div>' +
+        '<div class="alert-title">Deployment queued</div>' +
+        'Deployment #' + data.deployment_id + ' has been queued.' +
+        '</div></div>';
+      UI.toast('Image deployment triggered', 'success');
+      document.getElementById('image-deploy-form').reset();
+      document.getElementById('im-schema-field').hidden = true;
+      setTimeout(() => { submitBtn.textContent = 'Deploy image'; }, 2000);
+      pollCustomModelStatus(data.deployment_id, successEl);
+    } catch (err) {
+      submitBtn.textContent = 'Deploy image';
+      errorEl.textContent = err.message || 'Could not deploy image.';
+    } finally {
+      submitBtn.disabled = false;
+    }
   });
 
   document.getElementById('custom-deploy-form').addEventListener('submit', async (e) => {

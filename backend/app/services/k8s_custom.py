@@ -326,6 +326,90 @@ def create_runtime_deployment(name: str, cm_name: str, pvc: str, input_type: str
             raise
 
 
+def create_image_deployment(name: str, image: str, input_type: str, input_schema: str):
+    """Deployment + Service for the "Docker image" custom-deploy path -
+    an admin-supplied, already-built image, as opposed to
+    create_runtime_deployment's mount-at-runtime flow (predict.py/
+    model_files onto custom-runner:base). No ConfigMap/PVC: the image is
+    trusted to already contain everything it needs, and is expected to
+    implement the same contract every other runner in this platform does
+    (GET /health, POST /predict, GET /metrics, all on :8000).
+
+    The readinessProbe against GET /health is what actually enforces that
+    contract - Kubernetes won't report the pod Ready (and so
+    get_image_status won't report "running") until the admin's image
+    answers it correctly, so there's no separate smoke-test step to write
+    here the way the file-build pipeline needs one.
+
+    Idempotent, same replace-on-409 pattern as create_runtime_deployment -
+    redeploying under the same name (e.g. a new image tag) replaces the
+    Deployment in place."""
+    core_v1, apps_v1, _ = _clients()
+
+    env = [client.V1EnvVar(name="INPUT_TYPE", value=input_type or "text")]
+    if input_schema:
+        env.append(client.V1EnvVar(name="INPUT_SCHEMA", value=input_schema))
+
+    container = client.V1Container(
+        name="custom-runner",
+        image=image,
+        image_pull_policy="Always",
+        ports=[client.V1ContainerPort(name="http", container_port=8000)],
+        env=env,
+        readiness_probe=client.V1Probe(
+            http_get=client.V1HTTPGetAction(path="/health", port=8000),
+            initial_delay_seconds=5,
+            period_seconds=5,
+            failure_threshold=6,
+        ),
+        resources=client.V1ResourceRequirements(
+            requests={"memory": "512Mi", "cpu": "80m"},
+            limits={"memory": "2Gi", "cpu": "500m"},
+        ),
+    )
+    pod_spec = client.V1PodSpec(
+        # Present unconditionally, same as every other custom-runner pod
+        # spec here - harmless for a public/Docker-Hub image (kubelet
+        # still falls back to an anonymous pull), and is what makes a
+        # private image on this same GHCR account work with no extra
+        # per-deployment credential UI.
+        image_pull_secrets=[client.V1LocalObjectReference(name="ghcr-secret")],
+        containers=[container],
+    )
+    deployment = client.V1Deployment(
+        metadata=client.V1ObjectMeta(name=name, labels=_labels(name)),
+        spec=client.V1DeploymentSpec(
+            replicas=1,
+            selector=client.V1LabelSelector(match_labels={"app": name}),
+            template=client.V1PodTemplateSpec(
+                metadata=client.V1ObjectMeta(labels=_labels(name), annotations=_PROMETHEUS_ANNOTATIONS),
+                spec=pod_spec,
+            ),
+        ),
+    )
+    try:
+        apps_v1.create_namespaced_deployment(NAMESPACE, deployment)
+    except ApiException as e:
+        if e.status == 409:
+            apps_v1.replace_namespaced_deployment(name, NAMESPACE, deployment)
+        else:
+            raise
+
+    service = client.V1Service(
+        metadata=client.V1ObjectMeta(name=name, labels=_labels(name)),
+        spec=client.V1ServiceSpec(
+            type="ClusterIP",
+            selector={"app": name},
+            ports=[client.V1ServicePort(name="http", port=80, target_port=8000)],
+        ),
+    )
+    try:
+        core_v1.create_namespaced_service(NAMESPACE, service)
+    except ApiException as e:
+        if e.status != 409:
+            raise
+
+
 def restart_deployment(name: str):
     """Rolling restart, the same way `kubectl rollout restart` does it -
     bump an annotation nobody reads except this, which changes the pod
@@ -395,6 +479,42 @@ def get_status(name: str, cm_name: str, pvc: str, input_type: str, input_schema:
     desired = dep_status.spec.replicas or 1
     if ready >= desired:
         return {"phase": "running"}
+    return {"phase": "provisioning"}
+
+
+def get_image_status(name: str) -> dict:
+    """Polled by GET /api/v1/custom-model-status/{id} for the "Docker
+    image" path (Deployment.source == "image"). Unlike get_status()
+    above there's no Job/ConfigMap/PVC to progress through first - the
+    Deployment+Service are created synchronously by
+    /api/v1/deploy-custom-image - so this only ever has to answer "is
+    the pod ready yet, and if not, is it stuck." ready_replicas >=
+    desired is trustworthy evidence the /predict contract is actually
+    being served (not just that some process is running) because it's
+    gated on create_image_deployment's readinessProbe.
+
+    While not yet ready, checks for the two most common stuck states
+    (bad image reference, or an image that crashes on startup) so the
+    caller isn't left reporting "provisioning" forever with no clue why."""
+    core_v1, apps_v1, _ = _clients()
+    try:
+        dep_status = apps_v1.read_namespaced_deployment_status(name, NAMESPACE)
+    except ApiException as e:
+        if e.status == 404:
+            return {"phase": "failed", "detail": "Deployment not found - it may have failed to create."}
+        raise
+
+    ready = dep_status.status.ready_replicas or 0
+    desired = dep_status.spec.replicas or 1
+    if ready >= desired:
+        return {"phase": "running"}
+
+    pods = core_v1.list_namespaced_pod(NAMESPACE, label_selector=f"app={name}")
+    for pod in pods.items:
+        for cs in (pod.status.container_statuses or []):
+            waiting = cs.state.waiting
+            if waiting and waiting.reason in ("ImagePullBackOff", "ErrImagePull", "CrashLoopBackOff"):
+                return {"phase": "failed", "detail": f"{waiting.reason}: {waiting.message or 'container is not starting'}"}
     return {"phase": "provisioning"}
 
 

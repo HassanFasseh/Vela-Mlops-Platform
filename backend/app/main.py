@@ -1218,6 +1218,80 @@ async def upload_custom_model(
         "status": "provisioning"
     }
 
+class DeployCustomImageRequest(BaseModel):
+    deployment_name: str
+    image: str
+    input_type: str
+    workspace_id: int
+    task_type: Optional[str] = None
+    input_schema: Optional[str] = None
+
+@app.post("/api/v1/deploy-custom-image")
+def deploy_custom_image(
+    req: DeployCustomImageRequest,
+    x_api_key: str = fastapi.Header(None, alias="X-API-Key"),
+    authorization: str = fastapi.Header(None)
+):
+    """Third custom-model path, alongside upload_custom_model's mount-at-
+    runtime flow: the admin supplies an already-built image reference
+    directly - no build step, no MinIO involvement at all (the image
+    itself, already living in its registry, is the durable artifact).
+    Vela creates the Deployment+Service straight from that image and
+    gates "running" on a Kubernetes readinessProbe against the image's
+    own GET /health - see k8s_custom.create_image_deployment and
+    get_image_status for the actual mechanics."""
+    from backend.app.database import SessionLocal
+    from backend.app.services import k8s_custom
+    from backend.app.db.models import Deployment as DeploymentModel
+    from datetime import datetime
+    import re
+
+    if req.input_type not in ("text", "json", "file"):
+        raise HTTPException(status_code=400, detail="input_type must be one of: text, json, file")
+    if not req.image or not req.image.strip():
+        raise HTTPException(status_code=400, detail="image is required")
+    # Same DNS-1123 backstop as upload_custom_model - deployment_name
+    # becomes the Kubernetes Deployment/Service name.
+    if not re.match(r"^[a-z0-9-]+$", req.deployment_name):
+        raise HTTPException(status_code=400, detail="deployment_name must be lowercase letters, numbers, and hyphens only")
+
+    db = SessionLocal()
+    try:
+        api_key, is_admin_jwt = _resolve_custom_model_actor(db, authorization, x_api_key)
+        if not is_admin_jwt:
+            if api_key.workspace_id != req.workspace_id:
+                raise HTTPException(status_code=401, detail="Invalid API key for this workspace")
+            if api_key.team_id or api_key.deployment_id:
+                raise HTTPException(status_code=403, detail="This endpoint requires an unscoped workspace API key")
+
+        record = DeploymentModel(
+            workspace_id=req.workspace_id,
+            name=req.deployment_name,
+            model_name=req.deployment_name,
+            task_type=req.task_type.strip() if req.task_type and req.task_type.strip() else "custom",
+            source="image",
+            model_type="custom",
+            input_type=req.input_type,
+            input_schema=req.input_schema,
+            status="provisioning",
+            created_at=datetime.utcnow()
+        )
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        deployment_id = record.id
+
+        try:
+            k8s_custom.create_image_deployment(req.deployment_name, req.image.strip(), req.input_type, req.input_schema)
+        except Exception as e:
+            record.status = "failed"
+            db.commit()
+            raise HTTPException(status_code=500, detail=f"Kubernetes provisioning failed: {e}")
+    finally:
+        db.close()
+
+    return {"deployment_id": deployment_id, "status": "provisioning"}
+
 @app.post("/api/v1/deploy-custom/{deployment_id}")
 def redeploy_custom_model(deployment_id: int, x_api_key: str = fastapi.Header(None, alias="X-API-Key")):
     """Redeploy without re-uploading: re-runs the download Job (in case
@@ -1326,11 +1400,13 @@ def custom_model_status(deployment_id: int, x_api_key: str = fastapi.Header(None
         if deployment.model_type != "custom":
             raise HTTPException(status_code=400, detail="Not a custom model deployment")
 
-        pvc = deployment.pvc_name or k8s_custom.pvc_name_for(deployment.name)
-        cm_name = k8s_custom.configmap_name(deployment.name)
-
         try:
-            result = k8s_custom.get_status(deployment.name, cm_name, pvc, deployment.input_type, deployment.input_schema)
+            if deployment.source == "image":
+                result = k8s_custom.get_image_status(deployment.name)
+            else:
+                pvc = deployment.pvc_name or k8s_custom.pvc_name_for(deployment.name)
+                cm_name = k8s_custom.configmap_name(deployment.name)
+                result = k8s_custom.get_status(deployment.name, cm_name, pvc, deployment.input_type, deployment.input_schema)
         except Exception as e:
             return {"deployment_id": deployment_id, "phase": "unknown", "detail": str(e)}
 
