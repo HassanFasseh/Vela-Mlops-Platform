@@ -111,6 +111,26 @@ class RemediationLog(Base):
     response: Mapped[str] = mapped_column(Text, default="")
     triggered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+class PredictionLog(Base):
+    __tablename__ = "prediction_logs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    deployment_id: Mapped[int] = mapped_column(Integer, ForeignKey("deployments.id"))
+    workspace_id: Mapped[int] = mapped_column(Integer, ForeignKey("workspaces.id"))
+    # Exactly one of these two is set, matching api_predict's own two
+    # caller paths (see main.py): a logged-in member using the in-app
+    # prediction tester sets user_id and leaves api_key_id null; an
+    # external caller authenticated with X-API-Key sets api_key_id and
+    # leaves user_id null. Both nullable rather than a single polymorphic
+    # "caller" column, since each already has its own users/workspace_
+    # api_keys FK target and the member-history view only ever needs to
+    # filter on user_id.
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    api_key_id: Mapped[int] = mapped_column(Integer, ForeignKey("workspace_api_keys.id"), nullable=True)
+    input: Mapped[str] = mapped_column(Text, default="")
+    output: Mapped[str] = mapped_column(Text, default="")
+    latency_ms: Mapped[float] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
 class ModelCard(Base):
     __tablename__ = "model_cards"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

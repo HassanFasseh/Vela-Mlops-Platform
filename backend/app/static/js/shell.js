@@ -64,6 +64,7 @@ const Shell = (() => {
     sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v3M12 18.5v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2.5 12h3M18.5 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>',
     moon: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11Z"/></svg>',
     check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="5,13 10,18 19,7"/></svg>',
+    clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
     chevronDown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="6,9 12,15 18,9"/></svg>',
     menu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>',
   };
@@ -116,6 +117,7 @@ const Shell = (() => {
       },
       {
         items: [
+          { label: "History", href: "/admin/history", icon: "clock" },
           { label: "Tickets", href: "/admin/tickets-page", icon: "ticket" },
           { label: "Documentation", href: "/admin/docs", icon: "book" },
           { label: "Settings", href: "/admin/settings", icon: "settings" },
@@ -131,6 +133,7 @@ const Shell = (() => {
       },
       {
         items: [
+          { label: "History", href: "/app/history", icon: "clock" },
           { label: "Tickets", href: "/app/tickets", icon: "ticket" },
           { label: "API Keys", href: "/app/api-keys", icon: "key" },
           { label: "Documentation", href: "/app/docs", icon: "book" },

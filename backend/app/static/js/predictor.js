@@ -135,17 +135,44 @@ const Predictor = (() => {
     return '<div data-json-fields="' + uid + '">' + fields + "</div>";
   }
 
-  // <input type=file> - accepts images and audio since "file" covers
-  // both (see model-runner/main.py's IMAGE_TASKS/AUDIO_TASKS). Actually
-  // reading the file happens in wire()'s change handler, not here.
+  // Styled .file-input component (same one admin's Custom Model deploy
+  // form uses - primitives.css) instead of a bare <input type=file>, so
+  // this reads as the same control everywhere in the platform. Accepts
+  // images and audio since "file" covers both (see model-runner/
+  // main.py's IMAGE_TASKS/AUDIO_TASKS). Actually reading the file
+  // happens in wire()'s change handler, not here - that's also where
+  // the filename span gets kept in sync (see syncFileInput below), the
+  // same split admin_pages.py's own copy of this pattern uses.
   function fileFieldHtml(uid) {
     return (
       '<div class="field" style="margin-bottom:.4rem">' +
       '<label class="field-label" for="predict-file-' + uid + '">Upload an image or audio file</label>' +
-      '<input class="input" type="file" id="predict-file-' + uid + '" accept="image/*,audio/*" style="font-size:var(--text-xs)">' +
+      '<label class="file-input">' +
+      '<input type="file" id="predict-file-' + uid + '" accept="image/*,audio/*">' +
+      '<span class="file-input-name is-empty" data-placeholder="No file selected">No file selected</span>' +
+      '<span class="file-input-btn">Choose file</span>' +
+      '</label>' +
       '<div id="predict-file-status-' + uid + '" class="text-muted" style="font-size:var(--text-xs);margin-top:.3rem"></div>' +
       "</div>"
     );
+  }
+
+  // Mirrors admin_pages.py's syncFileInput - kept as its own copy since
+  // that one lives inside a page-local <script>, not a shared module.
+  function syncFileInputName(input) {
+    const wrap = input.closest(".file-input");
+    if (!wrap) return;
+    const nameEl = wrap.querySelector(".file-input-name");
+    if (!nameEl) return;
+    const placeholder = nameEl.dataset.placeholder || "No file selected";
+    const file = input.files && input.files[0];
+    if (!file) {
+      nameEl.textContent = placeholder;
+      nameEl.classList.add("is-empty");
+    } else {
+      nameEl.textContent = file.name;
+      nameEl.classList.remove("is-empty");
+    }
   }
 
   // Default set mirrors PredictRequest.labels' own server-side default
@@ -231,6 +258,7 @@ const Predictor = (() => {
     const fileInput = document.getElementById("predict-file-" + uid);
     if (fileInput) {
       fileInput.addEventListener("change", async () => {
+        syncFileInputName(fileInput);
         const statusEl = document.getElementById("predict-file-status-" + uid);
         const file = fileInput.files && fileInput.files[0];
         delete pendingFiles[uid];

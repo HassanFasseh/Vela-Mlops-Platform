@@ -759,6 +759,7 @@ def api_predict(req: PredictRequest, x_api_key: str = fastapi.Header(None, alias
     try:
         api_key = None
         workspace_id = None
+        user_id = None  # set below in the JWT branch - stays None for an API-key caller
 
         if raw_key:
             api_key = verify_api_key(db, raw_key)
@@ -778,6 +779,7 @@ def api_predict(req: PredictRequest, x_api_key: str = fastapi.Header(None, alias
             user = db.query(User).filter(User.id == int(payload["sub"])).first()
             if not user or not user.is_active:
                 raise HTTPException(status_code=401, detail="Invalid or expired session")
+            user_id = user.id
 
             from backend.app.services.teams import check_user_predict_permission
             if not check_user_predict_permission(db, user.id, req.deployment_id):
@@ -810,6 +812,8 @@ def api_predict(req: PredictRequest, x_api_key: str = fastapi.Header(None, alias
             raise HTTPException(status_code=500, detail=f"Deployment has an unrecognized input_type: {input_type!r}")
 
         url = f"http://{deployment.name}.default.svc.cluster.local"
+        import time
+        request_started_at = time.time()
 
         try:
             if deployment.model_type == "custom":
@@ -860,6 +864,39 @@ def api_predict(req: PredictRequest, x_api_key: str = fastapi.Header(None, alias
             # way, not just model-service's own hardcoded pipeline.
             from backend.app.services import drift_tracker
             drift_tracker.record_prediction(req.deployment_id, result, len(req.text) if req.text else 0)
+
+            # Prediction history (PredictionLog, "prediction_logs" table) -
+            # one row per call, the durable record behind both the member
+            # "History" view and the admin-wide one. file inputs store a
+            # size marker rather than the raw payload (base64 images/audio
+            # would otherwise make this table the single fastest-growing
+            # thing in the database); text/json store the real input,
+            # since that's the whole point of a history someone can
+            # actually consult. Never allowed to fail the prediction
+            # itself - a logging bug is not a reason to 503 a caller who
+            # already got a valid result.
+            try:
+                import json
+                if input_type == "text":
+                    input_repr = req.text
+                elif input_type == "json":
+                    input_repr = json.dumps(req.data)
+                else:
+                    input_repr = f"[file upload, {len(req.file) if req.file else 0} base64 chars]"
+                from backend.app.db.models import PredictionLog
+                db.add(PredictionLog(
+                    deployment_id=req.deployment_id,
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                    api_key_id=api_key.id if api_key else None,
+                    input=input_repr,
+                    output=json.dumps(result),
+                    latency_ms=(time.time() - request_started_at) * 1000,
+                ))
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                print(f"[prediction_logs] warning: could not record prediction history: {e}", flush=True)
 
             return {
                 "workspace_id": workspace_id,
@@ -948,6 +985,49 @@ def api_predict_explain(req: PredictionExplainRequest, x_api_key: str = fastapi.
             req.text, req.data, req.labels, req.result,
         )
         return {"explanation": explanation}
+    finally:
+        db.close()
+
+@app.get("/api/v1/predictions/mine")
+def my_predictions(authorization: str = fastapi.Header(None)):
+    """The member-facing /app/history page's data source (member_pages.py)
+    - every prediction this user has personally made (PredictionLog.
+    user_id set - see api_predict's log write above), across every model
+    they've used, most recent first. Capped at 200 rows: same no-server-
+    pagination posture as /tickets/my and the Deployments table (a client-
+    side filter box, not a paged query) - 200 is far past what anyone
+    actually scrolls through, just a floor against an unbounded query for
+    a very active caller."""
+    from backend.app.database import SessionLocal
+    from backend.app.db.models import PredictionLog, Deployment
+
+    db = SessionLocal()
+    try:
+        user, db = get_verified_user(authorization, db)
+        rows = (
+            db.query(PredictionLog)
+            .filter(PredictionLog.user_id == user.id)
+            .order_by(PredictionLog.created_at.desc())
+            .limit(200)
+            .all()
+        )
+        deployment_ids = {r.deployment_id for r in rows}
+        deployments = {
+            d.id: d for d in db.query(Deployment).filter(Deployment.id.in_(deployment_ids)).all()
+        } if deployment_ids else {}
+        return [
+            {
+                "id": r.id,
+                "deployment_id": r.deployment_id,
+                "model_name": deployments[r.deployment_id].model_name if r.deployment_id in deployments else "Unknown model",
+                "task_type": deployments[r.deployment_id].task_type if r.deployment_id in deployments else "",
+                "input": r.input,
+                "output": r.output,
+                "latency_ms": r.latency_ms,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in rows
+        ]
     finally:
         db.close()
 
@@ -2110,6 +2190,60 @@ def admin_get_tickets(status: str = None, authorization: str = fastapi.Header(No
     finally:
         db.close()
 
+@app.get("/admin/predictions")
+def admin_get_predictions(authorization: str = fastapi.Header(None)):
+    """The admin-facing /admin/history page's data source (admin_pages.py)
+    - every PredictionLog row, no user_id filter (the member-facing
+    GET /api/v1/predictions/mine is the same table, scoped to the
+    caller). Capped at 500 rather than /predictions/mine's 200 - this is
+    already the cross-everyone view an admin explicitly opened to audit,
+    not a personal list, so it can afford a wider floor before the same
+    unbounded-query concern kicks in."""
+    from backend.app.database import SessionLocal
+    from backend.app.services.auth import decode_token
+    from backend.app.db.models import User, PredictionLog, Deployment, WorkspaceApiKey
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    payload = decode_token(authorization.split(" ")[1])
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.id == int(payload["sub"])).first()
+        if not admin or not admin.is_admin:
+            raise HTTPException(status_code=403, detail="Admin required")
+
+        rows = db.query(PredictionLog).order_by(PredictionLog.created_at.desc()).limit(500).all()
+        deployment_ids = {r.deployment_id for r in rows}
+        user_ids = {r.user_id for r in rows if r.user_id}
+        api_key_ids = {r.api_key_id for r in rows if r.api_key_id}
+        deployments = {d.id: d for d in db.query(Deployment).filter(Deployment.id.in_(deployment_ids)).all()} if deployment_ids else {}
+        users = {u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()} if user_ids else {}
+        api_keys = {k.id: k for k in db.query(WorkspaceApiKey).filter(WorkspaceApiKey.id.in_(api_key_ids)).all()} if api_key_ids else {}
+
+        def caller_label(r):
+            if r.user_id and r.user_id in users:
+                return users[r.user_id].name
+            if r.api_key_id and r.api_key_id in api_keys:
+                return f"{api_keys[r.api_key_id].name} (API key)"
+            return "Unknown"
+
+        return [
+            {
+                "id": r.id,
+                "deployment_id": r.deployment_id,
+                "model_name": deployments[r.deployment_id].model_name if r.deployment_id in deployments else "Unknown model",
+                "caller": caller_label(r),
+                "input": r.input,
+                "output": r.output,
+                "latency_ms": r.latency_ms,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in rows
+        ]
+    finally:
+        db.close()
+
 @app.patch("/admin/tickets/{ticket_id}")
 def admin_update_ticket(ticket_id: int, req: TicketUpdate, authorization: str = fastapi.Header(None)):
     from backend.app.database import SessionLocal
@@ -2726,21 +2860,21 @@ def dashboard():
 
   <h2>Live metrics</h2>
   <div class="metrics-grid">
-    <div class="metric-card"><p class="metric-val" id="m-rate">—</p><p class="metric-lbl">Predictions / min</p></div>
-    <div class="metric-card"><p class="metric-val" id="m-latency">—</p><p class="metric-lbl">p95 latency ms</p></div>
-    <div class="metric-card"><p class="metric-val" id="m-drift">—</p><p class="metric-lbl">Drift score</p></div>
-    <div class="metric-card"><p class="metric-val" id="m-total">—</p><p class="metric-lbl">Total predictions</p></div>
+    <div class="metric-card"><p class="metric-val" id="m-rate">N/A</p><p class="metric-lbl">Predictions / min</p></div>
+    <div class="metric-card"><p class="metric-val" id="m-latency">N/A</p><p class="metric-lbl">p95 latency ms</p></div>
+    <div class="metric-card"><p class="metric-val" id="m-drift">N/A</p><p class="metric-lbl">Drift score</p></div>
+    <div class="metric-card"><p class="metric-val" id="m-total">N/A</p><p class="metric-lbl">Total predictions</p></div>
   </div>
   <div class="gauge-row">
     <div class="gauge-card">
       <div class="gauge-label">Node CPU usage</div>
       <div class="gauge-bar-bg"><div class="gauge-bar" id="cpu-bar" style="width:0%;background:#7eb8f7"></div></div>
-      <div class="gauge-val" id="cpu-val">—</div>
+      <div class="gauge-val" id="cpu-val">N/A</div>
     </div>
     <div class="gauge-card">
       <div class="gauge-label">Node memory usage</div>
       <div class="gauge-bar-bg"><div class="gauge-bar" id="mem-bar" style="width:0%;background:#7ef7a0"></div></div>
-      <div class="gauge-val" id="mem-val">—</div>
+      <div class="gauge-val" id="mem-val">N/A</div>
     </div>
   </div>
   <div class="chart-wrap">
@@ -2796,7 +2930,7 @@ def dashboard():
     const W=360;
     let driftChart=null;
     function fmt(ts){return new Date(ts*1000).toLocaleString();}
-    function fmtN(n,dec=1){return (isNaN(n)||n===null||n===undefined)?'—':Number(n).toFixed(dec);}
+    function fmtN(n,dec=1){return (isNaN(n)||n===null||n===undefined)?'N/A':Number(n).toFixed(dec);}
 
     function initChart(){
       const ctx=document.getElementById('drift-chart').getContext('2d');
@@ -2812,9 +2946,9 @@ def dashboard():
         const r=await fetch('/metrics-summary');
         const d=await r.json();
         document.getElementById('m-rate').textContent=fmtN(d.prediction_rate_5m,1);
-        document.getElementById('m-latency').textContent=d.latency_p95>0?fmtN(d.latency_p95*1000,0):'—';
+        document.getElementById('m-latency').textContent=d.latency_p95>0?fmtN(d.latency_p95*1000,0):'N/A';
         document.getElementById('m-drift').textContent=fmtN(d.drift_score,3);
-        document.getElementById('m-total').textContent=Math.round(d.predictions_total)||'—';
+        document.getElementById('m-total').textContent=Math.round(d.predictions_total)||'N/A';
         const cpu=Math.round(d.node_cpu_percent||0);
         const mu=d.node_memory_used_gb||0;
         const mt=d.node_memory_total_gb||12;

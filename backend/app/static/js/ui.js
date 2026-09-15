@@ -188,16 +188,16 @@ const UI = (() => {
 
   /* ---- Formatters --------------------------------------------------------*/
   function fmtDate(value) {
-    if (!value) return "—";
+    if (!value) return "N/A";
     const d = new Date(value.endsWith ? (value.endsWith("Z") ? value : value + "Z") : value);
-    if (isNaN(d.getTime())) return "—";
+    if (isNaN(d.getTime())) return "N/A";
     return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   }
 
   function timeAgo(value) {
-    if (!value) return "—";
+    if (!value) return "N/A";
     const d = new Date(value.endsWith ? (value.endsWith("Z") ? value : value + "Z") : value);
-    if (isNaN(d.getTime())) return "—";
+    if (isNaN(d.getTime())) return "N/A";
     const seconds = Math.max(0, (Date.now() - d.getTime()) / 1000);
     if (seconds < 60) return "just now";
     const mins = Math.floor(seconds / 60);

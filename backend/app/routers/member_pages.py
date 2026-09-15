@@ -438,8 +438,7 @@ def member_model_detail_page(deployment_id: int):
     body = """
 <div id="page-content" hidden>
   <div class="page-max">
-    <a href="/app/models" class="link-secondary" style="font-size:var(--text-sm)">&larr; My Models</a>
-    <div id="model-detail" style="margin-top:var(--space-4)"></div>
+    <div id="model-detail"></div>
   </div>
 </div>
 <div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
@@ -705,6 +704,166 @@ def member_tickets_page():
 
 
 # =========================================================================
+# History - /app/history
+# =========================================================================
+
+@router.get("/app/history", response_class=HTMLResponse)
+def member_history_page():
+    """This member's own past predictions (GET /api/v1/predictions/mine -
+    PredictionLog rows written by api_predict itself, main.py), across
+    every model they've used, most recent first. Same DS look as Tickets/
+    API Keys (page-header, table, modal for detail) without sharing a
+    fragment - same call this codebase already made for every member
+    page that doesn't need admin's cross-user view.
+
+    A plain filterable table rather than a chat-bubble layout - "history
+    like a chat history" was the ask, but a table stays consistent with
+    every other list in this platform (Deployments, Tickets, API Keys)
+    instead of introducing a one-off visual pattern; the filter box plus
+    click-to-expand modal gets the same "consult whenever you want"
+    outcome. Filtering (by model name or input text) is client-side,
+    same as Deployments' dep-filter - GET /predictions/mine already
+    returns this member's full (capped) history in one call, no server-
+    side search to build."""
+    body = """
+<div id="page-content" hidden>
+  <div class="page-max">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">History</h1>
+        <div class="page-description">Your own past predictions, across every model you've used.</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-secondary btn-sm" id="refresh-btn" type="button">Refresh</button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <span class="input-group" style="flex:1 1 220px">
+        <svg class="input-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m11 11 3 3"/></svg>
+        <input class="input" id="hist-filter" type="text" placeholder="Filter by model or input" autocomplete="off" style="flex:1;min-width:0">
+      </span>
+      <span class="toolbar-spacer"></span>
+      <span class="text-muted" id="hist-count" style="font-size:var(--text-xs);flex-shrink:0"></span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Model</th><th>Input</th><th>Result</th><th class="num">Latency</th><th>When</th></tr></thead>
+        <tbody id="history-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
+"""
+
+    script = """
+<script>
+  let historyRows = [];
+
+  function truncate(s, n) {
+    s = String(s == null ? '' : s);
+    return s.length > n ? s.slice(0, n) + '\\u2026' : s;
+  }
+
+  // input/output are stored as plain strings (input) / JSON text
+  // (output) - see api_predict's log write in main.py. Pretty-printed
+  // when it parses as JSON, shown as-is otherwise (a text-input's input
+  // field is never JSON to begin with).
+  function prettyJson(s) {
+    try { return JSON.stringify(JSON.parse(s), null, 2); } catch (e) { return s; }
+  }
+
+  async function loadHistory() {
+    const body = document.getElementById('history-body');
+    body.innerHTML = UI.skeletonRows(6, 5);
+    try {
+      historyRows = await Api.get('/api/v1/predictions/mine');
+      renderHistoryRows();
+    } catch (e) {
+      historyRows = [];
+      body.innerHTML = '<tr><td colspan="5">' + UI.errorState(e.message, loadHistory) + '</td></tr>';
+      document.getElementById('hist-count').textContent = '';
+    }
+  }
+
+  function renderHistoryRows() {
+    const body = document.getElementById('history-body');
+    const countEl = document.getElementById('hist-count');
+    const q = (document.getElementById('hist-filter').value || '').trim().toLowerCase();
+
+    if (!historyRows.length) {
+      body.innerHTML = '<tr><td colspan="5">' + UI.emptyState('No predictions yet', 'Try a model from My Models - every prediction you make shows up here.') + '</td></tr>';
+      countEl.textContent = '';
+      return;
+    }
+
+    const rows = q
+      ? historyRows.filter(r =>
+          (r.model_name || '').toLowerCase().includes(q) ||
+          (r.input || '').toLowerCase().includes(q))
+      : historyRows;
+
+    countEl.textContent = q
+      ? rows.length + ' of ' + historyRows.length
+      : historyRows.length + (historyRows.length === 1 ? ' prediction' : ' predictions');
+
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="5">' + UI.emptyState('No matches', 'No prediction matches that filter.') + '</td></tr>';
+      return;
+    }
+
+    body.innerHTML = rows.map(r =>
+      '<tr class="is-interactive" data-open-prediction="' + r.id + '">' +
+      '<td><span class="chip-mono">' + UI.escapeHtml(r.model_name) + '</span></td>' +
+      '<td class="text-secondary" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + UI.escapeHtml(truncate(r.input, 80)) + '</td>' +
+      '<td class="text-secondary" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + UI.escapeHtml(truncate(r.output, 60)) + '</td>' +
+      '<td class="num text-secondary">' + (r.latency_ms != null ? Math.round(r.latency_ms) + 'ms' : '\\u2014') + '</td>' +
+      '<td class="text-secondary">' + UI.timeAgo(r.created_at) + '</td>' +
+      '</tr>'
+    ).join('');
+    body.querySelectorAll('[data-open-prediction]').forEach(row => {
+      row.addEventListener('click', () => viewPrediction(row.dataset.openPrediction));
+    });
+  }
+
+  function viewPrediction(id) {
+    const r = historyRows.find(x => String(x.id) === String(id));
+    if (!r) return;
+    const overlay = UI.openModal({
+      title: r.model_name,
+      bodyHtml: `
+        <div class="text-muted" style="font-size:var(--text-xs);margin-bottom:.75rem">${UI.fmtDate(r.created_at)}${r.latency_ms != null ? ' \\u00b7 ' + Math.round(r.latency_ms) + 'ms' : ''}</div>
+        <div class="section-label" style="margin-top:0">Input</div>
+        <div class="panel mono" style="font-size:var(--text-xs);white-space:pre-wrap;margin-bottom:.75rem">${UI.escapeHtml(prettyJson(r.input))}</div>
+        <div class="section-label">Result</div>
+        <div class="panel mono" style="font-size:var(--text-xs);white-space:pre-wrap">${UI.escapeHtml(prettyJson(r.output))}</div>
+      `,
+      footerHtml: `<button class="btn btn-secondary" id="hist-close" type="button">Close</button>`,
+    });
+    overlay.querySelector('#hist-close').addEventListener('click', UI.closeModal);
+  }
+
+  document.getElementById('refresh-btn').addEventListener('click', () => loadHistory());
+  document.getElementById('hist-filter').addEventListener('input', renderHistoryRows);
+</script>"""
+
+    ready = "loadHistory();"
+
+    html = (
+        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+        "<title>History - Vela</title>\n" + DS_ASSETS + "\n</head>\n<body>\n"
+        + body
+        + "\n" + _SCRIPTS + "\n" + script
+        + _boot_script("/app/history", "History", ready)
+        + "\n</body>\n</html>"
+    )
+    return html
+
+
+# =========================================================================
 # API Keys - /app/api-keys
 # =========================================================================
 
@@ -944,7 +1103,7 @@ def member_api_keys_page():
     }
 
     const options = cachedModels.map((m, i) =>
-      '<option value="' + i + '">' + UI.escapeHtml(m.model_name) + ' &mdash; ' + UI.escapeHtml(m.team_name) + '</option>'
+      '<option value="' + i + '">' + UI.escapeHtml(m.model_name) + ' &middot; ' + UI.escapeHtml(m.team_name) + '</option>'
     ).join('');
 
     body.innerHTML = `
@@ -1012,7 +1171,7 @@ def member_api_keys_page():
     if (titleEl) titleEl.textContent = 'Copy your API key';
     body.innerHTML = `
       <div class="alert alert-warning" style="margin-bottom:var(--space-3)">
-        <div><div class="alert-title">Shown once</div>This key will not be shown again once you close this panel &mdash; copy it now.</div></div>
+        <div><div class="alert-title">Shown once</div>This key will not be shown again once you close this panel. Copy it now.</div></div>
       </div>
       <div class="field">
         <label class="field-label">${UI.escapeHtml(result.name)}</label>
@@ -1234,11 +1393,11 @@ def member_settings_page():
     <div class="card" style="margin-bottom:var(--space-6)">
       <div style="display:flex;justify-content:space-between;align-items:center;padding:.45rem 0;border-bottom:var(--border-width) solid var(--border-subtle)">
         <span class="text-secondary" style="font-size:var(--text-sm)">Username</span>
-        <span id="acc-username" style="font-size:var(--text-sm)">&mdash;</span>
+        <span id="acc-username" style="font-size:var(--text-sm)">N/A</span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;padding:.45rem 0;border-bottom:var(--border-width) solid var(--border-subtle)">
         <span class="text-secondary" style="font-size:var(--text-sm)">Name</span>
-        <span id="acc-name" style="font-size:var(--text-sm)">&mdash;</span>
+        <span id="acc-name" style="font-size:var(--text-sm)">N/A</span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;padding:.45rem 0">
         <span class="text-secondary" style="font-size:var(--text-sm)">Role</span>

@@ -58,7 +58,7 @@ const Monitoring = (() => {
   let performanceBuiltFor = null; // entry.key, or "no-data:<key>" - see loadPerformanceAndDrift()
 
   function fmtN(n, dec = 1) {
-    return n == null || isNaN(n) ? "—" : Number(n).toFixed(dec);
+    return n == null || isNaN(n) ? "N/A" : Number(n).toFixed(dec);
   }
 
   function median(values) {
@@ -265,7 +265,7 @@ const Monitoring = (() => {
       '<div class="panel">' +
       '<div class="eyebrow" style="margin-bottom:var(--space-2)">' + title + '</div>' +
       '<div class="chart-canvas-wrap"><canvas id="' + canvasId + '"></canvas></div>' +
-      '<div class="metric-strip-value" id="' + metaId + '" style="margin-top:var(--space-2)">&mdash;</div>' +
+      '<div class="metric-strip-value" id="' + metaId + '" style="margin-top:var(--space-2)">N/A</div>' +
       legend +
       "</div>"
     );
@@ -370,7 +370,7 @@ const Monitoring = (() => {
         const d = deployments.find((x) => x.name === entry.deploymentName);
         const status = d ? d.status : entry.status || "unknown";
         badgeEl.innerHTML = UI.statusBadge(status);
-        statsEl.innerHTML = statLine(d ? d.ready + "/" + d.desired : "—", "Replicas ready");
+        statsEl.innerHTML = statLine(d ? d.ready + "/" + d.desired : "N/A", "Replicas ready");
       }
     } catch (e) {
       statsEl.innerHTML = UI.errorState(e.message);
@@ -400,12 +400,12 @@ const Monitoring = (() => {
   // ================================================================
 
   function fmtEpoch(sec) {
-    if (!sec) return "—";
+    if (!sec) return "N/A";
     return new Date(sec * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   }
 
   function timeAgoEpoch(sec) {
-    if (!sec) return "—";
+    if (!sec) return "N/A";
     const seconds = Math.max(0, Date.now() / 1000 - sec);
     if (seconds < 60) return "just now";
     const mins = Math.floor(seconds / 60);
@@ -550,7 +550,7 @@ const Monitoring = (() => {
     const columns = details.columns || [];
     const share = metrics.drift_score;
 
-    document.getElementById("d-share").textContent = share == null ? "—" : (share * 100).toFixed(1) + "%";
+    document.getElementById("d-share").textContent = share == null ? "N/A" : (share * 100).toFixed(1) + "%";
     document.getElementById("d-computed").textContent = details.computed_at ? fmtEpoch(details.computed_at) + " (" + timeAgoEpoch(details.computed_at) + ")" : "No computation yet";
 
     // Amber surface if drifted, grey if normal (spec) - same signal the

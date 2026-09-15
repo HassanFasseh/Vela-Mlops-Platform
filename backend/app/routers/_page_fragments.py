@@ -56,7 +56,7 @@ MONITORING_BODY = """
     <div class="panel" style="display:flex;align-items:center;gap:var(--space-4);flex-wrap:wrap;padding:var(--space-3) var(--space-4);margin-bottom:var(--space-3)">
       <div id="model-picker"></div>
       <div id="model-identity" style="display:flex;align-items:center;gap:var(--space-2);flex:1;min-width:0;padding-left:var(--space-4);border-left:var(--border-width) solid var(--border-subtle)">
-        <span class="card-title" id="mh-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">&mdash;</span>
+        <span class="card-title" id="mh-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">N/A</span>
         <span id="mh-status-badge"></span>
         <span class="text-muted" id="mh-task" style="font-size:var(--text-xs);white-space:nowrap"></span>
       </div>
@@ -67,7 +67,7 @@ MONITORING_BODY = """
     <div id="model-content" hidden>
       <div class="metric-strip" id="mh-status-stats" style="margin-bottom:var(--space-2)">
         <span id="mh-health-stats" style="display:contents"></span>
-        <div class="metric-strip-item"><div class="metric-strip-value" id="mh-drift-value">&mdash;</div><div class="metric-strip-label">Drift</div></div>
+        <div class="metric-strip-item"><div class="metric-strip-value" id="mh-drift-value">N/A</div><div class="metric-strip-label">Drift</div></div>
       </div>
       <div style="margin-bottom:var(--space-3)">
         <a class="link-action" style="font-size:var(--text-xs)" href="#drift-section">Full drift analysis &darr;</a>
@@ -84,8 +84,8 @@ MONITORING_BODY = """
           <!-- Plain text line, not a stat card - the signal bars below are
                the primary element on this page (spec). -->
           <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-1)">
-            <span id="d-share" class="mono" style="font-weight:var(--fw-semibold);color:var(--text)">&mdash;</span> of tracked features drifted &middot;
-            last computed <span id="d-computed">&mdash;</span>
+            <span id="d-share" class="mono" style="font-weight:var(--fw-semibold);color:var(--text)">N/A</span> of tracked features drifted &middot;
+            last computed <span id="d-computed">N/A</span>
           </p>
           <div class="text-secondary" id="d-since" style="font-size:var(--text-sm);margin-bottom:var(--space-4)"></div>
 
@@ -185,11 +185,11 @@ SETTINGS_BODY = """
     <div class="card" style="margin-bottom:var(--space-5)">
       <div style="display:flex;justify-content:space-between;padding:.45rem 0;border-bottom:1px solid var(--color-border-subtle)">
         <span class="text-secondary" style="font-size:var(--text-sm)">Username</span>
-        <span id="acc-username" style="font-size:var(--text-sm)">&mdash;</span>
+        <span id="acc-username" style="font-size:var(--text-sm)">N/A</span>
       </div>
       <div style="display:flex;justify-content:space-between;padding:.45rem 0;border-bottom:1px solid var(--color-border-subtle)">
         <span class="text-secondary" style="font-size:var(--text-sm)">Name</span>
-        <span id="acc-name" style="font-size:var(--text-sm)">&mdash;</span>
+        <span id="acc-name" style="font-size:var(--text-sm)">N/A</span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;padding:.45rem 0">
         <span class="text-secondary" style="font-size:var(--text-sm)">Role</span>

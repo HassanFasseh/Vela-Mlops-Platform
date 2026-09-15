@@ -119,7 +119,7 @@ def admin_overview_page():
 
     script = """
 <script>
-  function fmtPct(x) { return (x == null || isNaN(x)) ? '—' : (x * 100).toFixed(1) + '%'; }
+  function fmtPct(x) { return (x == null || isNaN(x)) ? 'N/A' : (x * 100).toFixed(1) + '%'; }
 
   let overviewRows = [];
   let managementApiKey = '';
@@ -213,7 +213,7 @@ def admin_overview_page():
     const el = document.getElementById('drift-banner');
     if ((metrics.drift_score || 0) <= 0.3) { el.innerHTML = ''; return; }
     el.innerHTML = '<div class="banner-strip is-warning">Elevated drift detected across the platform (' +
-      fmtPct(metrics.drift_score) + ' of tracked features) &mdash; <a href="/admin/monitoring#drift-section">Investigate &rarr;</a></div>';
+      fmtPct(metrics.drift_score) + ' of tracked features). <a href="/admin/monitoring#drift-section">Investigate &rarr;</a></div>';
   }
 
   function renderModelHealth(rows) {
@@ -537,7 +537,7 @@ def admin_users_page():
   // (the Status column below).
   function renderUserRow(u) {
     const teams = teamsForUser(u.id);
-    const teamBadges = teams.length ? teams.map(t => UI.badge(t, 'neutral')).join(' ') : '<span class="text-muted">—</span>';
+    const teamBadges = teams.length ? teams.map(t => UI.badge(t, 'neutral')).join(' ') : '<span class="text-muted">N/A</span>';
     const isSelf = currentUser && u.id === currentUser.id;
     let action;
     if (isSelf) {
@@ -567,7 +567,7 @@ def admin_users_page():
       title: 'Deactivate ' + username,
       bodyHtml: `
         <div class="alert alert-warning">
-          <div><div class="alert-title">${UI.escapeHtml(username)} will be signed out</div>They won't be able to log in until reactivated &mdash; this can be undone at any time.</div></div>
+          <div><div class="alert-title">${UI.escapeHtml(username)} will be signed out</div>They won't be able to log in until reactivated. This can be undone at any time.</div></div>
         </div>
       `,
       footerHtml: `<button class="btn btn-ghost" id="deact-cancel" type="button">Cancel</button>
@@ -920,7 +920,7 @@ def admin_teams_page():
     const modelCount = (t.permissions || []).length;
     return '<tr>' +
       '<td>' + UI.escapeHtml(t.name) + '</td>' +
-      '<td class="text-secondary">' + (t.description ? UI.escapeHtml(t.description) : '<span class="text-muted">—</span>') + '</td>' +
+      '<td class="text-secondary">' + (t.description ? UI.escapeHtml(t.description) : '<span class="text-muted">N/A</span>') + '</td>' +
       '<td class="num">' + memberCount + '</td>' +
       '<td class="num">' + modelCount + '</td>' +
       '<td class="num"><button class="link-action" data-manage-team="' + t.id + '" type="button">Manage</button></td>' +
@@ -1410,8 +1410,8 @@ def admin_tickets_page():
       '<td>' + UI.badge(t.ticket_type, 'neutral') + '</td>' +
       '<td>' + ticketSeverityDot(t.severity) + '</td>' +
       '<td>' + UI.statusBadge(t.status) + '</td>' +
-      '<td class="text-secondary">' + UI.escapeHtml(t.model_name || t.deployment_name || '—') + '</td>' +
-      '<td class="text-secondary">' + UI.escapeHtml(t.team_name || '—') + '</td>' +
+      '<td class="text-secondary">' + UI.escapeHtml(t.model_name || t.deployment_name || 'N/A') + '</td>' +
+      '<td class="text-secondary">' + UI.escapeHtml(t.team_name || 'N/A') + '</td>' +
       '<td class="text-secondary">' + UI.escapeHtml(t.filed_by_name) + '</td>' +
       '<td class="text-secondary">' + UI.timeAgo(t.filed_at) + '</td>' +
       '<td><button class="btn btn-ghost btn-sm" data-open-ticket-btn="' + t.id + '" type="button">View</button></td>' +
@@ -1489,6 +1489,178 @@ def admin_tickets_page():
         + body
         + "\n" + _SCRIPTS + "\n" + script
         + _boot_script("/admin/tickets-page", "Tickets", ready)
+        + "\n</body>\n</html>"
+    )
+    return html
+
+
+# =========================================================================
+# History - /admin/history
+# =========================================================================
+
+@router.get("/admin/history", response_class=HTMLResponse)
+def admin_history_page():
+    """Every user's predictions, admin-wide - the counterpart to member's
+    own /app/history (member_pages.py), same PredictionLog table but
+    without the user_id filter, plus who made each one. Same DS look and
+    the same table+filter+modal shape as admin's own Tickets page right
+    above (filter box, a model dropdown, click a row for detail) - read-
+    only here since a prediction has no status/workflow to edit, unlike
+    a ticket."""
+    body = """
+<div id="page-content" hidden>
+  <div class="page-max">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">History</h1>
+        <div class="page-description">Every prediction made across every workspace, and who made it.</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-secondary btn-sm" id="refresh-btn" type="button">Refresh</button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <span class="input-group" style="flex:1 1 220px">
+        <svg class="input-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m11 11 3 3"/></svg>
+        <input class="input" id="hist-filter" type="text" placeholder="Filter by model, caller or input" autocomplete="off" style="flex:1;min-width:0">
+      </span>
+      <select class="select" id="hist-model-filter" aria-label="Filter by model">
+        <option value="">All models</option>
+      </select>
+      <span class="toolbar-spacer"></span>
+      <span class="text-muted" id="hist-count" style="font-size:var(--text-xs);flex-shrink:0"></span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="table" style="min-width:680px">
+        <thead><tr><th>Model</th><th>Caller</th><th>Input</th><th>Result</th><th class="num">Latency</th><th>When</th></tr></thead>
+        <tbody id="history-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<div id="loading-root" style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:var(--text-sm)">Loading&hellip;</div>
+"""
+
+    script = """
+<script>
+  let allHistory = [];
+
+  function initHistory() {
+    document.getElementById('refresh-btn').addEventListener('click', () => loadHistory());
+    document.getElementById('hist-filter').addEventListener('input', renderHistory);
+    document.getElementById('hist-model-filter').addEventListener('change', renderHistory);
+    loadHistory();
+  }
+
+  function truncate(s, n) {
+    s = String(s == null ? '' : s);
+    return s.length > n ? s.slice(0, n) + '\\u2026' : s;
+  }
+
+  function prettyJson(s) {
+    try { return JSON.stringify(JSON.parse(s), null, 2); } catch (e) { return s; }
+  }
+
+  async function loadHistory() {
+    const body = document.getElementById('history-body');
+    body.innerHTML = UI.skeletonRows(9, 6);
+    try {
+      allHistory = await Api.get('/admin/predictions');
+      renderModelFilterOptions();
+      renderHistory();
+    } catch (e) {
+      allHistory = [];
+      body.innerHTML = '<tr><td colspan="6">' + UI.errorState(e.message, loadHistory) + '</td></tr>';
+      const countEl = document.getElementById('hist-count');
+      if (countEl) countEl.textContent = '';
+    }
+  }
+
+  // Same data-driven-options pattern as admin Tickets' model dropdown -
+  // rebuilt on every load, current selection kept if still valid.
+  function renderModelFilterOptions() {
+    const sel = document.getElementById('hist-model-filter');
+    const current = sel.value;
+    const names = Array.from(new Set(allHistory.map(r => r.model_name).filter(Boolean))).sort();
+    sel.innerHTML = '<option value="">All models</option>' + names.map(n => '<option value="' + UI.escapeHtml(n) + '">' + UI.escapeHtml(n) + '</option>').join('');
+    if (names.includes(current)) sel.value = current;
+  }
+
+  function renderHistory() {
+    const body = document.getElementById('history-body');
+    const countEl = document.getElementById('hist-count');
+    const q = (document.getElementById('hist-filter').value || '').trim().toLowerCase();
+    const model = document.getElementById('hist-model-filter').value;
+
+    if (!allHistory.length) {
+      body.innerHTML = '<tr><td colspan="6">' + UI.emptyState('No predictions yet', 'Predictions made across the platform will show up here.') + '</td></tr>';
+      if (countEl) countEl.textContent = '';
+      return;
+    }
+
+    const rows = allHistory.filter(r => {
+      if (model && r.model_name !== model) return false;
+      if (!q) return true;
+      return (r.model_name || '').toLowerCase().includes(q)
+        || (r.caller || '').toLowerCase().includes(q)
+        || (r.input || '').toLowerCase().includes(q);
+    });
+
+    if (countEl) {
+      countEl.textContent = (q || model)
+        ? rows.length + ' of ' + allHistory.length
+        : allHistory.length + (allHistory.length === 1 ? ' prediction' : ' predictions');
+    }
+
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="6">' + UI.emptyState('No matches', 'No prediction matches these filters.') + '</td></tr>';
+      return;
+    }
+
+    body.innerHTML = rows.map(r =>
+      '<tr class="is-interactive" data-open-prediction="' + r.id + '">' +
+      '<td><span class="chip-mono">' + UI.escapeHtml(r.model_name) + '</span></td>' +
+      '<td class="text-secondary">' + UI.escapeHtml(r.caller) + '</td>' +
+      '<td class="text-secondary" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + UI.escapeHtml(truncate(r.input, 60)) + '</td>' +
+      '<td class="text-secondary" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + UI.escapeHtml(truncate(r.output, 50)) + '</td>' +
+      '<td class="num text-secondary">' + (r.latency_ms != null ? Math.round(r.latency_ms) + 'ms' : '\\u2014') + '</td>' +
+      '<td class="text-secondary">' + UI.timeAgo(r.created_at) + '</td>' +
+      '</tr>'
+    ).join('');
+    body.querySelectorAll('[data-open-prediction]').forEach(row => {
+      row.addEventListener('click', () => viewPrediction(row.dataset.openPrediction));
+    });
+  }
+
+  function viewPrediction(id) {
+    const r = allHistory.find(x => String(x.id) === String(id));
+    if (!r) return;
+    const overlay = UI.openModal({
+      title: r.model_name,
+      bodyHtml: `
+        <div class="text-muted" style="font-size:var(--text-xs);margin-bottom:.75rem">${UI.escapeHtml(r.caller)} &middot; ${UI.fmtDate(r.created_at)}${r.latency_ms != null ? ' \\u00b7 ' + Math.round(r.latency_ms) + 'ms' : ''}</div>
+        <div class="section-label" style="margin-top:0">Input</div>
+        <div class="panel mono" style="font-size:var(--text-xs);white-space:pre-wrap;margin-bottom:.75rem">${UI.escapeHtml(prettyJson(r.input))}</div>
+        <div class="section-label">Result</div>
+        <div class="panel mono" style="font-size:var(--text-xs);white-space:pre-wrap">${UI.escapeHtml(prettyJson(r.output))}</div>
+      `,
+      footerHtml: `<button class="btn btn-secondary" id="hist-close" type="button">Close</button>`,
+    });
+    overlay.querySelector('#hist-close').addEventListener('click', UI.closeModal);
+  }
+</script>"""
+
+    ready = "initHistory();"
+
+    html = (
+        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+        "<title>History - Vela Admin</title>\n" + DS_ASSETS + "\n</head>\n<body>\n"
+        + body
+        + "\n" + _SCRIPTS + "\n" + script
+        + _boot_script("/admin/history", "History", ready)
         + "\n</body>\n</html>"
     )
     return html
@@ -1760,7 +1932,7 @@ def admin_remediation_page():
       '<td class="mono">' + UI.escapeHtml(label) + '</td>' +
       '<td>' + c.drift_threshold + '</td>' +
       '<td><span class="chip-mono">' + UI.escapeHtml(c.action_type) + '</span></td>' +
-      '<td class="text-secondary" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + UI.escapeHtml(c.target || '—') + '</td>' +
+      '<td class="text-secondary" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + UI.escapeHtml(c.target || 'N/A') + '</td>' +
       '<td>' + UI.statusBadge(c.is_active ? 'active' : 'inactive') + '</td>' +
       '<td class="text-secondary">' + (c.last_triggered_at ? UI.timeAgo(c.last_triggered_at) : 'Never') + '</td>' +
       '<td class="num"><button class="link-action" data-test="' + c.id + '" data-name="' + UI.escapeHtml(c.action_type) + ' for ' + UI.escapeHtml(label) + '" type="button">Test</button></td>' +
@@ -1802,7 +1974,7 @@ def admin_remediation_page():
       title: 'Test ' + name,
       bodyHtml: `
         <div class="alert alert-warning">
-          <div><div class="alert-title">This is not a dry run</div>This will really fire this config's action right now &mdash; e.g. open a real GitHub issue or POST to the real webhook &mdash; using test data (a fake deployment, drift score 0.99).</div></div>
+          <div><div class="alert-title">This is not a dry run</div>This will really fire this config's action right now (e.g. open a real GitHub issue or POST to the real webhook), using test data (a fake deployment, drift score 0.99).</div></div>
         </div>
       `,
       footerHtml: `<button class="btn btn-ghost" id="test-cancel" type="button">Cancel</button>
@@ -2054,11 +2226,11 @@ def admin_settings_page():
     <div class="card" style="margin-bottom:var(--space-6)">
       <div style="display:flex;justify-content:space-between;align-items:center;padding:.45rem 0;border-bottom:var(--border-width) solid var(--border-subtle)">
         <span class="text-secondary" style="font-size:var(--text-sm)">Username</span>
-        <span id="acc-username" style="font-size:var(--text-sm)">&mdash;</span>
+        <span id="acc-username" style="font-size:var(--text-sm)">N/A</span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;padding:.45rem 0;border-bottom:var(--border-width) solid var(--border-subtle)">
         <span class="text-secondary" style="font-size:var(--text-sm)">Name</span>
-        <span id="acc-name" style="font-size:var(--text-sm)">&mdash;</span>
+        <span id="acc-name" style="font-size:var(--text-sm)">N/A</span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;padding:.45rem 0">
         <span class="text-secondary" style="font-size:var(--text-sm)">Role</span>
@@ -2087,11 +2259,11 @@ def admin_settings_page():
       <p class="text-secondary" style="font-size:var(--text-sm);margin-bottom:var(--space-4)">
         Powers drift explanations on Model Health, and will power prediction
         explanations once that ships. Point this at an on-prem endpoint to
-        keep every call inside your own infrastructure &mdash; on-prem never
+        keep every call inside your own infrastructure: on-prem never
         falls back to an external provider if it fails.
       </p>
       <div class="text-muted" id="ai-unconfigured-note" style="font-size:var(--text-xs);margin-bottom:var(--space-3)" hidden>
-        Not yet configured &mdash; drift explanations currently fall back to
+        Not yet configured. Drift explanations currently fall back to
         the GROQ_API_KEY / GEMINI_API_KEY environment variables, if set.
       </div>
       <form id="ai-provider-form" novalidate>
@@ -2730,7 +2902,7 @@ def admin_deployments_page():
         <div class="field">
           <label class="field-label" for="cm-task-type">Task type <span class="field-optional">optional</span></label>
           <input class="input" id="cm-task-type" placeholder="e.g. fraud-detection, clinical-risk, tabular-classification">
-          <div class="field-hint">Free-text label for what the model does &mdash; shown on the Model Registry.</div>
+          <div class="field-hint">Free-text label for what the model does, shown on the Model Registry.</div>
         </div>
         <div class="field">
           <label class="field-label" for="cm-input-type">Input type</label>
@@ -2743,7 +2915,7 @@ def admin_deployments_page():
         <div class="field" id="cm-schema-field" hidden>
           <label class="field-label" for="cm-input-schema">Input schema</label>
           <textarea class="textarea" id="cm-input-schema" placeholder='{"age": "number", "income": "number", "risk_score": "number"}'></textarea>
-          <div class="field-hint">Describes the JSON fields callers should send &mdash; shown to them, not enforced.</div>
+          <div class="field-hint">Describes the JSON fields callers should send; shown to them, not enforced.</div>
         </div>
         <div class="field">
           <label class="field-label" for="cm-predict-file">predict.py</label>
@@ -2778,7 +2950,7 @@ def admin_deployments_page():
       <form class="form" id="image-deploy-form" novalidate hidden>
         <div class="alert alert-info" style="margin-bottom:var(--space-4)">
           <div><div class="alert-title">Bring your own image</div>
-          No build step &mdash; Vela deploys this image as-is. It must serve <code>GET /health</code>, <code>POST /predict</code>, and ideally <code>GET /metrics</code> on port 8000, using the same request/response shapes as the Custom model path (see its predict.py template for the exact JSON conventions).</div>
+          No build step. Vela deploys this image as-is. It must serve <code>GET /health</code>, <code>POST /predict</code>, and ideally <code>GET /metrics</code> on port 8000, using the same request/response shapes as the Custom model path (see its predict.py template for the exact JSON conventions).</div>
         </div>
         <div class="field">
           <label class="field-label" for="im-name">Deployment name</label>
@@ -2788,12 +2960,12 @@ def admin_deployments_page():
         <div class="field">
           <label class="field-label" for="im-image">Docker image</label>
           <input class="input" id="im-image" placeholder="ghcr.io/you/your-model:tag" required>
-          <div class="field-hint">Any pullable image reference. A private image needs to be on GHCR under this platform's own account &mdash; it reuses the existing pull credentials, there's no separate registry-credential form yet.</div>
+          <div class="field-hint">Any pullable image reference. A private image needs to be on GHCR under this platform's own account: it reuses the existing pull credentials, there's no separate registry-credential form yet.</div>
         </div>
         <div class="field">
           <label class="field-label" for="im-task-type">Task type <span class="field-optional">optional</span></label>
           <input class="input" id="im-task-type" placeholder="e.g. fraud-detection, clinical-risk, tabular-classification">
-          <div class="field-hint">Free-text label for what the model does &mdash; shown on the Model Registry.</div>
+          <div class="field-hint">Free-text label for what the model does, shown on the Model Registry.</div>
         </div>
         <div class="field">
           <label class="field-label" for="im-input-type">Input type</label>
@@ -2806,7 +2978,7 @@ def admin_deployments_page():
         <div class="field" id="im-schema-field" hidden>
           <label class="field-label" for="im-input-schema">Input schema</label>
           <textarea class="textarea" id="im-input-schema" placeholder='{"age": "number", "income": "number", "risk_score": "number"}'></textarea>
-          <div class="field-hint">Describes the JSON fields callers should send &mdash; shown to them, not enforced.</div>
+          <div class="field-hint">Describes the JSON fields callers should send; shown to them, not enforced.</div>
         </div>
         <div class="field-error" id="im-error" role="alert"></div>
         <div id="im-success" hidden style="margin-bottom:var(--space-3)"></div>
@@ -2999,7 +3171,7 @@ def admin_deployments_page():
     }
 
     body.innerHTML = rows.map(r =>
-      '<tr><td class="mono">' + UI.escapeHtml(r.name) + '</td><td class="text-secondary">' + UI.escapeHtml(r.model || '—') + '</td><td><span class="chip-mono">' + UI.escapeHtml(r.task) + '</span></td>' +
+      '<tr><td class="mono">' + UI.escapeHtml(r.name) + '</td><td class="text-secondary">' + UI.escapeHtml(r.model || 'N/A') + '</td><td><span class="chip-mono">' + UI.escapeHtml(r.task) + '</span></td>' +
       '<td>' + UI.statusBadge(r.status) + '</td><td class="num text-secondary">' + r.replicas + '</td><td class="text-secondary">' + UI.escapeHtml(r.model_type) + '</td></tr>'
     ).join('');
   }
@@ -3299,18 +3471,18 @@ def admin_infrastructure_page():
 
     <div class="grid-2" style="margin-bottom:var(--space-4)">
       <div class="panel">
-        <div class="meter-label" id="cpu-label"><span>Node CPU usage</span><span class="meter-value" id="cpu-val">&mdash;</span></div>
+        <div class="meter-label" id="cpu-label"><span>Node CPU usage</span><span class="meter-value" id="cpu-val">N/A</span></div>
         <div class="meter-track"><div class="meter-fill" id="cpu-fill" style="width:0%"></div></div>
       </div>
       <div class="panel">
-        <div class="meter-label" id="mem-label"><span>Node memory usage</span><span class="meter-value" id="mem-val">&mdash;</span></div>
+        <div class="meter-label" id="mem-label"><span>Node memory usage</span><span class="meter-value" id="mem-val">N/A</span></div>
         <div class="meter-track"><div class="meter-fill" id="mem-fill" style="width:0%"></div></div>
       </div>
     </div>
 
     <div class="metric-strip" style="margin-bottom:var(--space-5)">
-      <div class="metric-strip-item"><div class="metric-strip-value" id="pod-count">&mdash;</div><div class="metric-strip-label">Running instances</div></div>
-      <div class="metric-strip-item"><div class="metric-strip-value" id="uptime-val" style="font-size:var(--text-md)">&mdash;</div><div class="metric-strip-label">Uptime since last deploy</div></div>
+      <div class="metric-strip-item"><div class="metric-strip-value" id="pod-count">N/A</div><div class="metric-strip-label">Running instances</div></div>
+      <div class="metric-strip-item"><div class="metric-strip-value" id="uptime-val" style="font-size:var(--text-md)">N/A</div><div class="metric-strip-label">Uptime since last deploy</div></div>
     </div>
 
     <div class="section-label">Services</div>
@@ -3358,7 +3530,7 @@ def admin_infrastructure_page():
     if (labelEl) labelEl.className = 'meter-label';
   }
 
-  function fmtN(n, dec) { return (n == null || isNaN(n)) ? '—' : Number(n).toFixed(dec); }
+  function fmtN(n, dec) { return (n == null || isNaN(n)) ? 'N/A' : Number(n).toFixed(dec); }
 
   function meterVariant(pct) { return pct > 85 ? 'error' : pct > 65 ? 'warning' : null; }
 
@@ -3413,7 +3585,7 @@ def admin_infrastructure_page():
       ).join('');
     } catch (e) {
       body.innerHTML = '<tr><td colspan="4">' + UI.errorState(e.message, loadServices) + '</td></tr>';
-      document.getElementById('pod-count').textContent = '—';
+      document.getElementById('pod-count').textContent = 'N/A';
     }
   }
 
@@ -3503,7 +3675,7 @@ def admin_api_keys_page():
     <div class="page-header">
       <div>
         <h1 class="page-title">API Keys</h1>
-        <div class="page-description">Workspaces you belong to and their keys. There's no platform-wide workspace list in the API &mdash; this shows workspaces your admin account is a member of.</div>
+        <div class="page-description">Workspaces you belong to and their keys. There's no platform-wide workspace list in the API: this shows workspaces your admin account is a member of.</div>
       </div>
       <div class="page-actions">
         <button class="btn btn-secondary btn-sm" id="refresh-btn" type="button">Refresh</button>
@@ -3752,7 +3924,7 @@ def admin_api_keys_page():
     if (titleEl) titleEl.textContent = 'Copy your API key';
     body.innerHTML = `
       <div class="alert alert-warning" style="margin-bottom:var(--space-3)">
-        <div><div class="alert-title">Shown once</div>This key will not be shown again once you close this panel &mdash; copy it now.</div></div>
+        <div><div class="alert-title">Shown once</div>This key will not be shown again once you close this panel. Copy it now.</div></div>
       </div>
       <div class="field">
         <label class="field-label">${UI.escapeHtml(result.name)}</label>
