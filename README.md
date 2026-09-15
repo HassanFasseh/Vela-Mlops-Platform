@@ -30,8 +30,7 @@ Built for organizations that cannot use HuggingFace Spaces or cloud ML services:
 
 | Service | URL |
 |---|---|
-| Dashboard | http://51.170.140.102/dashboard |
-| Auth / Workspaces | http://51.170.140.102/auth/login-page |
+| App | http://51.170.140.102/login |
 | Grafana | http://51.170.129.103 |
 
 ## How it works
@@ -62,7 +61,7 @@ cp .env.example .env
 docker compose up
 ```
 
-Open `http://localhost:8000/dashboard`
+Open `http://localhost:8000/login`
 
 ### Deploy to production (Kubernetes on Oracle Cloud Always Free)
 
@@ -250,13 +249,11 @@ Copy `.env.example` to `.env`:
 ## Honest limitations
 
 - **Single-node cluster** on Oracle Always Free. Not suitable for high-availability production. Swap to a multi-node cluster for real workloads.
-- **Public dashboard** `/dashboard` requires no login currently. Auth-gated dashboard is on the roadmap.
 - **3 LoadBalancer limit** Oracle Free tier caps at 3. User-deployed models use ClusterIP and are accessible in-cluster only. An ingress controller removes this constraint.
 - **Batch drift detection** Drift is computed every 30 predictions, not as a continuous stream.
 
 ## Roadmap
 
-- [ ] Dashboard authentication (require workspace login to view)
 - [ ] Frontend for teams and permissions management
 - [ ] A/B traffic splitting between model versions
 - [x] Helm chart for one-command deployment

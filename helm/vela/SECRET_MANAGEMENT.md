@@ -443,7 +443,7 @@ working:
    ```
 5. **Verify** the new pod actually has the Vault sidecar and the right
    values (`kubectl exec ... -- cat /vault/secrets/config`, and confirm
-   backend-app is actually healthy - hit `/dashboard` or check
+   backend-app is actually healthy - hit `/login` or check
    `kubectl logs`) before moving on.
 6. **Only after confirming**, stop maintaining the old values anywhere
    else you'd written them down (CI secrets, a password manager entry kept
