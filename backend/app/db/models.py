@@ -115,7 +115,13 @@ class PredictionLog(Base):
     __tablename__ = "prediction_logs"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     deployment_id: Mapped[int] = mapped_column(Integer, ForeignKey("deployments.id"))
-    workspace_id: Mapped[int] = mapped_column(Integer, ForeignKey("workspaces.id"))
+    # Nullable, matching Deployment.workspace_id's own nullability
+    # (db/models.py) - api_predict falls back to deployment.workspace_id
+    # when the caller's own workspace_id is unknown, and some deployments
+    # (pre-workspace-model rows, created before that field was enforced)
+    # genuinely have none. Forcing NOT NULL here broke every log write
+    # for exactly those deployments until this was caught.
+    workspace_id: Mapped[int] = mapped_column(Integer, ForeignKey("workspaces.id"), nullable=True)
     # Exactly one of these two is set, matching api_predict's own two
     # caller paths (see main.py): a logged-in member using the in-app
     # prediction tester sets user_id and leaves api_key_id null; an
