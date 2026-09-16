@@ -20,17 +20,6 @@ spec:
           ports:
             - name: http
               containerPort: 8000
-          # Grants root-equivalent access to this node - required so
-          # backend/app/services/containerd_import.py's `ctr` calls can
-          # reach the host's containerd over the socket mounted below,
-          # for the "upload a local Docker image" custom-model deploy
-          # path. Drop this (and the volume/volumeMount) if that feature
-          # isn't needed.
-          securityContext:
-            privileged: true
-          volumeMounts:
-            - name: containerd-sock
-              mountPath: /run/containerd/containerd.sock
           env:
             # Which custom-runner image k8s_custom.py's
             # create_runtime_deployment() hands new custom model
@@ -83,11 +72,6 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "300m"
-      volumes:
-        - name: containerd-sock
-          hostPath:
-            path: /run/containerd/containerd.sock
-            type: Socket
 ---
 apiVersion: v1
 kind: Service

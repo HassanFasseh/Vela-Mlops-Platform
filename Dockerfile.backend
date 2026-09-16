@@ -2,27 +2,15 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# ctr (containerd CLI, from the `containerd` package) imports admin-
-# uploaded Docker image tars straight into the node's containerd image
-# store for the "upload a local Docker image" custom-model deploy path -
-# see backend/app/services/containerd_import.py. Only the CLI binary is
-# used here; the daemon this package also installs never starts in this
-# container (talks to the node's own containerd over a mounted socket
-# instead - see k8s/backend-deployment.yaml).
-RUN apt-get update && apt-get install -y --no-install-recommends containerd \
-    && rm -rf /var/lib/apt/lists/*
-
 COPY backend/app/requirements.txt ./backend/app/requirements.txt
 RUN pip install --no-cache-dir -r backend/app/requirements.txt
 
 COPY backend/ ./backend/
 
-# GET /api/v1/custom-model-template and GET /api/v1/image-contract
-# (backend/app/main.py) read these files straight off disk at request
-# time - they have to exist in the image, not just in the repo checkout
-# used for local dev.
+# GET /api/v1/custom-model-template (backend/app/main.py) reads this file
+# straight off disk at request time - it has to exist in the image, not
+# just in the repo checkout used for local dev.
 COPY custom-runner/predict_template.py ./custom-runner/predict_template.py
-COPY custom-runner/IMAGE_CONTRACT.md ./custom-runner/IMAGE_CONTRACT.md
 
 EXPOSE 8000
 CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

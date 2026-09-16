@@ -1139,24 +1139,6 @@ def custom_model_template():
         filename="predict_template.py"
     )
 
-# Same posture as GET /api/v1/custom-model-template just above - a static
-# doc file, no more sensitive than the rest of the admin docs, no auth
-# required. Covers the "Docker image" deploy path's contract (GET /health,
-# POST /predict, GET /metrics on :8000) the way predict_template.py covers
-# the upload path's.
-@app.get("/api/v1/image-contract")
-def image_contract():
-    contract_path = os.path.normpath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "custom-runner", "IMAGE_CONTRACT.md")
-    )
-    if not os.path.exists(contract_path):
-        raise HTTPException(status_code=404, detail="Contract doc not found")
-    return FileResponse(
-        contract_path,
-        media_type="text/markdown",
-        filename="IMAGE_CONTRACT.md"
-    )
-
 def _resolve_custom_model_actor(db, authorization: str, x_api_key: str):
     """Auth for the three custom-model endpoints below: either a workspace
     X-API-Key (existing behavior) or an admin's JWT (Authorization:
@@ -1381,96 +1363,6 @@ def deploy_custom_image(
 
         try:
             k8s_custom.create_image_deployment(req.deployment_name, req.image.strip(), req.input_type, req.input_schema)
-        except Exception as e:
-            record.status = "failed"
-            db.commit()
-            raise HTTPException(status_code=500, detail=f"Kubernetes provisioning failed: {e}")
-    finally:
-        db.close()
-
-    return {"deployment_id": deployment_id, "status": "provisioning"}
-
-@app.post("/api/v1/deploy-custom-image-upload")
-async def deploy_custom_image_upload(
-    image_tar: UploadFile = File(...),
-    deployment_name: str = Form(...),
-    input_type: str = Form(...),
-    workspace_id: int = Form(...),
-    input_schema: str = Form(None),
-    task_type: str = Form(None),
-    x_api_key: str = fastapi.Header(None, alias="X-API-Key"),
-    authorization: str = fastapi.Header(None)
-):
-    """Same "Docker image" deploy path as deploy_custom_image, for an
-    admin who only has the image built locally - no external registry to
-    reference, the on-prem/air-gapped case. The uploaded `docker save`
-    tar is imported straight into the node's own containerd image store
-    (see backend.app.services.containerd_import - requires backend-app to
-    have the node's containerd socket mounted in, see
-    k8s/backend-deployment.yaml) instead of pulling from a registry;
-    create_image_deployment(..., local=True) then tells kubelet to use
-    that local image directly rather than trying to pull it."""
-    from backend.app.database import SessionLocal
-    from backend.app.services import k8s_custom, containerd_import
-    from backend.app.db.models import Deployment as DeploymentModel
-    from datetime import datetime
-    import os
-    import re
-    import shutil
-    import tempfile
-
-    if input_type not in ("text", "json", "file"):
-        raise HTTPException(status_code=400, detail="input_type must be one of: text, json, file")
-    # Same DNS-1123 backstop as deploy_custom_image - deployment_name
-    # becomes the Kubernetes Deployment/Service name, and also the image
-    # name in containerd's local image store.
-    if not re.match(r"^[a-z0-9-]+$", deployment_name):
-        raise HTTPException(status_code=400, detail="deployment_name must be lowercase letters, numbers, and hyphens only")
-
-    db = SessionLocal()
-    try:
-        api_key, is_admin_jwt = _resolve_custom_model_actor(db, authorization, x_api_key)
-        if not is_admin_jwt:
-            if api_key.workspace_id != workspace_id:
-                raise HTTPException(status_code=401, detail="Invalid API key for this workspace")
-            if api_key.team_id or api_key.deployment_id:
-                raise HTTPException(status_code=403, detail="This endpoint requires an unscoped workspace API key")
-
-        # Streamed to disk in chunks rather than `await image_tar.read()` -
-        # a `docker save` tar can be multiple GB, and holding the whole
-        # thing in memory doesn't scale the way it does for
-        # upload_custom_model's much smaller predict.py/model_files.
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".tar") as tmp:
-            tmp_path = tmp.name
-            shutil.copyfileobj(image_tar.file, tmp, length=8 * 1024 * 1024)
-
-        try:
-            try:
-                imported_ref = containerd_import.import_local_image(tmp_path, deployment_name)
-            except RuntimeError as e:
-                raise HTTPException(status_code=400, detail=f"Could not import image: {e}")
-        finally:
-            os.remove(tmp_path)
-
-        record = DeploymentModel(
-            workspace_id=workspace_id,
-            name=deployment_name,
-            model_name=deployment_name,
-            task_type=task_type.strip() if task_type and task_type.strip() else "custom",
-            source="image",
-            model_type="custom",
-            input_type=input_type,
-            input_schema=input_schema,
-            status="provisioning",
-            created_at=datetime.utcnow()
-        )
-        db.add(record)
-        db.commit()
-        db.refresh(record)
-        deployment_id = record.id
-
-        try:
-            k8s_custom.create_image_deployment(deployment_name, imported_ref, input_type, input_schema, local=True)
         except Exception as e:
             record.status = "failed"
             db.commit()
