@@ -41,6 +41,16 @@ backend:
   #    floating :base default - a Helm upgrade/reinstall resets it back
   #    to this value, same as any other kubectl set env drift.
   customRunnerImage: ghcr.io/hassanfasseh/vela/custom-runner:base
+  # -- Mounts the node's containerd socket into backend-app and runs it
+  #    privileged, so the "upload a local Docker image" custom-model
+  #    deploy path (backend/app/services/containerd_import.py) can `ctr
+  #    images import` an admin-uploaded tar straight into the node's
+  #    local image store - no registry needed. This is root-equivalent
+  #    access to whichever node the pod lands on; only works as intended
+  #    on a single-node cluster (an imported image is local to that one
+  #    node). Turn off if you don't need that deploy path, or once you've
+  #    moved to a multi-node setup with a real registry instead.
+  containerdSocketAccess: true
   service:
     type: ClusterIP
     port: 80

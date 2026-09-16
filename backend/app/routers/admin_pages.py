@@ -2950,7 +2950,9 @@ def admin_deployments_page():
       <form class="form" id="image-deploy-form" novalidate hidden>
         <div class="alert alert-info" style="margin-bottom:var(--space-4)">
           <div><div class="alert-title">Bring your own image</div>
-          No build step. Vela deploys this image as-is. It must serve <code>GET /health</code>, <code>POST /predict</code>, and ideally <code>GET /metrics</code> on port 8000, using the same request/response shapes as the Custom model path (see its predict.py template for the exact JSON conventions).</div>
+          No build step. Vela deploys this image as-is. It must serve <code>GET /health</code>, <code>POST /predict</code>, and ideally <code>GET /metrics</code> on port 8000, using the same request/response shapes as the Custom model path.
+          <a class="link-action" style="font-size:var(--text-xs);display:inline-block;margin-top:var(--space-2)" href="/api/v1/image-contract" download>Full contract &amp; example &rarr;</a>
+          </div>
         </div>
         <div class="field">
           <label class="field-label" for="im-name">Deployment name</label>
@@ -2958,9 +2960,25 @@ def admin_deployments_page():
           <div class="field-hint">Lowercase letters, numbers, and hyphens only.</div>
         </div>
         <div class="field">
+          <label class="field-label">Image source</label>
+          <div class="segmented" role="tablist" aria-label="Image source" style="margin-bottom:var(--space-2)">
+            <button class="segmented-option is-active" id="im-src-pull" type="button" role="tab" aria-selected="true">Pull from registry</button>
+            <button class="segmented-option" id="im-src-upload" type="button" role="tab" aria-selected="false">Upload image file (.tar)</button>
+          </div>
+        </div>
+        <div class="field" id="im-image-field">
           <label class="field-label" for="im-image">Docker image</label>
           <input class="input" id="im-image" placeholder="ghcr.io/you/your-model:tag" required>
           <div class="field-hint">Any pullable image reference. A private image needs to be on GHCR under this platform's own account: it reuses the existing pull credentials, there's no separate registry-credential form yet.</div>
+        </div>
+        <div class="field" id="im-tar-field" hidden>
+          <label class="field-label" for="im-image-tar">Image file</label>
+          <label class="file-input">
+            <input type="file" id="im-image-tar" accept=".tar">
+            <span class="file-input-name is-empty" data-placeholder="No file selected">No file selected</span>
+            <span class="file-input-btn">Choose file</span>
+          </label>
+          <div class="field-hint">A tar produced by <code>docker save my-model:tag -o model.tar</code>. Imported straight into this node's local image store &mdash; no registry needed, for a fully on-prem deploy.</div>
         </div>
         <div class="field">
           <label class="field-label" for="im-task-type">Task type <span class="field-optional">optional</span></label>
@@ -3004,6 +3022,7 @@ def admin_deployments_page():
 
     wireDeployPanel();
     wireSegmentedControl();
+    wireImageSourceToggle();
     wireFileInputs(document);
 
     loadDeployments();
@@ -3076,6 +3095,30 @@ def admin_deployments_page():
     const active = document.querySelector('.slideover-body .form:not([hidden])');
     const firstField = active && active.querySelector('.input, .select');
     if (firstField) firstField.focus();
+  }
+
+  // ---- Docker image sub-toggle (pull from registry | upload local file) --
+  // Show/hide only, like wireSegmentedControl() above - both #im-image and
+  // #im-image-tar stay in the DOM so the submit handler can just check
+  // which one is visible.
+  function wireImageSourceToggle() {
+    const srcPull = document.getElementById('im-src-pull');
+    const srcUpload = document.getElementById('im-src-upload');
+    if (!srcPull || !srcUpload) return;
+    srcPull.addEventListener('click', () => showImageSource('pull'));
+    srcUpload.addEventListener('click', () => showImageSource('upload'));
+  }
+
+  function showImageSource(which) {
+    document.getElementById('im-image-field').hidden = which !== 'pull';
+    document.getElementById('im-tar-field').hidden = which !== 'upload';
+    document.getElementById('im-image').required = which === 'pull';
+    for (const [id, seg] of [['im-src-pull', 'pull'], ['im-src-upload', 'upload']]) {
+      const el = document.getElementById(id);
+      const on = seg === which;
+      el.classList.toggle('is-active', on);
+      el.setAttribute('aria-selected', String(on));
+    }
   }
 
   // ---- Styled file inputs ---------------------------------------------
@@ -3225,13 +3268,15 @@ def admin_deployments_page():
     errorEl.textContent = '';
     successEl.hidden = true;
 
+    const uploading = !document.getElementById('im-tar-field').hidden;
     const deployment_name = document.getElementById('im-name').value.trim();
     const image = document.getElementById('im-image').value.trim();
+    const imageTar = document.getElementById('im-image-tar').files[0];
     const task_type = document.getElementById('im-task-type').value.trim();
     const input_type = document.getElementById('im-input-type').value;
     const input_schema = document.getElementById('im-input-schema').value.trim();
 
-    if (!deployment_name || !image) {
+    if (!deployment_name || (uploading ? !imageTar : !image)) {
       errorEl.textContent = 'Fill in all required fields.';
       return;
     }
@@ -3241,16 +3286,35 @@ def admin_deployments_page():
     }
 
     submitBtn.disabled = true;
-    submitBtn.textContent = 'Deploying…';
+    submitBtn.textContent = uploading ? 'Importing image…' : 'Deploying…';
     try {
       const workspaces = await Api.get('/workspaces');
       if (!workspaces.length) throw new Error('No workspace found - create a team first.');
 
-      const body = { deployment_name, image, input_type, workspace_id: workspaces[0].id };
-      if (task_type) body.task_type = task_type;
-      if (input_type === 'json' && input_schema) body.input_schema = input_schema;
+      let data;
+      if (uploading) {
+        const form = new FormData();
+        form.append('deployment_name', deployment_name);
+        form.append('input_type', input_type);
+        form.append('workspace_id', workspaces[0].id);
+        if (task_type) form.append('task_type', task_type);
+        if (input_type === 'json' && input_schema) form.append('input_schema', input_schema);
+        form.append('image_tar', imageTar);
 
-      const data = await Api.post('/api/v1/deploy-custom-image', body);
+        const res = await fetch('/api/v1/deploy-custom-image-upload', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + Api.getToken() },
+          body: form,
+        });
+        const text = await res.text();
+        try { data = text ? JSON.parse(text) : null; } catch (parseErr) { data = null; }
+        if (!res.ok) throw new Error((data && data.detail) || res.statusText || 'Upload failed');
+      } else {
+        const body = { deployment_name, image, input_type, workspace_id: workspaces[0].id };
+        if (task_type) body.task_type = task_type;
+        if (input_type === 'json' && input_schema) body.input_schema = input_schema;
+        data = await Api.post('/api/v1/deploy-custom-image', body);
+      }
 
       submitBtn.textContent = 'Deployment queued!';
       successEl.hidden = false;
@@ -3261,7 +3325,9 @@ def admin_deployments_page():
         '</div></div>';
       UI.toast('Image deployment triggered', 'success');
       document.getElementById('image-deploy-form').reset();
+      resetFileInputs(document.getElementById('image-deploy-form'));
       document.getElementById('im-schema-field').hidden = true;
+      showImageSource('pull');
       setTimeout(() => { submitBtn.textContent = 'Deploy image'; }, 2000);
       pollCustomModelStatus(data.deployment_id, successEl);
     } catch (err) {

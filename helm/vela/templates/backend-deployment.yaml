@@ -37,6 +37,15 @@ spec:
           ports:
             - name: http
               containerPort: 8000
+          {{- if .Values.backend.containerdSocketAccess }}
+          # Root-equivalent access to this node - see the comment on
+          # backend.containerdSocketAccess in values.yaml.
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: containerd-sock
+              mountPath: /run/containerd/containerd.sock
+          {{- end }}
           {{- if .Values.production.healthChecks.backend.enabled }}
           livenessProbe:
             httpGet:
@@ -165,3 +174,10 @@ spec:
             {{- else }}
             {{- toYaml .Values.backend.resources | nindent 12 }}
             {{- end }}
+      {{- if .Values.backend.containerdSocketAccess }}
+      volumes:
+        - name: containerd-sock
+          hostPath:
+            path: /run/containerd/containerd.sock
+            type: Socket
+      {{- end }}

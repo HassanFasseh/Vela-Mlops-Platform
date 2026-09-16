@@ -326,7 +326,7 @@ def create_runtime_deployment(name: str, cm_name: str, pvc: str, input_type: str
             raise
 
 
-def create_image_deployment(name: str, image: str, input_type: str, input_schema: str):
+def create_image_deployment(name: str, image: str, input_type: str, input_schema: str, local: bool = False):
     """Deployment + Service for the "Docker image" custom-deploy path -
     an admin-supplied, already-built image, as opposed to
     create_runtime_deployment's mount-at-runtime flow (predict.py/
@@ -341,6 +341,14 @@ def create_image_deployment(name: str, image: str, input_type: str, input_schema
     answers it correctly, so there's no separate smoke-test step to write
     here the way the file-build pipeline needs one.
 
+    local=True is for the "upload a local Docker image" path (see
+    backend.app.services.containerd_import): the image already sits in
+    the node's containerd image store, imported straight off the admin's
+    tar with no registry involved at all, so pulling would just fail (or
+    worse, silently resolve some unrelated same-named image from a real
+    registry) - imagePullPolicy: Never tells kubelet to use exactly the
+    local one, and ghcr-secret is irrelevant to a pull that never happens.
+
     Idempotent, same replace-on-409 pattern as create_runtime_deployment -
     redeploying under the same name (e.g. a new image tag) replaces the
     Deployment in place."""
@@ -353,7 +361,7 @@ def create_image_deployment(name: str, image: str, input_type: str, input_schema
     container = client.V1Container(
         name="custom-runner",
         image=image,
-        image_pull_policy="Always",
+        image_pull_policy="Never" if local else "Always",
         ports=[client.V1ContainerPort(name="http", container_port=8000)],
         env=env,
         readiness_probe=client.V1Probe(
@@ -368,12 +376,12 @@ def create_image_deployment(name: str, image: str, input_type: str, input_schema
         ),
     )
     pod_spec = client.V1PodSpec(
-        # Present unconditionally, same as every other custom-runner pod
-        # spec here - harmless for a public/Docker-Hub image (kubelet
-        # still falls back to an anonymous pull), and is what makes a
-        # private image on this same GHCR account work with no extra
-        # per-deployment credential UI.
-        image_pull_secrets=[client.V1LocalObjectReference(name="ghcr-secret")],
+        # Present unconditionally for a registry-pulled image - harmless
+        # for a public/Docker-Hub image (kubelet still falls back to an
+        # anonymous pull), and is what makes a private image on this same
+        # GHCR account work with no extra per-deployment credential UI.
+        # Omitted for a local image: there's no pull to attach it to.
+        image_pull_secrets=None if local else [client.V1LocalObjectReference(name="ghcr-secret")],
         containers=[container],
     )
     deployment = client.V1Deployment(
