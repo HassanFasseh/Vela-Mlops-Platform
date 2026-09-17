@@ -282,5 +282,5 @@ MIT
 
 ## Author
 
-Hassan Fasseh, Data Science and AI Engineering, Morocco
+Hassan Fasseh, Data Science and AI Engineering, Morocco.
 [GitHub](https://github.com/HassanFasseh)
