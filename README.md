@@ -1,57 +1,58 @@
 # Vela
 
-Open-source MLOps for regulated industries. Deploy any model, detect drift, understand why, on your infrastructure, under your control.
+Open-source MLOps for regulated industries. Deploy any model, detect drift, understand why, on your own infrastructure.
 
-![Dashboard](docs/screenshots/dashboard.png)
+![Vela landing page](docs/screenshots/landing.png)
 
-## The problem
+## Why Vela
 
-A data scientist deploys a model on Friday. By Monday something has changed: the data, the behavior, the confidence. The model is silently wrong and nobody knows why. Most teams find out when a business metric drops, weeks later.
+A data scientist deploys a model on Friday. By Monday the data, the behavior or the confidence has changed, and nobody notices until a business metric drops weeks later.
 
-Vela fixes this. It watches your models continuously, tells you when something changes, and explains what happened in plain language, automatically, on your own servers. No data leaves your network.
-
-Built for organizations that cannot use HuggingFace Spaces or cloud ML services: hospitals, banks, universities, government agencies.
+Vela watches your models continuously, flags changes, and explains them in plain language, on your own servers. No data leaves your network. It is built for hospitals, banks, universities and government agencies that cannot use HuggingFace Spaces or cloud ML services.
 
 ## What it does
 
-**Deploy** Submit a HuggingFace model name or upload your own weights. GitHub Actions builds a multi-arch Docker image and deploys it to Kubernetes. Live in 5 to 10 minutes.
+### Deploy
 
-**Monitor** Prometheus scrapes metrics every 15 seconds. Evidently AI computes statistical drift across a sliding window and tracks which specific signals shifted: confidence score, label distribution, input length. Redis persists state across restarts.
+Submit a HuggingFace model name or upload your own weights. GitHub Actions builds a multi-arch Docker image and deploys it to Kubernetes. Live in 5 to 10 minutes.
 
-**Explain** When drift is detected, an LLM generates a plain-language summary naming the drifted columns and their p-values. Not just "drift detected" but "your confidence score and label distribution have both shifted significantly since the deploy 2 hours ago, while latency remains stable."
+![Deploy a model](docs/screenshots/deployments.png)
 
-**Act** When drift crosses a configured threshold, Vela automatically opens a GitHub issue, fires a webhook, or triggers a retraining pipeline. No human needs to notice and react.
+### Monitor and explain
 
-**Control** Multi-tenant workspaces with JWT auth. Teams with role-based model permissions. Access request and approval flow. API keys scoped to specific teams and models.
+Prometheus scrapes metrics every 15 seconds. Evidently AI computes statistical drift over a sliding window and tracks which signals shifted: confidence score, label distribution, input length. Redis keeps state across restarts.
 
-![Workspace](docs/screenshots/workspace.png)
+When drift is detected, an LLM writes a plain-language summary naming the drifted columns and their p-values. Not just "drift detected", but "your confidence score and label distribution have both shifted significantly since the deploy 2 hours ago, while latency remains stable."
 
-## Live demo
+![Model health](docs/screenshots/model-health.png)
 
-| Service | URL |
-|---|---|
-| App | http://51.170.140.102/login |
-| Grafana | http://51.170.129.103 |
+### Act
+
+When drift crosses a threshold you set, Vela opens a GitHub issue, fires a webhook, or triggers a retraining pipeline. Nobody has to notice first.
+
+![Remediation](docs/screenshots/remediation.png)
+
+### Control
+
+Multi-tenant workspaces with JWT auth. Teams with role-based model permissions. An access request and approval flow. API keys scoped to specific teams and models.
 
 ## How it works
 
-**Deployment loop** runs once per model
+Deployment loop, once per model:
 
 ```
-Dashboard form  ->  GitHub Actions  ->  Docker build (arm64)  ->  Registry push  ->  kubectl deploy  ->  Live endpoint
+Dashboard form -> GitHub Actions -> Docker build (arm64) -> Registry push -> kubectl deploy -> Live endpoint
 ```
 
-**Operations loop** runs continuously
+Operations loop, continuous:
 
 ```
-Prometheus scrape  ->  Evidently drift detection  ->  Event correlation  ->  LLM explanation  ->  Dashboard (30s refresh)
+Prometheus scrape -> Evidently drift detection -> Event correlation -> LLM explanation -> Dashboard (30s refresh)
 ```
-
-![Timeline](docs/screenshots/timeline.png)
 
 ## Quick start
 
-### Run locally
+Run locally with Docker:
 
 ```bash
 git clone https://github.com/HassanFasseh/vela
@@ -61,11 +62,29 @@ cp .env.example .env
 docker compose up
 ```
 
-Open `http://localhost:8000/login`
+Open `http://localhost:8000/login`.
 
-### Deploy to production (Kubernetes on Oracle Cloud Always Free)
+## Deploy to Kubernetes
 
-Requirements: Oracle Cloud account, Terraform, kubectl, Docker with buildx.
+**Helm (recommended).** One command, every setting in `values.yaml`:
+
+```bash
+helm install vela ./helm/vela \
+  --set secrets.groqApiKey=gsk_... \
+  --set secrets.githubToken=ghp_... \
+  --set database.password=secure_password \
+  --set minio.rootPassword=secure_password
+```
+
+Full reference: [`helm/vela/README.md`](helm/vela/README.md).
+
+**Raw manifests.** The manifests the chart is built from:
+
+```bash
+kubectl apply -f k8s/
+```
+
+**Oracle Cloud (OKE, Always Free).** Requires an Oracle Cloud account, Terraform, kubectl and Docker with buildx.
 
 ```bash
 cd terraform
@@ -73,9 +92,9 @@ terraform init
 terraform apply
 ```
 
-Configure your GitHub Actions secrets and push. CI/CD handles the rest.
+Then add your GitHub Actions secrets and push. CI/CD builds and deploys.
 
-## API reference
+## API
 
 ### Authenticated prediction
 
@@ -123,7 +142,7 @@ curl -X POST http://your-vela/api/v1/remediations \
 
 When triggered, Vela creates a GitHub issue like this:
 
-![GitHub Issue](docs/screenshots/github-issue.png)
+![GitHub issue](docs/screenshots/github-issue.png)
 
 ### Request workspace access
 
@@ -139,7 +158,7 @@ curl -X POST http://your-vela/access-requests \
   }'
 ```
 
-## Access control
+## Access control and model cards
 
 ```
 Workspace
@@ -150,72 +169,28 @@ Workspace
   └── API Keys (scoped per team and per model)
 ```
 
-Users request access to a workspace or team. Admins approve or deny. Approved users are automatically added and get API keys scoped to their team's permitted models. Every prediction is attributed to a workspace.
+Users request access to a workspace or team. Admins approve or deny. Approved users are added automatically and get API keys scoped to their team's permitted models. Every prediction is attributed to a workspace.
 
-![Workspaces](docs/screenshots/workspaces.png)
-
-## Model cards
-
-Every deployed model can have a documented model card covering:
-
-- What the model does
-- Dataset used for training (name, source, size)
-- License
-- Performance notes and benchmark results
-- Known limitations and failure modes
-
-Model cards are queryable via API and visible in the workspace dashboard.
-
-## Deploy Vela
-
-Three ways to run it, depending on what you need.
-
-**Helm (recommended)** - one command, every setting in `values.yaml`:
-
-```bash
-helm install vela ./helm/vela \
-  --set secrets.groqApiKey=gsk_... \
-  --set secrets.githubToken=ghp_... \
-  --set database.password=secure_password \
-  --set minio.rootPassword=secure_password
-```
-
-See [`helm/vela/README.md`](helm/vela/README.md) for the full configuration reference.
-
-**Kubernetes manifests** - the raw manifests the chart is built from, for a quick look or a manual install:
-
-```bash
-kubectl apply -f k8s/
-```
-
-**Local dev** - no cluster, just Docker:
-
-```bash
-docker compose up
-```
-
-See [Quick start](#quick-start) below for the full local setup.
+Every deployed model can carry a model card: what it does, training dataset (name, source, size), license, performance notes, and known limitations. Cards are available through the API and in the dashboard.
 
 ## CI/CD
 
-Both GitHub Actions and GitLab CI are supported for building and deploying Vela's images.
-
-- **GitHub Actions** (default) - workflows in `.github/workflows/`: build/deploy backend and model-service, deploy a user model, build the custom-runner base image.
-- **GitLab CI** - equivalent pipelines in `gitlab-ci/`, for teams running GitLab instead of GitHub. See [`gitlab-ci/README.md`](gitlab-ci/README.md) for setup, required CI/CD variables, and how it differs from the GitHub Actions version.
+- **GitHub Actions** (default): workflows in `.github/workflows/` build and deploy the backend and model-service, deploy a user model, and build the custom-runner base image.
+- **GitLab CI**: equivalent pipelines in `gitlab-ci/`. See [`gitlab-ci/README.md`](gitlab-ci/README.md) for setup and required variables.
 
 ## Secret management
 
-The Helm chart supports three ways to manage secrets (LLM API keys, database password, MinIO credentials, GitHub token):
+The Helm chart supports three backends for LLM keys, the database password, MinIO credentials and the GitHub token:
 
-- **Kubernetes Secrets** (default) - plain Secret objects, no extra setup.
-- **HashiCorp Vault** - injected into backend-app at pod startup via the Vault Agent Injector.
-- **External Secrets Operator** - synced from AWS Secrets Manager, Azure Key Vault, or GCP Secret Manager.
+- **Kubernetes Secrets** (default)
+- **HashiCorp Vault**, injected into backend-app at startup
+- **External Secrets Operator**, synced from AWS, Azure or GCP secret stores
 
-See [`helm/vela/SECRET_MANAGEMENT.md`](helm/vela/SECRET_MANAGEMENT.md) for setup, rotation, and migrating between backends.
+Setup, rotation and migration: [`helm/vela/SECRET_MANAGEMENT.md`](helm/vela/SECRET_MANAGEMENT.md).
 
-## Production deployment
+## Production
 
-For a multi-node production setup - anti-affinity, PodDisruptionBudgets, external managed Postgres/S3 instead of the in-cluster single-replica ones, health checks, and autoscaling for the backend - see [`helm/vela/PRODUCTION.md`](helm/vela/PRODUCTION.md), including full example `values.yaml` files for a 3-node cluster on AWS EKS and Azure AKS.
+For multi-node setups (anti-affinity, PodDisruptionBudgets, external Postgres and S3, health checks, backend autoscaling), see [`helm/vela/PRODUCTION.md`](helm/vela/PRODUCTION.md). It includes full `values.yaml` examples for a 3-node cluster on AWS EKS and Azure AKS.
 
 ## Stack
 
@@ -243,25 +218,25 @@ Copy `.env.example` to `.env`:
 | `GEMINI_API_KEY` | Yes | Google AI Studio key (Gemini Flash fallback) |
 | `GITHUB_TOKEN` | Yes | Fine-grained PAT with Actions and Issues write |
 | `GITHUB_REPO` | Yes | Your repo in owner/repo format |
-| `MODEL_SERVICE_URL` | No | Overrides model service URL for local dev |
-| `PROMETHEUS_URL` | No | Overrides Prometheus URL for local dev |
+| `MODEL_SERVICE_URL` | No | Overrides the model service URL for local dev |
+| `PROMETHEUS_URL` | No | Overrides the Prometheus URL for local dev |
 
-## Honest limitations
+## Limitations
 
-- **Single-node cluster** on Oracle Always Free. Not suitable for high-availability production. Swap to a multi-node cluster for real workloads.
-- **3 LoadBalancer limit** Oracle Free tier caps at 3. User-deployed models use ClusterIP and are accessible in-cluster only. An ingress controller removes this constraint.
-- **Batch drift detection** Drift is computed every 30 predictions, not as a continuous stream.
+- **Single node.** The Oracle Always Free cluster is not highly available. Use a multi-node cluster for real workloads.
+- **3 LoadBalancer cap.** Oracle's free tier allows three. User-deployed models use ClusterIP and are reachable in-cluster only. An ingress controller removes the limit.
+- **Batch drift.** Drift is computed every 30 predictions, not as a continuous stream.
 
 ## Roadmap
 
-- [ ] Frontend for teams and permissions management
-- [ ] A/B traffic splitting between model versions
-- [x] Helm chart for one-command deployment
+- [x] Helm chart
 - [x] GitLab CI templates
 - [x] Secret management (Vault, External Secrets Operator)
 - [x] Multi-node production configuration
+- [ ] Teams and permissions management in the frontend
+- [ ] A/B traffic splitting between model versions
 - [ ] Email and Slack drift alerts
-- [ ] Federated drift signal sharing across organizations (privacy-preserving)
+- [ ] Federated, privacy-preserving drift signal sharing across organizations
 - [ ] GPU node support
 
 ## Contributing
@@ -282,5 +257,4 @@ MIT
 
 ## Author
 
-Hassan Fasseh, Data Science and AI Engineering, Morocco.
-[GitHub](https://github.com/HassanFasseh)
+Hassan Fasseh, Data Science and AI Engineering, Morocco. [GitHub](https://github.com/HassanFasseh)
