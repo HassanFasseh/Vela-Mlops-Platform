@@ -2,7 +2,7 @@
 
 Open-source MLOps for regulated industries. Deploy any model, detect drift, understand why, on your own infrastructure.
 
-![Vela landing page](docs/screenshots/landing.png)
+![Vela landing page](docs/screenshots/landing_page.png)
 
 ## Why Vela
 
@@ -16,7 +16,7 @@ Vela watches your models continuously, flags changes, and explains them in plain
 
 Submit a HuggingFace model name or upload your own weights. GitHub Actions builds a multi-arch Docker image and deploys it to Kubernetes. Live in 5 to 10 minutes.
 
-![Deploy a model](docs/screenshots/deployments.png)
+![Deploy a model](docs/screenshots/deployment.png)
 
 ### Monitor and explain
 
@@ -24,7 +24,7 @@ Prometheus scrapes metrics every 15 seconds. Evidently AI computes statistical d
 
 When drift is detected, an LLM writes a plain-language summary naming the drifted columns and their p-values. Not just "drift detected", but "your confidence score and label distribution have both shifted significantly since the deploy 2 hours ago, while latency remains stable."
 
-![Model health](docs/screenshots/model-health.png)
+![Model health](docs/screenshots/model_health.png)
 
 ### Act
 
