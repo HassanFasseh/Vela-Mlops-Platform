@@ -140,10 +140,6 @@ curl -X POST http://your-vela/api/v1/remediations \
   }'
 ```
 
-When triggered, Vela creates a GitHub issue like this:
-
-![GitHub issue](docs/screenshots/github-issue.png)
-
 ### Request workspace access
 
 ```bash
