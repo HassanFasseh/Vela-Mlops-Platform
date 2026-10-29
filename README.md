@@ -30,7 +30,7 @@ When drift is detected, an LLM writes a plain-language summary naming the drifte
 
 When drift crosses a threshold you set, Vela opens a GitHub issue, fires a webhook, or triggers a retraining pipeline. Nobody has to notice first.
 
-![Remediation](docs/screenshots/remediation.png)
+![Remediation](docs/screenshots/Remediation.png)
 
 ### Control
 
